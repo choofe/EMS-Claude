@@ -44,13 +44,3 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    logger.info("Starting %s [%s]", settings.app_name, settings.environment)
-
-
-@app.on_event("shutdown")
-async def on_shutdown() -> None:
-    logger.info("Shutting down %s", settings.app_name)
