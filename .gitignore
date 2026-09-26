@@ -23,3 +23,7 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# TypeScript build artifacts (tsc -b composite mode)
+*.tsbuildinfo
+.tsbuild-node/
