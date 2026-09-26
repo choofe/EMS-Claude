@@ -1,0 +1,36 @@
+# Local development Postgres for the EMS backend.
+#
+# This is a development convenience only — it has nothing to do with
+# production hosting (that choice is deferred to Phase 12). It exists so
+# contributors don't need to install Postgres manually, and so /health/ready
+# and Alembic migrations (Phase 2+) have a real database to talk to.
+#
+# Usage (from the repo root):
+#   docker compose up -d        # start Postgres in the background
+#   docker compose down         # stop it (data persists in the named volume)
+#   docker compose down -v      # stop it AND wipe all data (fresh start)
+#
+# The values below match backend/.env.example exactly. If you change one,
+# change both.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ems_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ems_user
+      POSTGRES_PASSWORD: ems_password
+      POSTGRES_DB: ems_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ems_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ems_user -d ems_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ems_postgres_data:
