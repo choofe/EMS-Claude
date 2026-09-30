@@ -17,9 +17,7 @@ from sqlalchemy import pool
 from app.core.config import get_settings
 from app.db.base import Base
 
-# import model modules here as they're added (Phase 2+) so Base.metadata
-# is fully populated before autogenerate runs, e.g.:
-# from app.models import user, group, equipment, report  # noqa: F401
+import app.models  # noqa: F401  # registers all models on Base.metadata
 
 config = context.config
 
