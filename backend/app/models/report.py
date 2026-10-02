@@ -40,7 +40,7 @@ report_participants / audit_logs rows still reference it.
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -76,7 +76,9 @@ class Report(TimestampMixin, SoftDeleteMixin, Base):
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
-    is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_locked: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True

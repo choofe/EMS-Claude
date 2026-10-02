@@ -26,8 +26,11 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Only fall back to app settings when no URL was supplied explicitly. Tests
+# (tests/postgres/) pass the test-database URL programmatically; overwriting
+# it here would silently run migrations against the dev database instead.
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 
 def run_migrations_offline() -> None:

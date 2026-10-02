@@ -14,10 +14,14 @@ with historical significance (users, groups, equipment, report_types,
 reports) is ever physically deleted — only deactivated. Combined with
 ON DELETE RESTRICT on every FK pointing at these tables, physical
 deletion of anything with history is impossible at the DB level.
+
+is_active also carries a DB-level server_default (true) so raw / bulk
+INSERTs that bypass the ORM (e.g. the Phase 5 Excel import) cannot fail
+with a NOT NULL violation just because the column was omitted.
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, func
+from sqlalchemy import Boolean, DateTime, func, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 
@@ -34,4 +38,6 @@ class TimestampMixin:
 
 
 class SoftDeleteMixin:
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
