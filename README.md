@@ -31,3 +31,9 @@ python -m pytest -v
   skipped when it is unset. The database (`ems_test`) is created automatically
   and is wiped/re-migrated on every run, so its name must end with `_test`
   (enforced) — your dev database `ems_db` is never touched.
+
+### One-command dev startup (WSL)
+
+`bash scripts/dev-start.sh` checks Docker, starts Postgres (waits until
+healthy), creates `.venv` / `.env` if missing, applies migrations, and opens
+a shell in `backend/` with the venv active. Docker Desktop must be running.
