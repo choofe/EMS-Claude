@@ -32,6 +32,15 @@ class Settings(BaseSettings):
         description="Async SQLAlchemy connection string.",
     )
 
+    test_database_url: str | None = Field(
+        default=None,
+        description=(
+            "Optional. Async URL of a DEDICATED test database (name must end "
+            "with _test). When set, the Postgres-backed tests in tests/postgres/ "
+            "run against it; when unset they are skipped."
+        ),
+    )
+
     # --- Auth ---
     jwt_secret_key: str = Field(
         default="CHANGE_ME_IN_PRODUCTION",

@@ -14,13 +14,26 @@ docs/      Project handoff / decision log
 ## Backend quickstart
 
 ```bash
+docker compose up -d                 # local Postgres (repo root)
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+alembic upgrade head                 # migrate the dev database
 python -m pytest -v
 ```
 
-Phase 1 status: skeleton implemented, 3/3 tests passing, not yet
-formally signed off (frontend skeleton, docker-compose, and this
-README are the remaining Phase 1 items — see the handoff doc).
+### Tests
+
+- `tests/test_*.py` — fast tests on in-memory SQLite (no Postgres needed).
+- `tests/postgres/` — schema, migration-chain, and concurrency tests on **real
+  PostgreSQL**. Enabled by `TEST_DATABASE_URL` (already in `.env.example`);
+  skipped when it is unset. The database (`ems_test`) is created automatically
+  and is wiped/re-migrated on every run, so its name must end with `_test`
+  (enforced) — your dev database `ems_db` is never touched.
+
+### One-command dev startup (WSL)
+
+`bash scripts/dev-start.sh` checks Docker, starts Postgres (waits until
+healthy), creates `.venv` / `.env` if missing, applies migrations, and opens
+a shell in `backend/` with the venv active. Docker Desktop must be running.
