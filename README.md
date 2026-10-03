@@ -32,6 +32,15 @@ python -m pytest -v
   and is wiped/re-migrated on every run, so its name must end with `_test`
   (enforced) — your dev database `ems_db` is never touched.
 
+### Authentication (Phase 3)
+
+See `docs/auth.md`. After `alembic upgrade head`, create the first administrator (no default
+accounts or passwords exist):
+
+```bash
+python -m app.cli create-user --username admin --full-name "Admin" --role MANAGEMENT
+```
+
 ### One-command dev startup (WSL)
 
 `bash scripts/dev-start.sh` checks Docker, starts Postgres (waits until

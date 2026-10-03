@@ -45,6 +45,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 # (roles, report_types, system_settings rows) are intentionally left alone.
 _CLEANUP_SQL = (
     "DELETE FROM audit_logs",
+    "DELETE FROM refresh_tokens",
+    "DELETE FROM login_attempts",
     "DELETE FROM report_participants",
     "DELETE FROM reports",
     "DELETE FROM report_sequences",
