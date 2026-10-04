@@ -14,6 +14,7 @@ import app.models as m
 from app.api.auth import router as auth_router
 from app.api.deps import get_current_principal, require_capability
 from app.core.permissions import Capability as C
+from app.core.config import get_settings
 from app.core.scoping import apply_report_scope
 from app.core.security import hash_password, utcnow
 from app.db.session import get_db
@@ -83,7 +84,7 @@ async def test_login_success_shape_and_cookie(env):
     r = await login(c)
     assert r.status_code == 200
     body = r.json()
-    assert body["token_type"] == "bearer" and body["expires_in"] == 15 * 60
+    assert body["token_type"] == "bearer" and body["expires_in"] == get_settings().access_token_expire_minutes * 60
     assert body["user"]["username"] == "ali" and body["user"]["role_code"] == "USER"
     assert "refresh" not in json.dumps(body).lower()          # refresh token never in the body
     assert r.headers["cache-control"] == "no-store"
