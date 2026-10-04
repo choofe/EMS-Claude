@@ -53,7 +53,7 @@ class Settings(BaseSettings):
         default=INSECURE_DEV_JWT_SECRET,
         description="Secret used to sign JWTs. Must be overridden via env var in every real deployment.",
     )
-    jwt_algorithm: str = "HS256"
+    jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
@@ -89,15 +89,18 @@ class Settings(BaseSettings):
             if (
                 self.jwt_secret_key.lower().startswith(_PLACEHOLDER_SECRET_PREFIXES)
                 or len(self.jwt_secret_key) < 32
+                or len(set(self.jwt_secret_key)) < 10  # rejects "aaaa..." / "abababab..." style secrets
             ):
                 raise ValueError(
-                    "JWT_SECRET_KEY must be set to a random value of at least 32 characters "
+                    "JWT_SECRET_KEY must be set to a random value of at least 32 characters (10+ distinct) "
                     f"when ENVIRONMENT={self.environment}."
                 )
             if not self.refresh_cookie_secure:
                 raise ValueError(
                     f"REFRESH_COOKIE_SECURE must be true when ENVIRONMENT={self.environment}."
                 )
+            if "*" in self.cors_allow_origins:
+                raise ValueError("CORS_ALLOW_ORIGINS must list explicit origins (no '*') with credentialed cookies.")
         if self.refresh_cookie_samesite == "none" and not self.refresh_cookie_secure:
             raise ValueError("REFRESH_COOKIE_SAMESITE=none requires REFRESH_COOKIE_SECURE=true.")
         return self

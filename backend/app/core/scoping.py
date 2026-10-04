@@ -13,6 +13,8 @@ Rules baked in:
   * Equipment is the one thing scoped by its CURRENT group (equipment.group_id).
   * Scope NONE -> no rows (fail closed).
 """
+from typing import Any
+
 from sqlalchemy import Select, false, select
 
 from app.core.permissions import Capability, Principal, Scope
@@ -21,15 +23,19 @@ from app.models.report import Report
 from app.models.report_participant import ReportParticipant
 
 
-def apply_report_scope(stmt: Select, principal: Principal, capability: Capability) -> Select:
-    """`stmt` must select from Report (directly, not via an alias)."""
+def apply_report_scope(
+    stmt: Select, principal: Principal, capability: Capability, entity: Any = Report
+) -> Select:
+    """`stmt` must select from `entity` — Report by default; pass the alias
+    (`aliased(Report)`) when the query uses one, otherwise the filter would attach to a
+    different FROM element and silently not restrict the aliased rows."""
     scope = principal.scope(capability)
     if scope is Scope.ALL:
         return stmt
     if scope is Scope.GROUPS:
-        return stmt.where(Report.group_id.in_(sorted(principal.group_ids)))
+        return stmt.where(entity.group_id.in_(sorted(principal.group_ids)))
     if scope is Scope.OWN:
-        return stmt.where(Report.created_by == principal.user_id)
+        return stmt.where(entity.created_by == principal.user_id)
     return stmt.where(false())
 
 

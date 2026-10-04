@@ -17,6 +17,11 @@ Authorization = a code-defined role→capability→scope matrix (`app/core/permi
 | GET | `/auth/me` | Bearer | Works while a password change is pending. |
 | POST | `/auth/change-password` | Bearer | `{current_password, new_password}`; ends all other sessions; returns a fresh session. `422 {code: password_policy, errors: [...]}`. |
 
+While `must_change_password` is true, `/auth/refresh` is also refused (`401 invalid_refresh_token`, nothing is consumed):
+the user logs in again (allowed) and changes the password. Login attempts for one username are serialised on PostgreSQL
+(advisory lock); an attempt that arrives while another for the same username is still being processed gets
+`429 too_many_attempts` with `Retry-After: 1`.
+
 Other endpoints use `Depends(get_current_principal)` / `require_capability(Capability.X)`. While
 `must_change_password` is true they answer `403 password_change_required`.
 
@@ -57,6 +62,16 @@ python -m app.cli force-password-change-all                    # EVERY active us
   `X-Forwarded-For` entry is used). Keep `LOGIN_MAX_ATTEMPTS_PER_IP=0` until real client IPs are confirmed,
   otherwise a shared proxy IP would lock everyone out.
 * **Argon2 memory**: ~64 MiB per concurrent login; check against the host's RAM limit.
+
+## Accepted risks / deferred (decided with the Supervisor or by phase)
+* **Lockout can be used to annoy a known user**: anyone who knows a username can trigger a 15-minute lockout for it. This is
+  the inherent cost of per-username lockout (approved). A per-IP backstop does not remove it and, behind a shared proxy,
+  would make it worse — hence per-IP limiting stays off until real client IPs are confirmed (Phase 12).
+* **CSRF guard** relies on the mandatory `X-Requested-With: ems-web` header (forces a CORS preflight for cross-site callers);
+  the `Origin` check is an additional layer that only applies when the browser sends one.
+* **Usernames are case-sensitive today** (exact match for login and lockout). Whether they should be case-insensitive
+  (unique index on `lower(username)`) is a user-management decision for Phase 4.
+* **Proxy depth**: `TRUST_FORWARDED_FOR` assumes exactly one trusted proxy. A `TRUSTED_PROXY_COUNT` setting is a Phase 12 task once the hosting topology is known.
 
 ## Assumptions to confirm
 * `USER` export scope is `OWN` (spec s.24 text) although the s.12 table cell reads "NO*". One line in `permissions.py` + one pinned test.

@@ -399,3 +399,39 @@ async def test_audit_log_never_contains_secrets(env):
     assert {"auth.login", "auth.password_change"} <= set(rows)
     for secret in (PW, "a-brand-new-passphrase", r.json()["access_token"], c.cookies.get("ems_refresh") or "∅"):
         assert secret not in blob
+
+
+# ---------- reviewer-driven regressions (Phase 3 review round 1) ----------
+
+async def test_refresh_cannot_renew_a_session_while_password_change_is_pending(env):
+    db, c = env["db"], env["client"]
+    (await db.get(m.User, env["ali"].id)).must_change_password = True
+    await db.commit()
+    assert (await login(c)).json()["must_change_password"] is True
+    r = await c.post("/auth/refresh", headers=CSRF)
+    assert r.status_code == 401 and r.json() == {"detail": "invalid_refresh_token"}
+    # nothing was consumed or revoked by the refusal; the user just logs in again and can change the password
+    tokens = (await db.execute(select(m.RefreshToken))).scalars().all()
+    assert all(t.used_at is None and t.revoked_at is None for t in tokens)
+    again = await login(c)
+    done = await c.post("/auth/change-password", headers=bearer(again),
+                        json={"current_password": PW, "new_password": "a-brand-new-passphrase"})
+    assert done.status_code == 200
+    assert (await c.post("/auth/refresh", headers=CSRF)).status_code == 200  # flag cleared -> refresh works again
+
+
+async def test_change_password_after_deactivation_race_changes_nothing(env):
+    """Principal was authenticated, then the account was deactivated before the service ran."""
+    from app.services import auth_service
+    from app.services.auth_service import InvalidCredentials, load_principal
+    db = env["db"]
+    stale = await load_principal(db, env["ali"].id)
+    user = await db.get(m.User, env["ali"].id)
+    old_hash = user.hashed_password
+    user.is_active = False
+    await db.commit()
+    with pytest.raises(InvalidCredentials):
+        await auth_service.change_password(db, stale, PW, "a-brand-new-passphrase", None)
+    await db.refresh(user)
+    assert user.hashed_password == old_hash
+    assert (await db.execute(select(func.count()).select_from(m.RefreshToken))).scalar_one() == 0

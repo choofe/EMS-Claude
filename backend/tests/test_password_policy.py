@@ -38,3 +38,8 @@ def test_same_as_username():
 
 def test_unicode_persian_password_ok():
     assert v("گذرواژه‌ی-خیلی-طولانی") == []
+
+
+def test_fullwidth_and_compat_forms_do_not_bypass_the_deny_list():
+    assert "too_common" in v("ｐａｓｓｗｏｒｄ１２３")          # full-width "password123"
+    assert "same_as_username" in v("ＭＯＨＡＭＭＡＤ１２３", username="mohammad123")

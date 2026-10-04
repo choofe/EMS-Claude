@@ -170,3 +170,15 @@ async def test_role_change_takes_effect_immediately(db):
     fresh = await load_principal(db, user.id)
     assert fresh.role_code == "EXPERT"
     assert await _numbers(db, fresh, C.REPORT_ANALYTICS) == {"05-ELV-001", "05-ELV-002", "05-ELV-003"}
+
+
+async def test_report_scope_works_on_an_aliased_entity(db):
+    """Fragile-API fix: pass the alias so the filter attaches to the aliased rows, not a stray FROM."""
+    from sqlalchemy.orm import aliased
+    p, *_ = await build_world(db)
+    r = aliased(m.Report)
+    stmt = apply_report_scope(select(r.report_number), p["ali"], C.REPORT_VIEW, entity=r)
+    assert set((await db.execute(stmt)).scalars()) == {"05-ELV-001", "05-ELV-002", "05-ELV-003"}
+    sql = str(stmt)
+    assert sql.count("reports") == 2 or "FROM reports AS" in sql  # single aliased FROM, no cross join
+    assert "05-DOOR-001" not in set((await db.execute(stmt)).scalars())

@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -100,6 +100,29 @@ async def load_principal(db: AsyncSession, user_id: int) -> Principal | None:
 
 
 # --- lockout -------------------------------------------------------------
+
+async def _acquire_attempt_lock(db: AsyncSession, username: str) -> None:
+    """Serialise login attempts per username so the lockout count cannot be raced.
+
+    Without this, N parallel requests all read "fewer than max failures" before any
+    of them commits its own failure, and all N reach password verification. On
+    PostgreSQL we take a transaction-scoped advisory lock keyed by the username; it is
+    released by the commit in _record_attempt (or the rollback when the request ends).
+    try-lock: if another attempt for the SAME username is in flight we answer 429
+    immediately instead of queueing, so a flood against one name cannot pin the whole
+    DB connection pool. Identical for real and non-existent usernames.
+    SQLite (dev/tests, single process) has no advisory locks and needs none."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    got = (
+        await db.execute(
+            text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"ems:login:{username}"},
+        )
+    ).scalar_one()
+    if not got:
+        raise TooManyAttempts(retry_after=1)
+
 
 async def _check_lockout(
     db: AsyncSession, username: str, ip: str | None, policy: AuthPolicy, now: datetime
@@ -207,6 +230,7 @@ async def login(
     now = utcnow()
     policy = await get_auth_policy(db)
 
+    await _acquire_attempt_lock(db, username)
     await _check_lockout(db, username, ip, policy, now)
 
     user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
@@ -285,6 +309,13 @@ async def rotate_refresh_token(db: AsyncSession, raw: str | None) -> tuple[Princ
         await db.commit()
         raise InvalidRefreshToken()
 
+    if principal.must_change_password:
+        # While a password change is pending the account may only change its password or log
+        # out; it must not keep a session alive by refreshing. Nothing is consumed or revoked:
+        # the user simply logs in again (login is allowed) and changes the password.
+        await db.rollback()
+        raise InvalidRefreshToken()
+
     token.used_at = now
     session = await _issue_session(db, token.user_id, family_id=token.family_id, now=now)
     await db.commit()
@@ -311,10 +342,17 @@ async def change_password(
     policy = await get_auth_policy(db)
     # Same lockout as login: a stolen access token must not become a free
     # oracle for guessing the current password.
+    await _acquire_attempt_lock(db, principal.username)
     await _check_lockout(db, principal.username, ip, policy, now)
 
-    user = await db.get(User, principal.user_id)
-    assert user is not None
+    # Row lock + active re-check inside this transaction: an account deactivated after the
+    # request authenticated must not get a password change or a fresh session.
+    user = (
+        await db.execute(select(User).where(User.id == principal.user_id).with_for_update())
+    ).scalar_one_or_none()
+    if user is None or not user.is_active:
+        await db.rollback()
+        raise InvalidCredentials()
     ok = await averify_password(user.hashed_password, current_password)
     await _record_attempt(db, principal.username, ip, ok, now)
     if not ok:
@@ -334,5 +372,6 @@ async def change_password(
     await db.commit()
 
     fresh = await load_principal(db, user.id)
-    assert fresh is not None
+    if fresh is None:  # cannot happen: row was locked and active; fail safe rather than assert
+        raise InvalidCredentials()
     return fresh, session

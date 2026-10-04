@@ -74,7 +74,7 @@ def test_production_refuses_insecure_config():
     with pytest.raises(ValidationError):
         Settings(environment="production", jwt_secret_key="short", refresh_cookie_secure=True)
     with pytest.raises(ValidationError):
-        Settings(environment="production", jwt_secret_key="x" * 40, refresh_cookie_secure=False)
+        Settings(environment="production", jwt_secret_key="x1y2z3Q9w8e7r6t5y4u3i2o1p0LKJHGF", refresh_cookie_secure=False)
     with pytest.raises(ValidationError):
         Settings(refresh_cookie_samesite="none", refresh_cookie_secure=False)
     # the exact placeholder from .env.example must be refused too
@@ -82,4 +82,23 @@ def test_production_refuses_insecure_config():
         Settings(environment="production", jwt_secret_key="replace-with-a-long-random-value", refresh_cookie_secure=True)
     with pytest.raises(ValidationError):
         Settings(environment="staging", jwt_secret_key="CHANGE_ME_IN_PRODUCTION_" + "x" * 20, refresh_cookie_secure=True)
-    assert Settings(environment="production", jwt_secret_key="x" * 40, refresh_cookie_secure=True)
+    assert Settings(environment="production", jwt_secret_key="x1y2z3Q9w8e7r6t5y4u3i2o1p0LKJHGF", refresh_cookie_secure=True)
+
+
+def test_config_hardening_from_review():
+    from pydantic import ValidationError
+    from app.core.config import Settings
+
+    ok = dict(environment="production", refresh_cookie_secure=True)
+    with pytest.raises(ValidationError):
+        Settings(jwt_algorithm="none")                                   # only HMAC algorithms allowed
+    with pytest.raises(ValidationError):
+        Settings(jwt_algorithm="RS256")
+    with pytest.raises(ValidationError):
+        Settings(jwt_secret_key="a" * 40, **ok)                          # long but zero entropy
+    with pytest.raises(ValidationError):
+        Settings(jwt_secret_key="ab" * 20, **ok)
+    with pytest.raises(ValidationError):
+        Settings(jwt_secret_key="x1y2z3Q9w8e7r6t5y4u3i2o1p0LKJHGF", cors_allow_origins=["*"], **ok)
+    assert Settings(jwt_secret_key="x1y2z3Q9w8e7r6t5y4u3i2o1p0LKJHGF", **ok)
+    assert Settings(jwt_secret_key="0123456789abcdef" * 4, **ok)         # `openssl rand -hex 32` style passes
