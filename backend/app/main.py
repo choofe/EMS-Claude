@@ -1,16 +1,16 @@
 """
 Application entrypoint.
 
-Phase 1 scope only: app wiring, CORS, logging, and the health router.
-Domain routers (equipment, reports, auth, ...) are added starting
-Phase 3/4/6 per the approved phase plan — intentionally not stubbed
-here to avoid dead/misleading code.
+App wiring, CORS, logging, health and auth routers (Phase 3).
+Domain routers (equipment, reports, ...) are added starting Phase 4/6 per
+the approved phase plan — intentionally not stubbed here.
 """
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -44,3 +44,4 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(auth_router)

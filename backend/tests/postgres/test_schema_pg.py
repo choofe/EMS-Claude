@@ -25,7 +25,7 @@ async def test_every_model_has_a_table(db):
     conn = await db.connection()
     tables = await conn.run_sync(lambda sc: set(inspect(sc).get_table_names()))
     assert set(Base.metadata.tables) <= tables
-    assert len(Base.metadata.tables) == 11
+    assert len(Base.metadata.tables) == 13  # 11 (Phase 2) + refresh_tokens, login_attempts (Phase 3)
 
 
 async def test_seed_roles(db):
