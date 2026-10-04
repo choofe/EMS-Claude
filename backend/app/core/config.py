@@ -17,6 +17,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # start with it (see Settings._check_production_safety). 32+ chars so PyJWT
 # does not warn about short HMAC keys.
 INSECURE_DEV_JWT_SECRET = "dev-only-insecure-jwt-secret-do-not-use-in-production"
+# Placeholder shipped in .env.example — copying that file unchanged must not pass the production check.
+_PLACEHOLDER_SECRET_PREFIXES = ("replace-with", "change_me", "changeme", "dev-only")
 
 
 class Settings(BaseSettings):
@@ -84,7 +86,10 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _check_production_safety(self) -> "Settings":
         if self.environment in ("production", "staging"):
-            if self.jwt_secret_key == INSECURE_DEV_JWT_SECRET or len(self.jwt_secret_key) < 32:
+            if (
+                self.jwt_secret_key.lower().startswith(_PLACEHOLDER_SECRET_PREFIXES)
+                or len(self.jwt_secret_key) < 32
+            ):
                 raise ValueError(
                     "JWT_SECRET_KEY must be set to a random value of at least 32 characters "
                     f"when ENVIRONMENT={self.environment}."

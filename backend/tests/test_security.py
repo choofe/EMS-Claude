@@ -77,4 +77,9 @@ def test_production_refuses_insecure_config():
         Settings(environment="production", jwt_secret_key="x" * 40, refresh_cookie_secure=False)
     with pytest.raises(ValidationError):
         Settings(refresh_cookie_samesite="none", refresh_cookie_secure=False)
+    # the exact placeholder from .env.example must be refused too
+    with pytest.raises(ValidationError):
+        Settings(environment="production", jwt_secret_key="replace-with-a-long-random-value", refresh_cookie_secure=True)
+    with pytest.raises(ValidationError):
+        Settings(environment="staging", jwt_secret_key="CHANGE_ME_IN_PRODUCTION_" + "x" * 20, refresh_cookie_secure=True)
     assert Settings(environment="production", jwt_secret_key="x" * 40, refresh_cookie_secure=True)
