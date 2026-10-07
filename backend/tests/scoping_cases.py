@@ -182,3 +182,14 @@ async def test_report_scope_works_on_an_aliased_entity(db):
     sql = str(stmt)
     assert sql.count("reports") == 2 or "FROM reports AS" in sql  # single aliased FROM, no cross join
     assert "05-DOOR-001" not in set((await db.execute(stmt)).scalars())
+
+
+async def test_group_scope(db):
+    from app.core.scoping import apply_group_scope
+    p, *_ = await build_world(db)
+    async def codes(who):
+        return set((await db.execute(apply_group_scope(select(m.Group.code), p[who]))).scalars())
+    assert await codes("ali") == {"ELV"}
+    assert await codes("exp_both") == {"ELV", "DOOR"}
+    assert await codes("boss") == await codes("aud") == {"ELV", "DOOR"}
+    assert await codes("loner") == set()

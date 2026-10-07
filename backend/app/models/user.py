@@ -14,7 +14,7 @@ the "force password change" admin action, an admin password reset, or
 automatically at login when the password no longer satisfies the current
 password policy.
 """
-from sqlalchemy import Boolean, ForeignKey, String, false
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -23,6 +23,7 @@ from app.models.mixins import SoftDeleteMixin, TimestampMixin
 
 class User(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "users"
+    __table_args__ = (CheckConstraint("username = lower(username)", name="username_lowercase"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)

@@ -33,7 +33,7 @@ Other endpoints use `Depends(get_current_principal)` / `require_capability(Capab
 4. Password-policy error codes: `too_short`, `too_long`, `too_common`, `too_simple`, `same_as_username`, `same_as_current`.
 
 ## Policy and runtime settings
-Defaults live in code; Management can tune them via `system_settings` rows (dashboard comes in Phase 4).
+Defaults live in code; Management tunes them via `PUT /settings/{key}` (see `docs/management-api.md`; dashboard UI in Phase 4b).
 Values are clamped to hard bounds, so a bad value can never weaken the policy below the floor.
 
 | Key | Default | Bounds |
@@ -69,8 +69,7 @@ python -m app.cli force-password-change-all                    # EVERY active us
   would make it worse — hence per-IP limiting stays off until real client IPs are confirmed (Phase 12).
 * **CSRF guard** relies on the mandatory `X-Requested-With: ems-web` header (forces a CORS preflight for cross-site callers);
   the `Origin` check is an additional layer that only applies when the browser sends one.
-* **Usernames are case-sensitive today** (exact match for login and lockout). Whether they should be case-insensitive
-  (unique index on `lower(username)`) is a user-management decision for Phase 4.
+* **Usernames are case-insensitive** (since Phase 4): stored lower-case; login and lockout lower-case the typed name, so case variants share one lockout bucket.
 * **Proxy depth**: `TRUST_FORWARDED_FOR` assumes exactly one trusted proxy. A `TRUSTED_PROXY_COUNT` setting is a Phase 12 task once the hosting topology is known.
 
 ## Assumptions to confirm

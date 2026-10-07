@@ -19,6 +19,7 @@ from sqlalchemy import Select, false, select
 
 from app.core.permissions import Capability, Principal, Scope
 from app.models.equipment import Equipment
+from app.models.group import Group
 from app.models.report import Report
 from app.models.report_participant import ReportParticipant
 
@@ -56,4 +57,16 @@ def apply_equipment_scope(
         return stmt
     if scope is Scope.GROUPS:
         return stmt.where(Equipment.group_id.in_(sorted(principal.group_ids)))
+    return stmt.where(false())
+
+
+def apply_group_scope(
+    stmt: Select, principal: Principal, capability: Capability = Capability.GROUPS_VIEW
+) -> Select:
+    """`stmt` must select from Group."""
+    scope = principal.scope(capability)
+    if scope is Scope.ALL:
+        return stmt
+    if scope is Scope.GROUPS:
+        return stmt.where(Group.id.in_(sorted(principal.group_ids)))
     return stmt.where(false())

@@ -14,6 +14,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.normalize import login_username
 from app.core.password_policy import validate_password
 from app.core.permissions import Principal
 from app.core.security import (
@@ -226,7 +227,7 @@ async def _revoke_family(db: AsyncSession, family_id: str, now: datetime) -> Non
 async def login(
     db: AsyncSession, username: str, password: str, ip: str | None
 ) -> tuple[Principal, Session]:
-    username = username.strip()[:64]
+    username = login_username(username)
     now = utcnow()
     policy = await get_auth_policy(db)
 

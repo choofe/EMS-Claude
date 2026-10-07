@@ -32,6 +32,11 @@ python -m pytest -v
   and is wiped/re-migrated on every run, so its name must end with `_test`
   (enforced) — your dev database `ems_db` is never touched.
 
+### Management API (Phase 4a)
+
+Users, groups, equipment, report types and settings: see `docs/management-api.md`. Run `alembic upgrade head` after
+pulling — migration `c4a9d7e2b610` normalises existing usernames/codes (and stops with a message if two differ only by case).
+
 ### Authentication (Phase 3)
 
 See `docs/auth.md`. After `alembic upgrade head`, create the first administrator (no default

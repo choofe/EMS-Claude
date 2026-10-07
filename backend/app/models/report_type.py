@@ -13,7 +13,7 @@ Seed data (migration data step): Minor Failure Repair (is_failure=True),
 Major Failure Repair (is_failure=True), Periodic Service
 (is_failure=False), Inspection / Visit (is_failure=False).
 """
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, CheckConstraint, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -22,6 +22,7 @@ from app.models.mixins import SoftDeleteMixin, TimestampMixin
 
 class ReportType(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "report_types"
+    __table_args__ = (CheckConstraint("code = upper(code)", name="code_uppercase"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)

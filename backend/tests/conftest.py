@@ -66,3 +66,29 @@ async def db():
         yield session
     await engine.dispose()
 
+
+
+@pytest_asyncio.fixture
+async def api(db):
+    from tests.api_helpers import Api
+    async with Api(db.session_maker) as a:
+        yield a
+
+
+@pytest_asyncio.fixture
+async def world(db):
+    """Groups ELV/DOOR; users boss, boss2 (MANAGEMENT), aud (AUDITOR), exp (EXPERT/ELV), ali (USER/ELV),
+    omid (USER/DOOR); equipment ELV-1 (ELV), DOOR-1 (DOOR). All share factories.PASSWORD."""
+    from types import SimpleNamespace
+    from tests import factories as f
+    elv, door = await f.group(db, "ELV", "Elevator"), await f.group(db, "DOOR", "Door")
+    ns = SimpleNamespace(
+        elv=elv, door=door,
+        boss=await f.user(db, "boss", "MANAGEMENT"), boss2=await f.user(db, "boss2", "MANAGEMENT"),
+        aud=await f.user(db, "aud", "AUDITOR"), exp=await f.user(db, "exp", "EXPERT", [elv]),
+        ali=await f.user(db, "ali", "USER", [elv]), omid=await f.user(db, "omid", "USER", [door]),
+    )
+    ns.e1 = await f.equipment(db, "ELV-1", elv)
+    ns.d1 = await f.equipment(db, "DOOR-1", door)
+    await db.commit()
+    return ns
