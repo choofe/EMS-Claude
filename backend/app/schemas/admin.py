@@ -154,3 +154,26 @@ class SettingOut(BaseModel):
 
 class SettingUpdate(Request):
     value: int
+
+
+# ---- dashboard / lookups
+class GroupSummary(BaseModel):
+    id: int
+    code: str
+    name: str
+    active_equipment: int
+    active_members: int
+
+
+class DashboardOut(BaseModel):
+    active_users: int
+    inactive_users: int
+    active_equipment: int
+    inactive_equipment: int
+    active_groups: int
+    groups: list[GroupSummary]
+
+
+class RoleOut(BaseModel):
+    code: str
+    label_fa: str

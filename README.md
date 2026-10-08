@@ -32,6 +32,10 @@ python -m pytest -v
   and is wiped/re-migrated on every run, so its name must end with `_test`
   (enforced) — your dev database `ems_db` is never touched.
 
+### Frontend (Phase 4b)
+
+See `docs/frontend.md` (`npm install`, `npm run dev`, `npm test`).
+
 ### Management API (Phase 4a)
 
 Users, groups, equipment, report types and settings: see `docs/management-api.md`. Run `alembic upgrade head` after

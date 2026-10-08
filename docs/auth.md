@@ -63,6 +63,11 @@ python -m app.cli force-password-change-all                    # EVERY active us
   otherwise a shared proxy IP would lock everyone out.
 * **Argon2 memory**: ~64 MiB per concurrent login; check against the host's RAM limit.
 
+## Forgotten password
+No email/SMS service exists in the MVP, so there is no self-service reset: a manager sets a temporary password
+(`POST /users/{id}/reset-password`, UI: Users -> "تعیین رمز موقت"; CLI: `python -m app.cli reset-password`). The user must
+change it at next login and all their sessions are ended. See `docs/frontend.md` for the future "request reset" page.
+
 ## Accepted risks / deferred (decided with the Supervisor or by phase)
 * **Lockout can be used to annoy a known user**: anyone who knows a username can trigger a 15-minute lockout for it. This is
   the inherent cost of per-username lockout (approved). A per-IP backstop does not remove it and, behind a shared proxy,
