@@ -13,7 +13,7 @@ from tests import factories as f
 
 async def test_create_user_hashes_password_and_audits(db):
     u = await user_admin.create_user(db, username="admin", full_name="Admin", role_code="MANAGEMENT",
-                                     password="a-very-good-passphrase")
+                                     password="a-very-good-passphrase", must_change_password=False)
     assert u.hashed_password.startswith("$argon2id$") and "passphrase" not in u.hashed_password
     assert verify_password(u.hashed_password, "a-very-good-passphrase")
     assert u.must_change_password is False
@@ -24,16 +24,16 @@ async def test_create_user_hashes_password_and_audits(db):
 @pytest.mark.parametrize("pw,code", [("short", "too_short"), ("password123", "too_common"), ("admin", "same_as_username")])
 async def test_create_user_enforces_password_policy(db, pw, code):
     with pytest.raises(PasswordPolicyError) as exc:
-        await user_admin.create_user(db, username="admin", full_name="A", role_code="USER", password=pw)
+        await user_admin.create_user(db, username="admin", full_name="A", role_code="USER", password=pw, must_change_password=False)
     assert code in exc.value.errors
 
 
 async def test_create_user_rejects_unknown_role_and_duplicates(db):
     with pytest.raises(ValueError):
-        await user_admin.create_user(db, username="x1", full_name="X", role_code="GOD", password="a-very-good-passphrase")
-    await user_admin.create_user(db, username="dup", full_name="D", role_code="USER", password="a-very-good-passphrase")
+        await user_admin.create_user(db, username="x1", full_name="X", role_code="GOD", password="a-very-good-passphrase", must_change_password=False)
+    await user_admin.create_user(db, username="dup", full_name="D", role_code="USER", password="a-very-good-passphrase", must_change_password=False)
     with pytest.raises(ValueError):
-        await user_admin.create_user(db, username="dup", full_name="D2", role_code="USER", password="another-good-passphrase")
+        await user_admin.create_user(db, username="dup", full_name="D2", role_code="USER", password="another-good-passphrase", must_change_password=False)
 
 
 async def test_reset_password_forces_change_and_ends_sessions(db):
@@ -51,7 +51,7 @@ async def test_reset_password_forces_change_and_ends_sessions(db):
 
 async def test_force_password_change_all_hits_every_active_user_regardless_of_password(db):
     strong = await user_admin.create_user(db, username="strong", full_name="S", role_code="USER",
-                                          password="Xk9#mP2$vL7!qR4&wZ8@tY1^")  # 24 chars, very strong
+                                          password="Xk9#mP2$vL7!qR4&wZ8@tY1^", must_change_password=False)  # 24 chars, very strong
     ok = await f.user(db, "ok", "EXPERT")
     gone = await f.user(db, "gone", "USER", active=False)
     await db.commit()

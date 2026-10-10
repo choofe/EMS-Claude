@@ -123,3 +123,22 @@ async def test_garbage_rows_never_weaken_policy(db):
     p = await get_auth_policy(db)
     assert (p.password_min_length, p.login_max_attempts, p.login_lockout_minutes) == (8, 5, 1440)
     assert await get_report_edit_window_hours(db) == 0  # clamped to the minimum, not unlimited
+
+
+async def test_report_type_null_fields_are_422_not_500(api, world):
+    tid = (await api.post("/report-types", "boss", json={"code": "AAA", "name_fa": "الف"})).json()["id"]
+    r = await api.patch(f"/report-types/{tid}", "boss", json={"name_fa": None})
+    assert r.status_code == 422 and r.json() == {"detail": "invalid_name"}
+    r = await api.patch(f"/report-types/{tid}", "boss", json={"is_failure": None})
+    assert r.status_code == 422 and r.json() == {"detail": "invalid_is_failure"}
+
+
+async def test_writing_an_unchanged_setting_is_not_a_change(api, world, db):
+    await api.put("/settings/PASSWORD_MIN_LENGTH", "boss", json={"value": 8})          # equals the default: no row, no audit
+    assert (await db.get(m.SystemSetting, "PASSWORD_MIN_LENGTH")) is None
+    assert await audit(db, "setting.update") == []
+    await api.put("/settings/PASSWORD_MIN_LENGTH", "boss", json={"value": 12})
+    again = await api.put("/settings/PASSWORD_MIN_LENGTH", "boss2", json={"value": 12})  # same value by someone else
+    assert again.status_code == 200 and again.json()["value"] == 12
+    assert len(await audit(db, "setting.update")) == 1
+    assert again.json()["updated_by"] == world.boss.id                                    # not re-attributed

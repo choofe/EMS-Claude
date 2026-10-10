@@ -189,3 +189,16 @@ async def test_only_management_writes_equipment(api, world, who):
              ("POST", f"/equipment/{eid}/deactivate", {}), ("POST", f"/equipment/{eid}/activate", {})]
     for method, path, kw in calls:
         assert (await api.call(method, path, who, **kw)).status_code == 403, (who, method, path)
+
+
+async def test_explicit_null_for_non_nullable_fields_is_a_422_not_a_500(api, world):
+    r = await api.patch(f"/groups/{world.elv.id}", "boss", json={"name": None})
+    assert r.status_code == 422 and r.json() == {"detail": "invalid_name"}
+    assert (await api.patch(f"/groups/{world.elv.id}", "boss", json={"description": None})).status_code == 200  # nullable: clears it
+
+
+@pytest.mark.parametrize("path", ["/users", "/groups", "/equipment"])
+async def test_offset_is_bounded(api, world, path):
+    assert (await api.get(f"{path}?offset=100000", "boss")).status_code == 200
+    assert (await api.get(f"{path}?offset=100001", "boss")).status_code == 422
+    assert (await api.get(f"{path}?offset=2147483647&limit=100", "boss")).status_code == 422

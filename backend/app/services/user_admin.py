@@ -136,8 +136,10 @@ async def _validated_password(db: AsyncSession, password: str, username: str) ->
 
 async def create_user(
     db: AsyncSession, *, username: str, full_name: str, role_code: str, password: str,
-    actor_id: int | None = None, group_ids: tuple[int, ...] | list[int] = (), must_change_password: bool = False,
+    must_change_password: bool, actor_id: int | None = None, group_ids: tuple[int, ...] | list[int] = (),
 ) -> User:
+    """`must_change_password` is REQUIRED (no default) so every caller states it: the admin API passes True for
+    admin-chosen temporary passwords; the CLI passes False for the first administrator, who types their own password."""
     username = canonical_username(username)
     full_name = clean_text(full_name, max_length=128, code="invalid_full_name")
     role = await _role(db, role_code)

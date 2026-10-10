@@ -62,6 +62,8 @@ async def update_report_type(db: AsyncSession, *, actor_id: int, type_id: int, n
         if new != t.name_fa:
             changes["name_fa"] = [t.name_fa, new]
             t.name_fa = new
+    if is_failure is None:
+        raise DomainError("invalid_is_failure", 422)
     if is_failure is not _UNSET and is_failure != t.is_failure:
         used = (await db.execute(select(Report.id).where(Report.report_type_id == t.id).limit(1))).first()
         if used:

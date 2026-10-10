@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_capability
 from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
-from app.schemas.admin import GroupCreate, GroupOut, GroupUpdate, Page
+from app.schemas.admin import MAX_OFFSET, GroupCreate, GroupOut, GroupUpdate, Page
 from app.services import group_admin
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -14,7 +14,7 @@ _manage = require_capability(C.GROUPS_MANAGE)
 
 @router.get("", response_model=Page[GroupOut])
 async def list_groups(
-    include_inactive: bool = False, limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
+    include_inactive: bool = False, limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0, le=MAX_OFFSET),
     principal: Principal = Depends(require_capability(C.GROUPS_VIEW)), db: AsyncSession = Depends(get_db),
 ) -> dict:
     items, total = await group_admin.list_groups(db, principal, include_inactive=include_inactive, limit=limit, offset=offset)

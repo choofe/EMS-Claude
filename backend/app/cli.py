@@ -32,6 +32,7 @@ async def _run(args: argparse.Namespace) -> int:
                 user = await user_admin.create_user(
                     db, username=args.username, full_name=args.full_name,
                     role_code=args.role, password=_prompt_password(),
+                    must_change_password=False,  # the operator types the password themselves (first administrator)
                 )
                 print(f"Created user {user.username!r} (id={user.id}, role={args.role}).")
             elif args.command == "reset-password":

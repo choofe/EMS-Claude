@@ -2,7 +2,7 @@
 
 All endpoints need `Authorization: Bearer <access token>` and a completed password change. Errors are
 `{"detail": "<code>"}` or `{"detail": {"code": "<code>", ...}}` (stable codes for the frontend). Lists are
-`{items, total, limit, offset}` with `limit` 1-100 (default 50), `offset` >= 0. Nothing is ever hard-deleted:
+`{items, total, limit, offset}` with `limit` 1-100 (default 50), `offset` 0-100000. Nothing is ever hard-deleted:
 "delete" = deactivate (soft delete). Every write is audited with old/new values; passwords never appear in audit rows.
 
 ## Who can do what
@@ -39,7 +39,8 @@ Out-of-scope objects answer exactly like missing ones (`404`, same body) — no 
   Equipment cannot be created/moved/reactivated into an inactive group (`group_inactive`).
 * **Equipment move** is audited (`equipment.move`: from/to group). Existing reports keep their frozen `reports.group_id`.
 * **Report types**: `is_failure` cannot change once any report uses the type (`report_type_in_use`); create a new type instead.
-* **Settings**: only registered keys; out-of-range values are rejected, never clamped. Reads clamp, so a damaged row can
+* **Null fields**: an explicit JSON `null` for a non-nullable field (group `name`, report-type `name_fa`/`is_failure`) is `422`; only `description` fields are nullable (null clears them).
+* **Settings**: writing the value a setting already has is a no-op (no audit row, `updated_by` unchanged); only registered keys; out-of-range values are rejected, never clamped. Reads clamp, so a damaged row can
   never weaken a policy.
 
 | Key | Default | Allowed |

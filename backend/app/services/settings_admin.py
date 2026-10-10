@@ -38,6 +38,8 @@ async def update_setting(db: AsyncSession, *, actor_id: int, key: str, value: in
     validate(spec, value)
     row = (await db.execute(select(SystemSetting).where(SystemSetting.key == key).with_for_update())).scalar_one_or_none()
     old = resolve(spec, row.value if row else None)
+    if old == value:  # nothing changes: no write, no updated_by bump, no audit event
+        return _entry(spec, row)
     if row is None:
         row = SystemSetting(key=key, value=str(value), description=spec.description, updated_by=actor_id)
         db.add(row)

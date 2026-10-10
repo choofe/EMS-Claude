@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_capability
 from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
-from app.schemas.admin import EquipmentCreate, EquipmentMove, EquipmentOut, EquipmentUpdate, Page
+from app.schemas.admin import MAX_OFFSET, EquipmentCreate, EquipmentMove, EquipmentOut, EquipmentUpdate, Page
 from app.services import equipment_admin
 
 router = APIRouter(prefix="/equipment", tags=["equipment"])
@@ -17,7 +17,7 @@ _view = require_capability(C.EQUIPMENT_VIEW)
 @router.get("", response_model=Page[EquipmentOut])
 async def list_equipment(
     q: str | None = Query(None, max_length=64), group_id: int | None = None, is_active: bool | None = None,
-    limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0, le=MAX_OFFSET),
     principal: Principal = Depends(_view), db: AsyncSession = Depends(get_db),
 ) -> dict:
     items, total = await equipment_admin.list_equipment(db, principal, q=q, group_id=group_id, is_active=is_active,

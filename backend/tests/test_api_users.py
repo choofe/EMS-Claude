@@ -248,3 +248,8 @@ async def test_force_password_change_one_and_all(api, world, db):
     assert flags == {"boss": True, "boss2": True, "aud": True, "exp": True, "ali": True, "omid": False}
     assert (await audit(db, "auth.force_password_change_all"))[-1].metadata_json == {"users_affected": 5}
     assert (await api.get("/users", "aud")).status_code == 403  # even a strong-password user is forced to change first
+
+
+async def test_create_user_service_requires_an_explicit_password_change_decision(db):
+    with pytest.raises(TypeError):  # no silent default: every caller (API, CLI, future code) must choose
+        await user_admin.create_user(db, username="nodefault", full_name="N", role_code="USER", password="a-good-temporary-pass-1")

@@ -53,7 +53,9 @@ def canonical_report_type_code(raw: str) -> str:
     return value
 
 
-def clean_text(raw: str, *, max_length: int, code: str) -> str:
+def clean_text(raw: str | None, *, max_length: int, code: str) -> str:
+    if raw is None:  # explicit JSON null for a non-nullable field
+        raise DomainError(code, 422)
     value = " ".join(raw.split())  # trims and collapses runs of whitespace
     if not value or len(value) > max_length:
         raise DomainError(code, 422)

@@ -9,6 +9,8 @@ from app.core.password_policy import MAX_PASSWORD_LENGTH
 
 T = TypeVar("T")
 
+MAX_OFFSET = 100_000  # deep OFFSETs make PostgreSQL walk that many rows; use keyset pagination if data ever outgrows this
+
 
 class Request(BaseModel):
     model_config = ConfigDict(extra="forbid")

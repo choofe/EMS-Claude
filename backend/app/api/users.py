@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_capability
 from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
-from app.schemas.admin import CountOut, Page, PasswordReset, UserCreate, UserGroupsSet, UserOut, UserUpdate
+from app.schemas.admin import MAX_OFFSET, CountOut, Page, PasswordReset, UserCreate, UserGroupsSet, UserOut, UserUpdate
 from app.services import user_admin
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -17,7 +17,7 @@ _manage = require_capability(C.USERS_MANAGE)
 async def list_users(
     q: str | None = Query(None, max_length=64), role_code: str | None = Query(None, max_length=32),
     is_active: bool | None = None, group_id: int | None = None,
-    limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0, le=MAX_OFFSET),
     _: Principal = _view, db: AsyncSession = Depends(get_db),
 ) -> dict:
     items, total = await user_admin.list_users(db, q=q, role_code=role_code, is_active=is_active,
