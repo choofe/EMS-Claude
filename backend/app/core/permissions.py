@@ -34,6 +34,7 @@ class Capability(StrEnum):
     GROUPS_VIEW = "groups.view"
     REPORT_CREATE = "report.create"
     REPORT_VIEW = "report.view"
+    REPORT_TYPES_VIEW = "report_types.view"
     REPORT_EDIT = "report.edit"
     REPORT_ANALYTICS = "report.analytics"
     LABOR_VIEW = "labor.view"            # report_participants rows
@@ -55,6 +56,7 @@ C = Capability
 S = Scope
 
 _USER = {
+    C.REPORT_TYPES_VIEW: S.ALL,
     C.EQUIPMENT_VIEW: S.GROUPS,
     C.GROUPS_VIEW: S.GROUPS,
     C.REPORT_CREATE: S.GROUPS,
@@ -66,6 +68,7 @@ _USER = {
 }
 
 _EXPERT = {
+    C.REPORT_TYPES_VIEW: S.ALL,
     C.EQUIPMENT_VIEW: S.GROUPS,
     C.GROUPS_VIEW: S.GROUPS,
     C.REPORT_CREATE: S.GROUPS,
@@ -77,6 +80,7 @@ _EXPERT = {
 }
 
 _AUDITOR = {  # read / report / export organisation-wide, nothing that writes
+    C.REPORT_TYPES_VIEW: S.ALL,
     C.EQUIPMENT_VIEW: S.ALL,
     C.GROUPS_VIEW: S.ALL,
     C.REPORT_VIEW: S.ALL,

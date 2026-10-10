@@ -13,7 +13,7 @@ or is needed. See reports.py for why this is safe: reports.group_id is
 an independent, creation-time-frozen snapshot, never re-derived from
 equipment.group_id after the fact.
 """
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -22,6 +22,7 @@ from app.models.mixins import SoftDeleteMixin, TimestampMixin
 
 class Equipment(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "equipment"
+    __table_args__ = (CheckConstraint("equipment_code = upper(equipment_code)", name="code_uppercase"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     equipment_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
