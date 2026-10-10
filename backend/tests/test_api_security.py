@@ -49,3 +49,17 @@ async def test_garbage_bearer_is_rejected_everywhere():
 
 def test_public_list_is_exactly_what_we_expect():
     assert {(m, p) for m, p in _routes() if (m, p) in PUBLIC} == PUBLIC  # none of the public routes disappeared silently
+
+
+async def test_cors_allows_the_frontend_origin_with_credentials_and_exposes_retry_after():
+    origin = "http://localhost:5173"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        simple = await c.get("/health/live", headers={"Origin": origin})
+        assert simple.headers["access-control-allow-origin"] == origin
+        assert simple.headers["access-control-allow-credentials"] == "true"
+        assert "retry-after" in simple.headers["access-control-expose-headers"].lower()
+        pre = await c.options("/auth/refresh", headers={
+            "Origin": origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "x-requested-with"})
+        assert pre.status_code == 200 and "x-requested-with" in pre.headers["access-control-allow-headers"].lower()
+        evil = await c.get("/health/live", headers={"Origin": "https://evil.example"})
+        assert "access-control-allow-origin" not in evil.headers
