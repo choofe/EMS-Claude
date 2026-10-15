@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     default_report_edit_window_hours: int = 24
     timezone: str = "Asia/Tehran"
 
+    # --- Equipment import (Phase 5) — hard limits enforced before/while parsing an upload ---
+    import_max_bytes: int = 2 * 1024 * 1024            # upload size
+    import_max_rows: int = 1000                         # data rows (non-empty) per file
+    import_max_uncompressed_bytes: int = 20 * 1024 * 1024  # xlsx zip-bomb guard (sum of uncompressed members)
+
     # --- CORS ---
     cors_allow_origins: list[str] = ["http://localhost:5173"]
 
