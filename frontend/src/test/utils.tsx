@@ -21,7 +21,7 @@ export function mockFetch(routes: Record<string, Handler>) {
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://api.test");
     const method = (init?.method ?? "GET").toUpperCase();
-    const call: Call = { method, path: url.pathname, query: url.searchParams, body: init?.body ? JSON.parse(String(init.body)) : undefined, headers: new Headers(init?.headers) };
+    const call: Call = { method, path: url.pathname, query: url.searchParams, body: init?.body instanceof FormData ? init.body : init?.body ? JSON.parse(String(init.body)) : undefined, headers: new Headers(init?.headers) };
     calls.push(call);
     const handler = routes[`${method} ${url.pathname}`];
     if (!handler) throw new Error(`Unmocked request: ${method} ${url.pathname}`);

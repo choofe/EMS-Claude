@@ -36,6 +36,11 @@ python -m pytest -v
 
 See `docs/frontend.md` (`npm install`, `npm run dev`, `npm test`).
 
+### Equipment import (Phase 5)
+
+Excel/CSV import per group with preview, error report and undo: see `docs/equipment-import.md`. Run `alembic upgrade head`
+(migration `e5b8a1c3f702`).
+
 ### Management API (Phase 4a)
 
 Users, groups, equipment, report types and settings: see `docs/management-api.md`. Run `alembic upgrade head` after

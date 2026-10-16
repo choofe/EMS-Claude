@@ -101,3 +101,27 @@ async def test_batch_row_cannot_be_deleted_while_equipment_references_it(committ
         with pytest.raises(IntegrityError):
             await s.execute(m.EquipmentImportBatch.__table__.delete().where(m.EquipmentImportBatch.id == out["batch_id"]))
             await s.commit()
+
+
+@pytest.mark.parametrize("round_", range(4))
+async def test_group_deactivation_and_import_cannot_both_win(committed_engine, round_):
+    """Invariant: a group is never left inactive while holding active equipment created by an import."""
+    from app.services import group_admin
+    gid, boss = await _seed(committed_engine)
+    data = workbook([[f"G-{i}", "ELV", None] for i in range(40)])
+    digest = svc.hashlib.sha256(data).hexdigest()
+
+    async def do_import():
+        async with AsyncSession(committed_engine, expire_on_commit=False) as s:
+            return await svc.commit_import(s, actor_id=boss, group_id=gid, filename="x.xlsx", data=data, expected_sha256=digest)
+
+    async def do_deactivate():
+        async with AsyncSession(committed_engine, expire_on_commit=False) as s:
+            return await group_admin.set_group_active(s, actor_id=boss, group_id=gid, active=False)
+
+    results = await asyncio.gather(do_import(), do_deactivate(), return_exceptions=True)
+    assert all(isinstance(r, (dict, DomainError)) for r in results), results
+    async with AsyncSession(committed_engine) as s:
+        inactive = not (await s.execute(select(m.Group.is_active).where(m.Group.id == gid))).scalar_one()
+        active_equipment = (await s.execute(select(func.count()).select_from(m.Equipment).where(m.Equipment.is_active.is_(True)))).scalar_one()
+    assert not (inactive and active_equipment > 0), (results, inactive, active_equipment)

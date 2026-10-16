@@ -2,8 +2,8 @@
 
 All endpoints need `Authorization: Bearer <access token>` and a completed password change. Errors are
 `{"detail": "<code>"}` or `{"detail": {"code": "<code>", ...}}` (stable codes for the frontend). Lists are
-`{items, total, limit, offset}` with `limit` 1-100 (default 50), `offset` 0-100000. Nothing is ever hard-deleted:
-"delete" = deactivate (soft delete). Every write is audited with old/new values; passwords never appear in audit rows.
+`{items, total, limit, offset}` with `limit` 1-100 (default 50), `offset` 0-100000. Nothing is ever hard-deleted
+(single exception: undoing an equipment import that has no reports, `docs/equipment-import.md`): "delete" = deactivate (soft delete). Every write is audited with old/new values; passwords never appear in audit rows.
 
 ## Who can do what
 | Area | Read | Write |
@@ -23,6 +23,7 @@ Out-of-scope objects answer exactly like missing ones (`404`, same body) — no 
 **Groups** — `GET|POST /groups` · `GET|PATCH /groups/{id}` (name, description) · `POST /groups/{id}/deactivate|activate`.
 **Equipment** — `GET|POST /equipment` (`q`, `group_id`, `is_active`) · `GET|PATCH /equipment/{id}` (description)
 · `POST /equipment/{id}/move` · `POST /equipment/{id}/deactivate|activate`.
+**Equipment import (Phase 5)** — `POST /equipment/import/preview|commit` · `GET /equipment/import/template|batches` · `POST /equipment/import/batches/{id}/undo` — see `docs/equipment-import.md`.
 **Report types** — `GET|POST /report-types` · `PATCH /report-types/{id}` (name_fa, is_failure) · `POST /report-types/{id}/deactivate|activate`.
 **Settings** — `GET /settings` · `PUT /settings/{key}` `{"value": <int>}`.
 

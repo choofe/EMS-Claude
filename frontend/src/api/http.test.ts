@@ -17,6 +17,24 @@ describe("request()", () => {
     expect(Object.fromEntries(c.query)).toEqual({ q: "x", n: "0" });
   });
 
+  it("multipart uploads send the FormData untouched with NO Content-Type (browser adds the boundary); blob responses are returned as Blob", async () => {
+    setAccessToken("abc");
+    const m = mockFetch({
+      "POST /up": () => json(200, { ok: true }),
+      "GET /dl": () => new Response("a,b", { status: 200, headers: { "content-type": "text/csv" } }),
+    });
+    const form = new FormData();
+    form.append("file", new File(["x"], "a.csv"));
+    await request("/up", { method: "POST", form });
+    expect(m.calls[0].body).toBe(form);
+    expect(m.calls[0].headers.get("Content-Type")).toBeNull();
+    expect(m.calls[0].headers.get("Authorization")).toBe("Bearer abc");
+    const blob = await request<Blob>("/dl", { blob: true });
+    expect(blob.size).toBe(3);                       // a Blob, not parsed JSON
+    expect(blob.type).toBe("text/csv");
+    expect(await blob.text()).toBe("a,b");
+  });
+
   it("login-style calls (auth:false) never send a token and never trigger a refresh on 401", async () => {
     setAccessToken("abc");
     const m = mockFetch({ "POST /auth/login": () => json(401, { detail: "invalid_credentials" }) });
