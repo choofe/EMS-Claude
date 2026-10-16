@@ -9,6 +9,7 @@ import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { EquipmentPage } from "./pages/EquipmentPage";
 import { GroupsPage } from "./pages/GroupsPage";
+import { ImportPage } from "./pages/ImportPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReportTypesPage } from "./pages/ReportTypesPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -31,6 +32,7 @@ export function AppRoutes() {
         <Route path="/users" element={<RequireRole check="admin-view"><UsersPage /></RequireRole>} />
         <Route path="/groups" element={<GroupsPage />} />
         <Route path="/equipment" element={<EquipmentPage />} />
+        <Route path="/equipment/import" element={<RequireRole check="management"><ImportPage /></RequireRole>} />
         <Route path="/report-types" element={<ReportTypesPage />} />
         <Route path="/settings" element={<RequireRole check="management"><SettingsPage /></RequireRole>} />
       </Route>

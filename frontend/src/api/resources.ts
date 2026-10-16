@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Dashboard, Equipment, Group, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Dashboard, Equipment, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -68,3 +68,21 @@ export const settingsApi = {
 };
 
 export const dashboardApi = { summary: () => request<Dashboard>("/dashboard/summary") };
+
+const uploadForm = (groupId: number, file: File, extra: Record<string, string> = {}) => {
+  const form = new FormData();
+  form.append("group_id", String(groupId));
+  for (const [k, v] of Object.entries(extra)) form.append(k, v);
+  form.append("file", file);
+  return form;
+};
+
+export const importApi = {
+  preview: (groupId: number, file: File) =>
+    request<ImportPreview>("/equipment/import/preview", { method: "POST", form: uploadForm(groupId, file) }),
+  commit: (groupId: number, file: File, previewSha256: string) =>
+    request<ImportCommit>("/equipment/import/commit", { method: "POST", form: uploadForm(groupId, file, { preview_sha256: previewSha256 }) }),
+  template: (format: "xlsx" | "csv") => request<Blob>("/equipment/import/template", { query: { format }, blob: true }),
+  batches: (q: Paging) => request<Page<ImportBatch>>("/equipment/import/batches", { query: q }),
+  undo: (id: number) => request<{ batch_id: number; deleted_count: number }>(`/equipment/import/batches/${id}/undo`, { method: "POST" }),
+};

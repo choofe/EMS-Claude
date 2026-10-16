@@ -86,6 +86,10 @@ type Query = Record<string, string | number | boolean | null | undefined>;
 export interface RequestOptions {
   method?: string;
   body?: unknown;
+  /** multipart upload (file imports). No Content-Type is set: the browser adds the multipart boundary. */
+  form?: FormData;
+  /** return the response body as a Blob (file downloads) instead of JSON. */
+  blob?: boolean;
   query?: Query;
   /** false for endpoints that must not carry/refresh a token (login). */
   auth?: boolean;
@@ -101,7 +105,7 @@ function withQuery(path: string, query?: Query): string {
 }
 
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, query, auth = true, csrf = false } = opts;
+  const { method = "GET", body, form, blob = false, query, auth = true, csrf = false } = opts;
   const send = () =>
     rawFetch(withQuery(path, query), {
       method,
@@ -110,7 +114,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
         ...(csrf ? CSRF_HEADERS : {}),
         ...(auth && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: form ?? (body !== undefined ? JSON.stringify(body) : undefined),
     });
 
   let res = await send();
@@ -133,5 +137,6 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     if (res.status === 403 && err.code === "password_change_required") onPasswordChangeRequired?.();
     throw err;
   }
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+  if (res.status === 204) return undefined as T;
+  return (blob ? await res.blob() : await res.json()) as T;
 }

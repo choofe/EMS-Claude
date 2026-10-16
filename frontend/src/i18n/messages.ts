@@ -34,6 +34,24 @@ const MESSAGES: Record<string, string> = {
   invalid_report_type_code: "کد نوع گزارش باید با حرف انگلیسی شروع شود و فقط حروف، عدد و _ داشته باشد.",
   report_type_in_use: "برای این نوع گزارش، گزارش ثبت شده است؛ «خرابی بودن» آن دیگر قابل تغییر نیست.",
   setting_not_found: "تنظیم پیدا نشد.",
+  // --- equipment import (file level)
+  unsupported_file_type: "فقط فایل ‎.xlsx‎ یا ‎.csv‎ پذیرفته می‌شود.",
+  file_too_large: "حجم فایل از حد مجاز بیشتر است.",
+  length_required: "ارسال فایل ناقص بود. دوباره تلاش کنید.",
+  file_corrupt: "فایل خراب است یا قابل خواندن نیست.",
+  file_unsafe: "فایل ناایمن است (ماکرو یا ساختار مشکوک) و پذیرفته نشد.",
+  file_encoding: "رمزگذاری فایل CSV پشتیبانی نمی‌شود؛ آن را با گزینهٔ «CSV UTF-8» ذخیره کنید.",
+  empty_file: "فایل خالی است.",
+  no_data_rows: "فایل هیچ ردیف داده‌ای ندارد (فقط سرستون دارد).",
+  multiple_sheets: "فایل باید فقط یک برگه (Sheet) داشته باشد.",
+  duplicate_columns: "یکی از ستون‌های استاندارد در سرستون تکرار شده است.",
+  nothing_to_import: "هیچ ردیف معتبری برای ورود وجود ندارد.",
+  file_changed: "فایل با فایل بررسی‌شده یکسان نیست. دوباره بررسی کنید.",
+  import_conflict: "هم‌زمان با ورود، کد تکراری ثبت شد. فایل را دوباره بررسی کنید.",
+  import_batch_not_found: "ورود گروهی پیدا نشد.",
+  batch_already_undone: "این ورود گروهی قبلاً لغو شده است.",
+  batch_empty: "تجهیزی برای لغو باقی نمانده است.",
+  batch_equipment_moved: "برخی از تجهیزات این ورود به گروه دیگری منتقل شده‌اند؛ لغو ممکن نیست.",
 };
 
 const PASSWORD_ERRORS: Record<string, string> = {
@@ -56,6 +74,18 @@ export function errorMessage(err: unknown): string {
     case "password_policy": {
       const list = Array.isArray(d.errors) ? (d.errors as string[]) : [];
       return list.map((c) => PASSWORD_ERRORS[c] ?? c).join(" ") || "رمز عبور پذیرفته نشد.";
+    }
+    case "too_many_rows":
+      return `تعداد ردیف‌های فایل از حد مجاز (${toPersianDigits(String(d.max_rows))} ردیف) بیشتر است. فایل را به چند بخش تقسیم کنید.`;
+    case "missing_columns": {
+      const cols = Array.isArray(d.columns) ? (d.columns as string[]).join("، ") : "";
+      return `ستون‌های ضروری در سرستون ردیف اول پیدا نشد: ${cols}`;
+    }
+    case "batch_has_reports": {
+      const codes = Array.isArray(d.equipment_codes) ? ` (${(d.equipment_codes as string[]).slice(0, 5).join("، ")})` : "";
+      return d.report_count
+        ? `برای تجهیزات این ورود ${toPersianDigits(String(d.report_count))} گزارش ثبت شده است${codes}؛ لغو ممکن نیست.`
+        : "برای تجهیزات این ورود گزارش ثبت شده است؛ لغو ممکن نیست.";
     }
     case "group_has_active_equipment":
       return `این گروه ${toPersianDigits(String(d.count))} تجهیز فعال دارد. ابتدا تجهیزات را منتقل یا غیرفعال کنید.`;

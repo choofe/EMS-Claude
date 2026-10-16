@@ -51,6 +51,7 @@ _CLEANUP_SQL = (
     "DELETE FROM reports",
     "DELETE FROM report_sequences",
     "DELETE FROM equipment",
+    "DELETE FROM equipment_import_batches",
     "DELETE FROM user_groups",
     "UPDATE system_settings SET updated_by = NULL",
     "DELETE FROM users",
