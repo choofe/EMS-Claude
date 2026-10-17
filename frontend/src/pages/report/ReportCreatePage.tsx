@@ -63,6 +63,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
   const [online, setOnline] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const type = types.find((t) => t.id === form.typeId);
   const mode = laborMode(type);
@@ -134,9 +135,36 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   const chooseType = (id: number) => setForm((f) => withDefaultLabor({ ...f, typeId: id }, types.find((t) => t.id === id), author, cfg.default_labor_minutes));
   const openLabor = () => setForm((f) => withDefaultLabor({ ...f, laborOpened: true }, type, author, cfg.default_labor_minutes));
   // who may be listed depends on the report's group: from the equipment, or the explicit group of a general report
+  // Eligible participants depend on the report's group. When the group changes (other equipment / other group), people who
+  // are not eligible there are removed with a visible notice; the server re-checks everything on submit anyway.
+  const groupKey = form.equipment ? form.equipment.group_id : type && !type.equipment_required && form.groupId !== "" ? form.groupId : null;
+  const lastGroup = useRef<number | null>(groupKey);
   const context = form.equipment ? { equipment_id: form.equipment.id } : type && !type.equipment_required && form.groupId !== "" ? { group_id: form.groupId } : null;
   const issueOf = (field: Issue["field"]) => issues.find((i) => i.field === field)?.message;
   const laborIssues = issues.filter((i) => i.field === "labor").map((i) => i.message).join(" ");
+
+  useEffect(() => {
+    if (groupKey === null) return;
+    const previous = lastGroup.current;
+    lastGroup.current = groupKey;
+    if (previous === null || previous === groupKey) return;
+    if (!formRef.current.labor.some((r) => r.userId !== null)) return;
+    const ctx = formRef.current.equipment ? { equipment_id: formRef.current.equipment.id } : { group_id: groupKey };
+    let alive = true;
+    reportsApi.candidates({ ...ctx, limit: 100 }).then((list) => {
+      if (!alive || list.length >= 100) return; // an incomplete list proves nothing: leave it to the server
+      const ok = new Set(list.map((c) => c.id));
+      const gone = formRef.current.labor.filter((r) => r.userId !== null && !ok.has(r.userId));
+      if (gone.length === 0) return;
+      setForm((f) => ({
+        ...f, labor: f.labor.filter((r) => r.userId === null || ok.has(r.userId)),
+        authorRemoved: f.authorRemoved || gone.some((r) => r.userId === author.id),
+      }));
+      setNotice(`گروه گزارش تغییر کرد؛ این افراد در گروه جدید مجاز نیستند و از فهرست ساعت‌ها حذف شدند: ${gone.map((r) => r.name).join("، ")}`);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupKey]);
 
   async function submit() {
     setServerError(null);
@@ -191,6 +219,8 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
           {errorMessage(new ApiError(409, "draft_version_conflict"))} ذخیرهٔ خودکار متوقف شد تا نسخهٔ دیگر بازنویسی نشود.
         </Alert>
       )}
+
+      {notice && <Alert severity="warning" onClose={() => setNotice(null)}>{notice}</Alert>}
 
       <TextField select label="نوع گزارش" value={form.typeId} onChange={(e) => chooseType(Number(e.target.value))} error={!!issueOf("type")} helperText={issueOf("type")}>
         {types.map((t) => <MenuItem key={t.id} value={t.id}>{t.name_fa}</MenuItem>)}

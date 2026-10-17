@@ -141,6 +141,79 @@ describe("report entry page", () => {
     expect(asked.every((c) => c.query.get("equipment_id") === "9")).toBe(true);
   });
 
+  const equip2 = { ...equip, id: 10, equipment_code: "DOOR-001", group_id: 2, group_code: "DOOR", group_name: "درب", description: null };
+  const twoEquipment = () => ({
+    "GET /equipment": () => json(200, { items: [equip, equip2], total: 2, limit: 20, offset: 0 }),
+    "POST /reports": () => json(201, created),
+  });
+  async function pickPerson(name: string) {
+    await userEvent.click(await screen.findByRole("button", { name: "افزودن نفر" }));
+    const row2 = await screen.findByRole("group", { name: "ردیف 2" });
+    await userEvent.click(within(row2).getByRole("combobox", { name: "نام فرد" }));
+    await userEvent.click(await screen.findByRole("option", { name }));
+  }
+  async function switchEquipment(code: RegExp) {
+    await userEvent.click(screen.getByRole("combobox", { name: /^تجهیز/ }));
+    await userEvent.click(await screen.findByRole("option", { name: code }));
+  }
+
+  it("changing the equipment to another group removes people who are not eligible there, says so, and keeps the rest", async () => {
+    const m = mockFetch(routes({
+      ...twoEquipment(),
+      "GET /reports/participant-candidates": (c: { query: URLSearchParams }) => json(200,
+        c.query.get("equipment_id") === "10" ? [{ id: 2, full_name: "علی رضایی" }] // DOOR: only the author is a member
+          : [{ id: 2, full_name: "علی رضایی" }, { id: 3, full_name: "سعید احمدی" }]),
+    } as never));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt();
+    await pickPerson("سعید احمدی");
+    await switchEquipment(/DOOR-001/);
+    expect(await screen.findByText(/این افراد در گروه جدید مجاز نیستند.*سعید احمدی/)).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "ردیف 2" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "ردیف 1" })).getByRole("combobox", { name: "نام فرد" })).toHaveValue("علی رضایی");
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    expect(posts(m, "/reports")[0].body).toMatchObject({ equipment_id: 10, participants: [{ user_id: 2, minutes: 30 }] });
+  });
+
+  it("changing to equipment in the SAME group, or an unrestricted candidate list, removes nobody and asks the server nothing extra", async () => {
+    const m = mockFetch(routes({ ...twoEquipment(), "GET /equipment": () => json(200, { items: [equip, { ...equip, id: 11, equipment_code: "ELV-002" }], total: 2, limit: 20, offset: 0 }) } as never));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt();
+    await pickPerson("سعید احمدی");
+    const before = m.calls.filter((c) => c.path === "/reports/participant-candidates").length;
+    await switchEquipment(/ELV-002/);
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    expect(screen.queryByText(/این افراد در گروه جدید مجاز نیستند/)).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "ردیف 2" })).toBeInTheDocument();
+    // only the picker's own refresh may have asked; no re-validation call (group unchanged)
+    expect(m.calls.filter((c) => c.path === "/reports/participant-candidates" && c.query.get("limit") === "100")).toHaveLength(0);
+    expect(m.calls.filter((c) => c.path === "/reports/participant-candidates").length).toBeGreaterThanOrEqual(before);
+  });
+
+  it("an incomplete (100-entry) candidate list is never used to remove people; the server decides", async () => {
+    const many = Array.from({ length: 100 }, (_, i) => ({ id: 1000 + i, full_name: `کاربر ${i}` }));
+    const m = mockFetch(routes({
+      ...twoEquipment(),
+      "GET /reports/participant-candidates": (c: { query: URLSearchParams }) => json(200,
+        c.query.get("limit") === "100" ? many : [{ id: 2, full_name: "علی رضایی" }, { id: 3, full_name: "سعید احمدی" }]),
+    } as never));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt();
+    await pickPerson("سعید احمدی");
+    await switchEquipment(/DOOR-001/);
+    await waitFor(() => expect(m.calls.some((c) => c.path === "/reports/participant-candidates" && c.query.get("limit") === "100")).toBe(true));
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+    expect(screen.getByRole("group", { name: "ردیف 2" })).toBeInTheDocument();
+    expect(screen.queryByText(/این افراد در گروه جدید مجاز نیستند/)).not.toBeInTheDocument();
+  });
+
   it("ON_REQUEST: the labor section is hidden until the optional button is pressed, then the author is pre-filled", async () => {
     const m = mockFetch(routes({ "POST /reports": () => json(201, created) }, { types: [rtype({ id: 6, name_fa: "گزارش تفصیلی", labor_mode: "ON_REQUEST" })] }));
     renderApp("/reports/new");

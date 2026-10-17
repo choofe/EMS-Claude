@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { RequireAuth, RequireRole, RequireSession } from "./auth/guards";
 import { AppShell } from "./components/AppShell";
-import { canViewAdmin } from "./lib/access";
+import { canViewAdmin, landingPath } from "./lib/access";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { EquipmentPage } from "./pages/EquipmentPage";
@@ -20,7 +20,7 @@ import { theme } from "./theme/theme";
 
 function Home() {
   const { user } = useAuth();
-  return canViewAdmin(user) ? <DashboardPage /> : <Navigate to="/equipment" replace />;
+  return canViewAdmin(user) ? <DashboardPage /> : <Navigate to={landingPath(user)} replace />;
 }
 
 export function AppRoutes() {

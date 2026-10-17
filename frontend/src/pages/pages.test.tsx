@@ -44,9 +44,9 @@ describe("settings page", () => {
   });
 
   it("is not reachable for non-management roles (never even requests /settings)", async () => {
-    const m = mockFetch({ ...session(makeUser({ role_code: "EXPERT", username: "exp" })), "GET /equipment": () => json(200, page([])), "GET /groups": () => json(200, page([])) });
+    const m = mockFetch({ ...session(makeUser({ role_code: "EXPERT", username: "exp" })), "GET /reports/entry-config": () => json(200, { default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5, groups: [] }), "GET /reports/drafts": () => json(200, []), "GET /reports/equipment-quick-pick": () => json(200, { recent: [], frequent: [] }), "GET /report-types": () => json(200, []), "GET /equipment": () => json(200, page([])), "GET /groups": () => json(200, page([])) });
     renderApp("/settings");
-    expect(await screen.findByRole("heading", { name: "تجهیزات" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "ثبت گزارش" })).toBeInTheDocument(); // EXPERT lands on report entry
     expect(m.count("GET /settings")).toBe(0);
   });
 });
