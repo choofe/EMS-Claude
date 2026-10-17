@@ -19,10 +19,15 @@ def _migration_targets():
     return mod._TARGETS
 
 
+# CHECKs that are NOT canonical-form rules and live in their own migration (checked in test_report_creation.py
+# and tests/postgres/test_report_creation_pg.py): labor minutes range (Phase 6, f6c3d9a7b104).
+_OTHER_CHECKS = {"ck_report_participants_minutes_range"}
+
+
 def test_model_check_constraints_match_the_migration():
     declared = {
         c.name for t in Base.metadata.tables.values() for c in t.constraints if c.name and c.name.startswith("ck_")
-    }
+    } - _OTHER_CHECKS
     assert declared == {name for _t, _c, _fn, name in _migration_targets()}
 
 

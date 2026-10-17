@@ -47,6 +47,7 @@ _CLEANUP_SQL = (
     "DELETE FROM audit_logs",
     "DELETE FROM refresh_tokens",
     "DELETE FROM login_attempts",
+    "DELETE FROM report_drafts",
     "DELETE FROM report_participants",
     "DELETE FROM reports",
     "DELETE FROM report_sequences",

@@ -51,6 +51,16 @@ REPORT_EDIT_WINDOW_HOURS = IntSettingSpec(
     special=(-1,),
 )
 
+MAX_DRAFTS_PER_USER = IntSettingSpec(
+    "MAX_DRAFTS_PER_USER", 1, 1, 20, "حداکثر تعداد پیش‌نویس گزارش برای هر کاربر",
+    "How many unsent report drafts one user may hold at the same time.",
+)
+REPORT_EXPERT_PARTICIPANTS_ALL_USERS = IntSettingSpec(
+    "REPORT_EXPERT_PARTICIPANTS_ALL_USERS", 1, 0, 1, "کارشناس می‌تواند هر کاربر سازمان را شرکت‌کننده گزارش کند (۱ = بله، ۰ = فقط اعضای گروه گزارش)",
+    "1: an EXPERT may list any active user as a report participant. 0: only members of the report's group. "
+    "MANAGEMENT may always list any active user; USER only members of the report's group.",
+)
+
 REGISTRY: dict[str, IntSettingSpec] = {
     s.key: s
     for s in (
@@ -59,6 +69,8 @@ REGISTRY: dict[str, IntSettingSpec] = {
         LOGIN_MAX_ATTEMPTS,
         LOGIN_LOCKOUT_MINUTES,
         LOGIN_MAX_ATTEMPTS_PER_IP,
+        MAX_DRAFTS_PER_USER,
+        REPORT_EXPERT_PARTICIPANTS_ALL_USERS,
     )
 }
 
@@ -117,3 +129,19 @@ async def get_report_edit_window_hours(db: AsyncSession) -> int | None:
     raw = (await _raw_values(db, [REPORT_EDIT_WINDOW_HOURS.key])).get(REPORT_EDIT_WINDOW_HOURS.key)
     hours = resolve(REPORT_EDIT_WINDOW_HOURS, raw)
     return None if hours == -1 else hours
+
+
+@dataclass(frozen=True)
+class ReportEntryPolicy:
+    max_drafts_per_user: int
+    expert_participants_all_users: bool
+
+
+async def get_report_entry_policy(db: AsyncSession) -> ReportEntryPolicy:
+    raw = await _raw_values(db, [MAX_DRAFTS_PER_USER.key, REPORT_EXPERT_PARTICIPANTS_ALL_USERS.key])
+    return ReportEntryPolicy(
+        max_drafts_per_user=resolve(MAX_DRAFTS_PER_USER, raw.get(MAX_DRAFTS_PER_USER.key)),
+        expert_participants_all_users=bool(
+            resolve(REPORT_EXPERT_PARTICIPANTS_ALL_USERS, raw.get(REPORT_EXPERT_PARTICIPANTS_ALL_USERS.key))
+        ),
+    )
