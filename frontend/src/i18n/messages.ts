@@ -34,6 +34,24 @@ const MESSAGES: Record<string, string> = {
   invalid_report_type_code: "کد نوع گزارش باید با حرف انگلیسی شروع شود و فقط حروف، عدد و _ داشته باشد.",
   report_type_in_use: "برای این نوع گزارش، گزارش ثبت شده است؛ «خرابی بودن» آن دیگر قابل تغییر نیست.",
   setting_not_found: "تنظیم پیدا نشد.",
+  // --- report entry
+  equipment_inactive: "این تجهیز غیرفعال است.",
+  report_type_inactive: "این نوع گزارش غیرفعال است.",
+  equipment_required: "برای این نوع گزارش، انتخاب تجهیز الزامی است.",
+  group_required: "گروه را انتخاب کنید.",
+  group_mismatch: "گروه انتخاب‌شده با گروه تجهیز یکی نیست.",
+  equipment_or_group_required: "تجهیز یا گروه باید مشخص باشد.",
+  event_in_future: "زمان رویداد نمی‌تواند در آینده باشد.",
+  labor_required: "برای این نوع گزارش باید حداقل یک نفر با ساعت کار ثبت شود.",
+  labor_not_allowed: "این نوع گزارش ساعت کار ندارد.",
+  participant_duplicate: "یک نفر فقط یک بار می‌تواند در فهرست ساعت‌ها باشد.",
+  participant_not_allowed: "برخی از افراد فهرست اجازهٔ ثبت در این گزارش را ندارند.",
+  draft_not_found: "پیش‌نویس پیدا نشد؛ ممکن است قبلاً ثبت یا حذف شده باشد.",
+  draft_limit_reached: "به حداکثر تعداد پیش‌نویس رسیده‌اید.",
+  draft_version_conflict: "این پیش‌نویس در جای دیگری (تب یا دستگاه دیگر) تغییر کرده است.",
+  report_number_conflict: "شمارهٔ گزارش تکراری شد. دوباره تلاش کنید.",
+  invalid_labor_mode: "حالت ساعت کار معتبر نیست.",
+  invalid_equipment_required: "مقدار «تجهیز الزامی» معتبر نیست.",
   // --- equipment import (file level)
   unsupported_file_type: "فقط فایل ‎.xlsx‎ یا ‎.csv‎ پذیرفته می‌شود.",
   file_too_large: "حجم فایل از حد مجاز بیشتر است.",
@@ -87,6 +105,12 @@ export function errorMessage(err: unknown): string {
         ? `برای تجهیزات این ورود ${toPersianDigits(String(d.report_count))} گزارش ثبت شده است${codes}؛ لغو ممکن نیست.`
         : "برای تجهیزات این ورود گزارش ثبت شده است؛ لغو ممکن نیست.";
     }
+    case "invalid_description":
+      return d.max_length ? `توضیحات باید بین ۱ تا ${toPersianDigits(String(d.max_length))} نویسه باشد.` : MESSAGES.invalid_description;
+    case "participant_not_allowed":
+      return MESSAGES.participant_not_allowed;
+    case "draft_limit_reached":
+      return d.limit ? `حداکثر ${toPersianDigits(String(d.limit))} پیش‌نویس می‌توانید داشته باشید.` : MESSAGES.draft_limit_reached;
     case "group_has_active_equipment":
       return `این گروه ${toPersianDigits(String(d.count))} تجهیز فعال دارد. ابتدا تجهیزات را منتقل یا غیرفعال کنید.`;
     case "setting_out_of_range": {

@@ -11,7 +11,7 @@ const page = <T,>(items: T[]) => ({ items, total: items.length, limit: 25, offse
 const ts = "2026-03-20T20:30:00";
 const group = (o: Partial<Group> = {}): Group => ({ id: 1, code: "ELV", name: "آسانسور", description: null, is_active: true, equipment_count: 2, member_count: 3, created_at: ts, updated_at: ts, ...o });
 const equipment = (o: Partial<Equipment> = {}): Equipment => ({ id: 10, equipment_code: "ELV-001", group_id: 1, group_code: "ELV", group_name: "آسانسور", description: null, is_active: true, created_at: ts, updated_at: ts, ...o });
-const rtype = (o: Partial<ReportType> = {}): ReportType => ({ id: 5, code: "MINOR_FAILURE", name_fa: "خرابی جزئی", is_failure: true, is_active: true, created_at: ts, updated_at: ts, ...o });
+const rtype = (o: Partial<ReportType> = {}): ReportType => ({ id: 5, code: "MINOR_FAILURE", name_fa: "خرابی جزئی", is_failure: true, labor_mode: "REQUIRED", equipment_required: true, is_active: true, created_at: ts, updated_at: ts, ...o });
 const user = (o: Partial<User> = {}): User => ({ id: 2, username: "ali", full_name: "علی رضایی", role_code: "USER", role_label_fa: "کاربر", is_active: true, must_change_password: false, group_ids: [1], created_at: ts, updated_at: ts, ...o });
 const setting = (o: Partial<Setting> = {}): Setting => ({ key: "REPORT_EDIT_WINDOW_HOURS", label_fa: "مهلت ویرایش گزارش", description: "d", value: 24, default: 24, minimum: 0, maximum: 720, special_values: [-1], is_default: true, updated_at: null, updated_by: null, ...o });
 const roles = [{ code: "USER", label_fa: "کاربر" }, { code: "MANAGEMENT", label_fa: "مدیریت" }];
@@ -140,9 +140,37 @@ describe("report types page", () => {
     expect(m.calls.find((c) => c.method === "PATCH")!.body).toEqual({ name_fa: "جزئی" });   // is_failure untouched -> not sent
 
     await userEvent.click(await screen.findByRole("button", { name: "ویرایش MINOR_FAILURE" }));
-    await userEvent.click(await screen.findByRole("checkbox"));
+    await userEvent.click(await screen.findByRole("checkbox", { name: /«خرابی» محسوب می‌شود/ }));
     await userEvent.click(screen.getByRole("button", { name: "ذخیره" }));
     expect(await screen.findByText(/دیگر قابل تغییر نیست/)).toBeInTheDocument();
+  });
+
+  it("creates a general type (labor on request, equipment optional) and edits the two new settings, sending only what changed", async () => {
+    const m = mockFetch({
+      ...session(),
+      "GET /report-types": () => json(200, [rtype()]),
+      "POST /report-types": () => json(201, rtype({ id: 6, code: "SPARE_REQUEST", name_fa: "درخواست قطعه", is_failure: false, labor_mode: "ON_REQUEST", equipment_required: false })),
+      "PATCH /report-types/5": () => json(200, rtype({ labor_mode: "NONE" })),
+    });
+    renderApp("/report-types");
+    expect(await screen.findAllByText("الزامی", { selector: "td" })).toHaveLength(2); // labor + equipment columns
+    await userEvent.click(await screen.findByRole("button", { name: "نوع جدید" }));
+    await userEvent.type(await screen.findByLabelText(/کد \(انگلیسی/), "SPARE_REQUEST");
+    await userEvent.type(screen.getByLabelText("عنوان فارسی"), "درخواست قطعه");
+    await userEvent.click(screen.getByRole("combobox", { name: "ساعت کار افراد" }));
+    await userEvent.click(await screen.findByRole("option", { name: "با درخواست کاربر" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /انتخاب تجهیز الزامی است/ }));
+    await userEvent.click(screen.getByRole("button", { name: "ذخیره" }));
+    await waitFor(() => expect(m.count("POST /report-types")).toBe(1));
+    expect(m.calls.find((c) => c.method === "POST" && c.path === "/report-types")!.body)
+      .toEqual({ code: "SPARE_REQUEST", name_fa: "درخواست قطعه", is_failure: false, labor_mode: "ON_REQUEST", equipment_required: false });
+
+    await userEvent.click(await screen.findByRole("button", { name: "ویرایش MINOR_FAILURE" }));
+    await userEvent.click(await screen.findByRole("combobox", { name: "ساعت کار افراد" }));
+    await userEvent.click(await screen.findByRole("option", { name: "ندارد" }));
+    await userEvent.click(screen.getByRole("button", { name: "ذخیره" }));
+    await waitFor(() => expect(m.count("PATCH /report-types/5")).toBe(1));
+    expect(m.calls.find((c) => c.method === "PATCH")!.body).toEqual({ name_fa: "خرابی جزئی", labor_mode: "NONE" });
   });
 });
 

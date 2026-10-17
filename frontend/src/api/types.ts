@@ -66,9 +66,58 @@ export interface ReportType {
   code: string;
   name_fa: string;
   is_failure: boolean;
+  labor_mode: LaborMode;
+  equipment_required: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export type LaborMode = "REQUIRED" | "OPTIONAL" | "ON_REQUEST" | "NONE";
+
+/** Report entry (docs/report-creation.md). */
+export interface EntryConfig {
+  default_labor_minutes: number;
+  max_participant_minutes: number;
+  max_participants: number;
+  max_description_length: number;
+  future_tolerance_minutes: number;
+  groups: { id: number; code: string; name: string }[];
+}
+export interface Candidate { id: number; full_name: string }
+export interface QuickEquipment { id: number; equipment_code: string; group_id: number; group_code: string; description: string | null }
+export interface QuickPick { recent: QuickEquipment[]; frequent: QuickEquipment[] }
+export interface DraftPayload {
+  equipment_id?: number | null;
+  group_id?: number | null;
+  report_type_id?: number | null;
+  event_datetime?: string | null;
+  description?: string | null;
+  participants?: { user_id: number | null; minutes: number }[];
+}
+export interface Draft { id: number; payload: DraftPayload; version: number; created_at: string; updated_at: string }
+export interface ReportCreateBody {
+  equipment_id?: number;
+  group_id?: number;
+  report_type_id: number;
+  event_datetime: string;
+  description: string;
+  participants: { user_id: number; minutes: number }[];
+  draft_id?: number;
+}
+export interface ReportCreated {
+  id: number;
+  report_number: string;
+  equipment_id: number | null;
+  equipment_code: string | null;
+  group_id: number;
+  group_code: string;
+  report_type_id: number;
+  is_general: boolean;
+  event_datetime: string;
+  created_at: string;
+  description: string;
+  participants: { user_id: number; full_name: string; minutes: number }[];
 }
 
 export interface Setting {

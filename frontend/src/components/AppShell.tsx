@@ -10,10 +10,11 @@ import BuildIcon from "@mui/icons-material/PrecisionManufacturingOutlined";
 import LabelIcon from "@mui/icons-material/LabelOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
 import ImportIcon from "@mui/icons-material/UploadFileOutlined";
+import ReportIcon from "@mui/icons-material/EditNoteOutlined";
 import AccountIcon from "@mui/icons-material/AccountCircleOutlined";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { canViewAdmin, isManagement } from "../lib/access";
+import { canReport, canViewAdmin, isManagement } from "../lib/access";
 
 const DRAWER = 232;
 
@@ -28,6 +29,7 @@ export function AppShell() {
   const items = [
     ...(canViewAdmin(user) ? [{ to: "/", label: "داشبورد", icon: <DashboardIcon /> }] : []),
     ...(canViewAdmin(user) ? [{ to: "/users", label: "کاربران", icon: <PeopleIcon /> }] : []),
+    ...(canReport(user) ? [{ to: "/reports/new", label: "ثبت گزارش", icon: <ReportIcon /> }] : []),
     { to: "/groups", label: "گروه‌ها", icon: <GroupsIcon /> },
     { to: "/equipment", label: "تجهیزات", icon: <BuildIcon /> },
     ...(isManagement(user) ? [{ to: "/equipment/import", label: "ورود گروهی تجهیزات", icon: <ImportIcon /> }] : []),

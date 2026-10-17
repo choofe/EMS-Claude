@@ -11,6 +11,7 @@ import { EquipmentPage } from "./pages/EquipmentPage";
 import { GroupsPage } from "./pages/GroupsPage";
 import { ImportPage } from "./pages/ImportPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ReportCreatePage } from "./pages/report/ReportCreatePage";
 import { ReportTypesPage } from "./pages/ReportTypesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UsersPage } from "./pages/UsersPage";
@@ -33,6 +34,7 @@ export function AppRoutes() {
         <Route path="/groups" element={<GroupsPage />} />
         <Route path="/equipment" element={<EquipmentPage />} />
         <Route path="/equipment/import" element={<RequireRole check="management"><ImportPage /></RequireRole>} />
+        <Route path="/reports/new" element={<RequireRole check="reporter"><ReportCreatePage /></RequireRole>} />
         <Route path="/report-types" element={<ReportTypesPage />} />
         <Route path="/settings" element={<RequireRole check="management"><SettingsPage /></RequireRole>} />
       </Route>
