@@ -210,3 +210,58 @@ async def test_creation_waits_for_an_in_flight_equipment_move_and_uses_the_new_g
     result = await asyncio.wait_for(task, 10)
     assert blocked, "creation must wait for the uncommitted move"
     assert result["group_code"] == "NEW" and "-NEW-" in result["report_number"]
+
+
+async def test_mixed_general_and_equipment_reports_share_gapless_numbering(committed_engine):
+    maker, gid, eid, tid, users = await seed(committed_engine, n_users=1)
+    async with maker() as s:
+        gen = m.ReportType(code="GEN_PG", name_fa="g", is_failure=False, labor_mode="NONE", equipment_required=False)
+        s.add(gen)
+        await s.commit()
+        gen_id = gen.id
+    uid, uname, fname = users[0]
+    p = Principal(user_id=uid, username=uname, full_name=fname, role_code="USER", role_label_fa="USER",
+                  group_ids=frozenset({gid}), must_change_password=False)
+
+    async def general():
+        async with maker() as s:
+            return await report_creation.create_report(s, p, ReportCreate(
+                group_id=gid, report_type_id=gen_id, event_datetime=datetime.now(timezone.utc) - timedelta(hours=1),
+                description="general", participants=[]))
+
+    results = await asyncio.gather(*[general() if i % 2 else create_as(maker, users[0], gid, eid, tid)
+                                     for i in range(30)])
+    assert sorted(int(r["report_number"].rsplit("-", 1)[1]) for r in results) == list(range(1, 31))
+    assert sum(r["is_general"] for r in results) == 15 and sum(r["equipment_id"] is None for r in results) == 15
+
+
+async def test_group_deactivation_vs_general_report_creation(committed_engine):
+    """A general report takes FOR SHARE on its group: it either commits before a deactivation or sees it inactive."""
+    maker, gid, eid, tid, users = await seed(committed_engine, n_users=1)
+    async with maker() as s:
+        gen = m.ReportType(code="GEN_PG2", name_fa="g", is_failure=False, labor_mode="NONE", equipment_required=False)
+        s.add(gen)
+        await s.commit()
+        gen_id = gen.id
+    uid, uname, fname = users[0]
+    boss = Principal(user_id=uid, username=uname, full_name=fname, role_code="MANAGEMENT", role_label_fa="M",
+                     group_ids=frozenset(), must_change_password=False)
+    locker = maker()
+    await locker.execute(text("UPDATE groups SET is_active = false WHERE id = :g"), {"g": gid})  # uncommitted
+
+    async def create():
+        async with maker() as s:
+            return await report_creation.create_report(s, boss, ReportCreate(
+                group_id=gid, report_type_id=gen_id, event_datetime=datetime.now(timezone.utc) - timedelta(hours=1),
+                description="x", participants=[]))
+
+    task = asyncio.create_task(create())
+    try:
+        await asyncio.sleep(0.7)
+        blocked = not task.done()
+    finally:
+        await locker.commit()
+        await locker.close()
+    result = await asyncio.gather(task, return_exceptions=True)
+    assert blocked, "creation must wait for the uncommitted group deactivation"
+    assert isinstance(result[0], DomainError) and result[0].code == "group_inactive"

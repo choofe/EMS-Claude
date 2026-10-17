@@ -300,3 +300,157 @@ async def test_db_rejects_duplicate_labor_row_and_bad_minutes(db, world):
         with pytest.raises(IntegrityError):
             await db.flush()
         await db.rollback()
+
+
+# ------------------------------------------------------------------ labor modes and general reports (2026-10-16)
+async def mk_type(db, code, labor_mode="REQUIRED", equipment_required=True):
+    rt = m.ReportType(code=code, name_fa=code, is_failure=False, labor_mode=labor_mode,
+                      equipment_required=equipment_required)
+    db.add(rt)
+    await db.commit()
+    return rt
+
+
+def general(world, rt, **over):
+    data = {"group_id": world.elv.id, "report_type_id": rt.id, "event_datetime": (NOW() - timedelta(hours=1)).isoformat(),
+            "description": "درخواست قطعه یدکی", "participants": []}
+    data.update(over)
+    return data
+
+
+@pytest.mark.parametrize("mode,empty_ok,with_ok", [("REQUIRED", False, True), ("OPTIONAL", True, True),
+                                                   ("ON_REQUEST", True, True), ("NONE", True, False)])
+async def test_labor_modes(api, db, world, mode, empty_ok, with_ok):
+    rt = await mk_type(db, f"T_{mode}", labor_mode=mode)
+    empty = await api.post("/reports", "ali", json=body(world, rt, participants=[]))
+    assert (empty.status_code == 201) is empty_ok, empty.text
+    if not empty_ok:
+        assert empty.json()["detail"] == "labor_required"
+    some = await api.post("/reports", "ali", json=body(world, rt))
+    assert (some.status_code == 201) is with_ok, some.text
+    if not with_ok:
+        assert some.json()["detail"] == "labor_not_allowed"
+
+
+async def test_general_report_without_equipment(api, db, world):
+    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_required=False)
+    r = await api.post("/reports", "ali", json=general(world, rt))
+    assert r.status_code == 201, r.text
+    j = r.json()
+    assert j["equipment_id"] is None and j["equipment_code"] is None and j["is_general"] is True
+    assert j["group_code"] == "ELV" and j["report_number"].endswith("-ELV-001") and j["participants"] == []
+    rep = (await db.execute(select(m.Report).where(m.Report.id == j["id"]))).scalar_one()
+    assert rep.equipment_id is None and rep.group_id == world.elv.id and rep.is_general is True
+    log = (await db.execute(select(m.AuditLog).where(m.AuditLog.action == "report.create"))).scalar_one()
+    assert log.metadata_json["is_general"] is True and log.metadata_json["equipment_id"] is None
+    assert log.metadata_json["labor_mode"] == "NONE"
+
+
+async def test_general_and_equipment_reports_share_one_sequence_per_group(api, db, world, rtype):
+    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_required=False)
+    a = await api.post("/reports", "ali", json=body(world, rtype))
+    b = await api.post("/reports", "ali", json=general(world, rt))
+    c = await api.post("/reports", "ali", json=body(world, rtype))
+    assert [x.json()["report_number"][-3:] for x in (a, b, c)] == ["001", "002", "003"]
+
+
+async def test_equipment_may_still_be_attached_to_a_general_type(api, db, world):
+    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_required=False)
+    r = await api.post("/reports", "ali", json=general(world, rt, equipment_id=world.e1.id, group_id=None))
+    assert r.status_code == 201 and r.json()["equipment_code"] == "ELV-1" and r.json()["is_general"] is True
+    mismatch = await api.post("/reports", "ali", json=general(world, rt, equipment_id=world.e1.id, group_id=world.door.id))
+    assert mismatch.status_code == 422 and mismatch.json()["detail"] == "group_mismatch"
+
+
+async def test_equipment_is_still_required_for_normal_types(api, world, rtype):
+    r = await api.post("/reports", "ali", json=general(world, rtype, participants=[{"user_id": world.ali.id, "minutes": 5}]))
+    assert r.status_code == 422 and r.json()["detail"] == "equipment_required"
+
+
+async def test_general_report_needs_an_explicit_group_inside_the_callers_scope(api, db, world):
+    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_required=False)
+    none = await api.post("/reports", "ali", json=general(world, rt, group_id=None))
+    assert none.status_code == 422 and none.json()["detail"] == "group_required"
+    foreign = await api.post("/reports", "ali", json=general(world, rt, group_id=world.door.id))
+    missing = await api.post("/reports", "ali", json=general(world, rt, group_id=99999))
+    assert foreign.status_code == 404 and foreign.json() == missing.json()  # no existence oracle
+    assert (await api.post("/reports", "exp", json=general(world, rt, group_id=world.door.id))).status_code == 404
+    assert (await api.post("/reports", "boss", json=general(world, rt, group_id=world.door.id))).status_code == 201
+    assert (await api.post("/reports", "aud", json=general(world, rt))).status_code == 403
+    grp = (await db.execute(select(m.Group).where(m.Group.id == world.elv.id))).scalar_one()
+    grp.is_active = False
+    await db.commit()
+    r = await api.post("/reports", "boss", json=general(world, rt))
+    assert r.status_code == 409 and r.json()["detail"] == "group_inactive"
+
+
+async def test_participant_rules_use_the_explicit_group_for_general_reports(api, db, world):
+    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_required=False)
+    outsider = [{"user_id": world.omid.id, "minutes": 10}]
+    r = await api.post("/reports", "ali", json=general(world, rt, participants=outsider))
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "participant_not_allowed"
+    ok = await api.post("/reports", "ali", json=general(world, rt, participants=[{"user_id": world.exp.id, "minutes": 10}]))
+    assert ok.status_code == 201
+
+
+async def test_candidates_by_group(api, world):
+    by_group = await api.get(f"/reports/participant-candidates?group_id={world.elv.id}", "ali")
+    assert sorted(x["full_name"] for x in by_group.json()) == ["Ali", "Exp"]
+    assert (await api.get(f"/reports/participant-candidates?group_id={world.door.id}", "ali")).status_code == 404
+    both = await api.get(f"/reports/participant-candidates?group_id={world.elv.id}&equipment_id={world.e1.id}", "ali")
+    neither = await api.get("/reports/participant-candidates", "ali")
+    assert both.status_code == neither.status_code == 422
+
+
+async def test_entry_config(api, db, world):
+    ali = (await api.get("/reports/entry-config", "ali")).json()
+    assert ali["default_labor_minutes"] == 30 and ali["max_participant_minutes"] == 1440
+    assert ali["future_tolerance_minutes"] == 5 and [g["code"] for g in ali["groups"]] == ["ELV"]
+    assert [g["code"] for g in (await api.get("/reports/entry-config", "boss")).json()["groups"]] == ["DOOR", "ELV"]
+    assert (await api.get("/reports/entry-config", "aud")).status_code == 403
+    await set_setting(db, "DEFAULT_LABOR_MINUTES", 45)
+    assert (await api.get("/reports/entry-config", "ali")).json()["default_labor_minutes"] == 45
+
+
+async def test_quick_pick_ignores_equipmentless_reports(api, db, world, rtype):
+    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_required=False)
+    await api.post("/reports", "ali", json=general(world, rt))
+    assert (await api.get("/reports/equipment-quick-pick", "ali")).json() == {"recent": [], "frequent": []}
+
+
+async def test_db_rejects_equipmentless_report_unless_general(db, world):
+    from sqlalchemy.exc import IntegrityError
+    rt = await f.report_type(db)
+    await db.commit()
+    common = dict(group_id=world.elv.id, report_type_id=rt.id, event_datetime=NOW(), report_jalali_year=1405,
+                  created_by=world.ali.id, description="d")
+    db.add(m.Report(report_number="05-ELV-800", equipment_id=None, is_general=False, **common))
+    with pytest.raises(IntegrityError):
+        await db.flush()
+    await db.rollback()
+    db.add(m.Report(report_number="05-ELV-801", equipment_id=None, is_general=True, **common))
+    await db.flush()
+
+
+# ------------------------------------------------------------------ report-type admin
+async def test_type_admin_labor_mode_and_equipment_required(api, db, world):
+    created = await api.post("/report-types", "boss", json={"code": "spare_part_request", "name_fa": "درخواست قطعه",
+                                                            "labor_mode": "ON_REQUEST", "equipment_required": False})
+    assert created.status_code == 201, created.text
+    j = created.json()
+    assert j["code"] == "SPARE_PART_REQUEST" and j["labor_mode"] == "ON_REQUEST" and j["equipment_required"] is False
+    defaults = await api.post("/report-types", "boss", json={"code": "plain", "name_fa": "ساده"})
+    assert defaults.json()["labor_mode"] == "REQUIRED" and defaults.json()["equipment_required"] is True
+    assert (await api.post("/report-types", "boss", json={"code": "bad", "name_fa": "x", "labor_mode": "SOMETIMES"})).status_code == 422
+    assert (await api.post("/report-types", "ali", json={"code": "z", "name_fa": "x", "labor_mode": "NONE"})).status_code == 403
+    # editable even when reports already use the type (unlike is_failure)
+    rt = await mk_type(db, "USED")
+    await api.post("/reports", "ali", json=body(world, rt))
+    up = await api.patch(f"/report-types/{rt.id}", "boss", json={"labor_mode": "OPTIONAL", "equipment_required": False})
+    assert up.status_code == 200 and up.json()["labor_mode"] == "OPTIONAL" and up.json()["equipment_required"] is False
+    log = (await db.execute(select(m.AuditLog).where(m.AuditLog.action == "report_type.update"))).scalars().all()[-1]
+    assert log.metadata_json["changes"] == {"labor_mode": ["REQUIRED", "OPTIONAL"], "equipment_required": [True, False]}
+    assert (await api.patch(f"/report-types/{rt.id}", "boss", json={"labor_mode": None})).status_code == 422
+    assert (await api.patch(f"/report-types/{rt.id}", "aud", json={"labor_mode": "NONE"})).status_code == 403
+    listed = (await api.get("/report-types", "ali")).json()
+    assert {"labor_mode", "equipment_required"} <= set(listed[0])

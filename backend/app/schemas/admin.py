@@ -1,13 +1,15 @@
 """Request/response models for the management API. Requests forbid unknown fields, so immutable fields
 (group code, equipment code, report-type code, ...) cannot be sent at all — they fail with 422."""
 from datetime import datetime
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.password_policy import MAX_PASSWORD_LENGTH
 
 T = TypeVar("T")
+
+LaborMode = Literal["REQUIRED", "OPTIONAL", "ON_REQUEST", "NONE"]
 
 MAX_OFFSET = 100_000  # deep OFFSETs make PostgreSQL walk that many rows; use keyset pagination if data ever outgrows this
 
@@ -121,6 +123,8 @@ class ReportTypeOut(BaseModel):
     code: str
     name_fa: str
     is_failure: bool
+    labor_mode: LaborMode
+    equipment_required: bool
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -130,11 +134,15 @@ class ReportTypeCreate(Request):
     code: str = Field(min_length=1, max_length=32)
     name_fa: str = Field(min_length=1, max_length=128)
     is_failure: bool = False
+    labor_mode: LaborMode = "REQUIRED"
+    equipment_required: bool = True
 
 
 class ReportTypeUpdate(Request):
     name_fa: str | None = Field(default=None, max_length=128)
     is_failure: bool | None = None
+    labor_mode: LaborMode | None = None
+    equipment_required: bool | None = None
 
 
 # ---- settings

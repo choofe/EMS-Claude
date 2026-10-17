@@ -10,7 +10,7 @@ from app.api.deps import get_current_principal, require_capability
 from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
 from app.schemas.reports import (
-    CandidateOut, DraftCreate, DraftOut, DraftUpdate, HeartbeatOut, QuickPickOut, ReportCreate, ReportCreated,
+    CandidateOut, DraftCreate, DraftOut, DraftUpdate, EntryConfigOut, HeartbeatOut, QuickPickOut, ReportCreate, ReportCreated,
 )
 from app.services import report_creation, report_drafts
 
@@ -24,11 +24,16 @@ async def create_report(body: ReportCreate, principal: Principal = Depends(_crea
     return await report_creation.create_report(db, principal, body)
 
 
+@router.get("/entry-config", response_model=EntryConfigOut)
+async def entry_config(principal: Principal = Depends(_create), db: AsyncSession = Depends(get_db)) -> dict:
+    return await report_creation.entry_config(db, principal)
+
+
 @router.get("/participant-candidates", response_model=list[CandidateOut])
-async def participant_candidates(equipment_id: int, q: str | None = Query(None, max_length=64),
+async def participant_candidates(equipment_id: int | None = None, group_id: int | None = None, q: str | None = Query(None, max_length=64),
                                  limit: int = Query(30, ge=1, le=100), principal: Principal = Depends(_create),
                                  db: AsyncSession = Depends(get_db)) -> list[dict]:
-    return await report_creation.participant_candidates(db, principal, equipment_id, q, limit)
+    return await report_creation.participant_candidates(db, principal, equipment_id, group_id, q, limit)
 
 
 @router.get("/equipment-quick-pick", response_model=QuickPickOut)

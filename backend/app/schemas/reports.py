@@ -22,11 +22,12 @@ class ParticipantIn(_Request):
 
 
 class ReportCreate(_Request):
-    equipment_id: int
+    equipment_id: int | None = None  # may be omitted only for report types with equipment_required = false
+    group_id: int | None = None  # required exactly when equipment_id is omitted; must match the equipment's group otherwise
     report_type_id: int
     event_datetime: AwareDatetime
     description: str = Field(max_length=MAX_DESCRIPTION_LENGTH * 2)  # real limit enforced after trimming
-    participants: list[ParticipantIn] = Field(min_length=1, max_length=MAX_PARTICIPANTS)
+    participants: list[ParticipantIn] = Field(default_factory=list, max_length=MAX_PARTICIPANTS)
     draft_id: int | None = None
 
 
@@ -39,11 +40,12 @@ class ParticipantOut(BaseModel):
 class ReportCreated(BaseModel):
     id: int
     report_number: str
-    equipment_id: int
-    equipment_code: str
+    equipment_id: int | None
+    equipment_code: str | None
     group_id: int
     group_code: str
     report_type_id: int
+    is_general: bool
     event_datetime: datetime
     created_at: datetime
     description: str
@@ -58,6 +60,7 @@ class DraftParticipant(_Request):
 
 class DraftPayload(_Request):
     equipment_id: int | None = None
+    group_id: int | None = None
     report_type_id: int | None = None
     event_datetime: AwareDatetime | None = None
     description: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH * 2)
@@ -97,6 +100,23 @@ class QuickEquipmentOut(BaseModel):
 class QuickPickOut(BaseModel):
     recent: list[QuickEquipmentOut]
     frequent: list[QuickEquipmentOut]
+
+
+class EntryGroupOut(BaseModel):
+    id: int
+    code: str
+    name: str
+
+
+class EntryConfigOut(BaseModel):
+    """Everything the entry form needs besides the lists it searches: limits, the author's default labor, and the
+    groups the caller may file general (equipment-less) reports in."""
+    default_labor_minutes: int
+    max_participant_minutes: int
+    max_participants: int
+    max_description_length: int
+    future_tolerance_minutes: int
+    groups: list[EntryGroupOut]
 
 
 class HeartbeatOut(BaseModel):

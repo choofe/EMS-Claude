@@ -2,13 +2,15 @@
 Report creation (Phase 6; spec s.14-17, Phase 0 decisions #4/#6, 2026-09-27 snapshot rule).
 
 ONE transaction does everything, in a fixed lock order so concurrent creators can never deadlock:
-  equipment row (FOR SHARE) -> report-type row (FOR SHARE) -> [draft row FOR UPDATE] -> report_sequences row
+  equipment row (FOR SHARE) -> report-type row (FOR SHARE) -> [group row FOR SHARE, general reports] -> [draft row FOR UPDATE] -> report_sequences row
   (the UPDATE ... RETURNING) -> inserts -> audit -> commit.
 The sequence row is taken last and held only until commit, so numbers are unique and gap-free: a failed
 creation rolls the counter back with everything else.
 
 Everything is re-validated here whatever the client (or a draft) says:
-  * equipment must be in the caller's REPORT_CREATE scope and active (not-yours == missing -> 404);
+  * equipment must be in the caller's REPORT_CREATE scope and active (not-yours == missing -> 404); it may be
+    omitted only for types with equipment_required = false, then an explicit in-scope group is required;
+  * labor rules follow the type's labor_mode (REQUIRED >=1 / OPTIONAL / ON_REQUEST / NONE none);
   * reports.group_id is a snapshot of equipment.group_id taken now; the FOR SHARE lock stops a concurrent
     equipment move from changing it between our read and our insert;
   * participants: active users only, each at most once, and eligible per `participant_filter` (the single
@@ -26,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import DomainError
 from app.core.jalali import jalali_year, report_year_prefix
 from app.core.permissions import Capability, Principal, Scope
-from app.core.scoping import apply_equipment_scope
+from app.core.scoping import apply_equipment_scope, apply_group_scope
 from app.models.equipment import Equipment
 from app.models.group import Group
 from app.models.report import Report
@@ -36,7 +38,8 @@ from app.models.report_sequence import ReportSequence
 from app.models.report_type import ReportType
 from app.models.user import User
 from app.models.user_group import UserGroup
-from app.schemas.reports import MAX_DESCRIPTION_LENGTH, ReportCreate
+from app.models.report_participant import MAX_PARTICIPANT_MINUTES
+from app.schemas.reports import MAX_DESCRIPTION_LENGTH, MAX_PARTICIPANTS, ReportCreate
 from app.services.audit import add_audit
 from app.services.queries import LIKE_ESCAPE, contains_pattern
 from app.services.runtime_settings import ReportEntryPolicy, get_report_entry_policy
@@ -74,15 +77,47 @@ async def _equipment_for_report(db: AsyncSession, principal: Principal, equipmen
     return equipment, group
 
 
-async def participant_candidates(db: AsyncSession, principal: Principal, equipment_id: int, q: str | None,
-                                 limit: int) -> list[dict]:
-    _, group = await _equipment_for_report(db, principal, equipment_id, lock=False)
+async def _group_for_report(db: AsyncSession, principal: Principal, group_id: int | None, *, lock: bool) -> Group:
+    """Group chosen explicitly (general reports). Outside the caller's REPORT_CREATE scope == missing -> 404."""
+    if group_id is None:
+        raise DomainError("group_required", 422)
+    stmt = apply_group_scope(select(Group).where(Group.id == group_id), principal, Capability.REPORT_CREATE)
+    if lock:  # deactivating a group takes FOR UPDATE on it: we either finish first or see it inactive
+        stmt = stmt.with_for_update(read=True).execution_options(populate_existing=True)
+    group = (await db.execute(stmt)).scalar_one_or_none()
+    if group is None:
+        raise DomainError("group_not_found", 404)
+    if not group.is_active:
+        raise DomainError("group_inactive", 409)
+    return group
+
+
+async def participant_candidates(db: AsyncSession, principal: Principal, equipment_id: int | None,
+                                 group_id: int | None, q: str | None, limit: int) -> list[dict]:
+    if (equipment_id is None) == (group_id is None):
+        raise DomainError("equipment_or_group_required", 422)
+    if equipment_id is not None:
+        _, group = await _equipment_for_report(db, principal, equipment_id, lock=False)
+    else:
+        group = await _group_for_report(db, principal, group_id, lock=False)
     policy = await get_report_entry_policy(db)
     stmt = select(User.id, User.full_name).where(participant_filter(principal, policy, group.id))
     if q and q.strip():
         stmt = stmt.where(User.full_name.ilike(contains_pattern(q), escape=LIKE_ESCAPE))
     rows = (await db.execute(stmt.order_by(User.full_name, User.id).limit(limit))).all()
     return [{"id": i, "full_name": n} for i, n in rows]
+
+
+async def entry_config(db: AsyncSession, principal: Principal) -> dict:
+    policy = await get_report_entry_policy(db)
+    groups = (await db.execute(apply_group_scope(select(Group).where(Group.is_active.is_(True)), principal,
+                                                 Capability.REPORT_CREATE).order_by(Group.code))).scalars()
+    return {
+        "default_labor_minutes": policy.default_labor_minutes, "max_participant_minutes": MAX_PARTICIPANT_MINUTES,
+        "max_participants": MAX_PARTICIPANTS, "max_description_length": MAX_DESCRIPTION_LENGTH,
+        "future_tolerance_minutes": int(FUTURE_TOLERANCE.total_seconds() // 60),
+        "groups": [{"id": g.id, "code": g.code, "name": g.name} for g in groups],
+    }
 
 
 def _clean_description(raw: str) -> str:
@@ -119,7 +154,12 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
         raise DomainError("event_in_future", 422)
     description = _clean_description(body.description)
 
-    equipment, group = await _equipment_for_report(db, principal, body.equipment_id, lock=True)
+    # Lock order (global, deadlock-free): equipment -> report type -> group (explicit-group path only) -> draft -> sequence.
+    equipment = group = None
+    if body.equipment_id is not None:
+        equipment, group = await _equipment_for_report(db, principal, body.equipment_id, lock=True)
+        if body.group_id is not None and body.group_id != group.id:
+            raise DomainError("group_mismatch", 422)
 
     rtype = (await db.execute(select(ReportType).where(ReportType.id == body.report_type_id)
                               .with_for_update(read=True))).scalar_one_or_none()
@@ -127,6 +167,16 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
         raise DomainError("report_type_not_found", 404)
     if not rtype.is_active:
         raise DomainError("report_type_inactive", 409)
+
+    if equipment is None:
+        if rtype.equipment_required:
+            raise DomainError("equipment_required", 422)
+        group = await _group_for_report(db, principal, body.group_id, lock=True)
+
+    if rtype.labor_mode == "NONE" and body.participants:
+        raise DomainError("labor_not_allowed", 422)
+    if rtype.labor_mode == "REQUIRED" and not body.participants:
+        raise DomainError("labor_required", 422)
 
     user_ids = [p.user_id for p in body.participants]
     if len(set(user_ids)) != len(user_ids):
@@ -151,8 +201,8 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
     number = await _next_number(db, group.id, year)
     report = Report(
         report_number=f"{report_year_prefix(year)}-{group.code}-{number:03d}",
-        equipment_id=equipment.id, group_id=group.id,  # group_id: frozen snapshot, never re-derived
-        report_type_id=rtype.id, event_datetime=event, report_jalali_year=year,
+        equipment_id=equipment.id if equipment else None, group_id=group.id,  # group_id: frozen snapshot
+        report_type_id=rtype.id, is_general=not rtype.equipment_required, event_datetime=event, report_jalali_year=year,
         created_by=principal.user_id, description=description, created_at=now,
     )
     db.add(report)
@@ -160,8 +210,9 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
     for p in body.participants:
         db.add(ReportParticipant(report_id=report.id, user_id=p.user_id, minutes=p.minutes))
     add_audit(db, actor_id=principal.user_id, action="report.create", entity_type="report", entity_id=report.id,
-              metadata={"report_number": report.report_number, "equipment_id": equipment.id, "group_id": group.id,
-                        "report_type_id": rtype.id, "event_datetime": event.isoformat(),
+              metadata={"report_number": report.report_number, "equipment_id": equipment.id if equipment else None,
+                        "group_id": group.id, "report_type_id": rtype.id, "is_general": report.is_general,
+                        "labor_mode": rtype.labor_mode, "event_datetime": event.isoformat(),
                         "participant_count": len(body.participants),
                         "total_minutes": sum(p.minutes for p in body.participants),
                         "from_draft": body.draft_id is not None})
@@ -172,9 +223,10 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
 
     names = dict((await db.execute(select(User.id, User.full_name).where(User.id.in_(user_ids)))).all())
     return {
-        "id": report.id, "report_number": report.report_number, "equipment_id": equipment.id,
-        "equipment_code": equipment.equipment_code, "group_id": group.id, "group_code": group.code,
-        "report_type_id": rtype.id, "event_datetime": report.event_datetime, "created_at": report.created_at,
+        "id": report.id, "report_number": report.report_number,
+        "equipment_id": equipment.id if equipment else None,
+        "equipment_code": equipment.equipment_code if equipment else None,
+        "group_id": group.id, "group_code": group.code, "report_type_id": rtype.id, "is_general": report.is_general, "event_datetime": report.event_datetime, "created_at": report.created_at,
         "description": report.description,
         "participants": [{"user_id": p.user_id, "full_name": names[p.user_id], "minutes": p.minutes}
                          for p in body.participants],

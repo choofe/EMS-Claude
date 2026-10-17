@@ -40,7 +40,8 @@ report_participants / audit_logs rows still reference it.
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false
+from sqlalchemy import false as sa_false
+from sqlalchemy import CheckConstraint, Boolean, DateTime, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -49,12 +50,14 @@ from app.models.mixins import SoftDeleteMixin, TimestampMixin
 
 class Report(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "reports"
+    __table_args__ = (CheckConstraint("equipment_id IS NOT NULL OR is_general", name="equipment_or_general"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     report_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
 
-    equipment_id: Mapped[int] = mapped_column(
-        ForeignKey("equipment.id", ondelete="RESTRICT"), nullable=False, index=True
+    # NULL only for "general" reports (type.equipment_required = False); see ck_reports_equipment_or_general.
+    equipment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("equipment.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     # Frozen snapshot at creation time — see module docstring. Independent
     # of equipment.group_id, which may change later.
@@ -76,6 +79,10 @@ class Report(TimestampMixin, SoftDeleteMixin, Base):
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # Snapshot (like group_id) of "type did not require equipment" at creation; lets lists tell general reports
+    # apart without a join and keeps their meaning stable if the type's setting is edited later.
+    is_general: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), nullable=False)
+
     is_locked: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false(), nullable=False
     )
@@ -84,7 +91,7 @@ class Report(TimestampMixin, SoftDeleteMixin, Base):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
 
-    equipment: Mapped["Equipment"] = relationship(back_populates="reports")
+    equipment: Mapped["Equipment | None"] = relationship(back_populates="reports")
     group: Mapped["Group"] = relationship(foreign_keys=[group_id])
     report_type: Mapped["ReportType"] = relationship(back_populates="reports")
     creator: Mapped["User"] = relationship(foreign_keys=[created_by])

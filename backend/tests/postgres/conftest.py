@@ -51,6 +51,8 @@ _CLEANUP_SQL = (
     "DELETE FROM report_participants",
     "DELETE FROM reports",
     "DELETE FROM report_sequences",
+    # types created by tests only; the four seeded ones stay (their codes are fixed by the initial migration)
+    "DELETE FROM report_types WHERE code NOT IN ('MINOR_FAILURE_REPAIR', 'MAJOR_FAILURE_REPAIR', 'PERIODIC_SERVICE', 'INSPECTION_VISIT')",
     "DELETE FROM equipment",
     "DELETE FROM equipment_import_batches",
     "DELETE FROM user_groups",
