@@ -30,6 +30,10 @@ _KNOWN = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 _MAX_PHYSICAL_ROWS = 50_000   # a sheet can declare a million blank rows; never walk more than this
 _MAX_ZIP_MEMBERS = 200
 _MAX_COMPRESSION_RATIO = 200
+_RATIO_CHECK_MIN_BYTES = 64 * 1024
+# Members that mean macros / active content. NOT every ".bin": Excel itself writes
+# xl/printerSettings/printerSettings1.bin into ordinary, harmless workbooks.
+_FORBIDDEN_MEMBERS = ("vbaproject", "xl/activex/", "xl/embeddings/")
 
 
 @dataclass
@@ -124,13 +128,13 @@ def _check_zip_safety(data: bytes, max_uncompressed: int) -> None:
     names = {i.filename.lower() for i in infos}
     if "[content_types].xml" not in names or not any(n.startswith("xl/worksheets/") for n in names):
         raise DomainError("file_corrupt", 422)
-    if any("vbaproject" in n or n.endswith(".bin") for n in names):
-        raise DomainError("file_unsafe", 422)  # macros / embedded binaries
+    if any(marker in n for n in names for marker in _FORBIDDEN_MEMBERS):
+        raise DomainError("file_unsafe", 422)  # macros / active content / embedded objects
     total = 0
     for info in infos:
         total += info.file_size
         if info.file_size > 0 and info.compress_size > 0 and info.file_size / info.compress_size > _MAX_COMPRESSION_RATIO \
-                and info.file_size > 1024 * 1024:
+                and info.file_size > _RATIO_CHECK_MIN_BYTES:
             raise DomainError("file_unsafe", 422)
         if total > max_uncompressed:
             raise DomainError("file_unsafe", 422)

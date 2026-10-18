@@ -272,6 +272,25 @@ async def test_zip_bomb_is_refused_before_openpyxl_runs(api, world):
     assert r.status_code == 422 and r.json()["detail"] == "file_unsafe"
 
 
+async def test_ordinary_excel_printer_settings_member_is_accepted(api, world):
+    """Excel writes xl/printerSettings/printerSettings1.bin into normal workbooks — refusing every .bin was a bug."""
+    data = _zip_with("xl/printerSettings/printerSettings1.bin", b"\x00" * 200)
+    r = await preview(api, "boss", world.elv.id, data)
+    assert r.status_code == 200 and r.json()["valid_count"] == 1
+
+
+@pytest.mark.parametrize("member", ["xl/activeX/activeX1.xml", "xl/embeddings/oleObject1.bin"])
+async def test_active_content_members_are_refused(api, world, member):
+    r = await preview(api, "boss", world.elv.id, _zip_with(member, b"x"))
+    assert r.status_code == 422 and r.json()["detail"] == "file_unsafe"
+
+
+async def test_ratio_guard_also_covers_members_well_below_one_megabyte(api, world, monkeypatch):
+    monkeypatch.setattr(get_settings(), "import_max_uncompressed_bytes", 10**10)   # only the ratio guard is left
+    r = await preview(api, "boss", world.elv.id, _zip_with("xl/media/zeros.dat", b"\x00" * (300 * 1024)))
+    assert r.status_code == 422 and r.json()["detail"] == "file_unsafe"
+
+
 async def test_macro_enabled_content_is_refused(api, world):
     r = await preview(api, "boss", world.elv.id, _zip_with("xl/vbaProject.bin", b"MACRO"))
     assert r.status_code == 422 and r.json()["detail"] == "file_unsafe"
@@ -429,6 +448,30 @@ async def test_undo_is_refused_when_equipment_was_moved_to_another_group(api, wo
     assert (await api.post(f"/equipment/{e.id}/move", "boss", json={"group_id": world.door.id})).status_code == 200
     r = await api.post(f"/equipment/import/batches/{batch_id}/undo", "boss")
     assert r.status_code == 409 and r.json()["detail"] == {"code": "batch_equipment_moved", "moved_count": 1}
+
+
+async def test_undo_race_path_has_the_same_response_contract(api, world, db, monkeypatch):
+    """The guard misses (a report appears between check and delete); the FK stops the delete. The answer must carry
+    the same fields as the normal refusal."""
+    from app.services import equipment_import as svc
+    batch_id, _ = await _import(api, world.elv, [["Q-1", "ELV", None]])
+    e = (await db.execute(select(m.Equipment).where(m.Equipment.equipment_code == "Q-1"))).scalar_one()
+    await f.report(db, "05-ELV-003", e, world.elv, world.ali)
+    await db.commit()
+    real = svc._batch_stats
+    calls = {"n": 0}
+
+    async def blind_first_time(_db, ids):
+        calls["n"] += 1
+        stats = await real(_db, ids)
+        if calls["n"] == 1:
+            for s in stats.values():
+                s["reports"] = 0
+        return stats
+    monkeypatch.setattr(svc, "_batch_stats", blind_first_time)
+    r = await api.post(f"/equipment/import/batches/{batch_id}/undo", "boss")
+    assert r.status_code == 409
+    assert r.json()["detail"] == {"code": "batch_has_reports", "report_count": 1, "equipment_codes": ["Q-1"]}
 
 
 async def test_undo_unknown_batch_is_404_and_manual_equipment_is_never_touched(api, world, db):
