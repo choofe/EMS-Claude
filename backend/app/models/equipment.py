@@ -30,6 +30,10 @@ class Equipment(TimestampMixin, SoftDeleteMixin, Base):
         ForeignKey("groups.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Set only for equipment created by an Excel import (Phase 5); lets the whole import be undone as a unit.
+    import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("equipment_import_batches.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     group: Mapped["Group"] = relationship(back_populates="equipment")
     reports: Mapped[list["Report"]] = relationship(back_populates="equipment")

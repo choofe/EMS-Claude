@@ -38,6 +38,10 @@ users TYPE dates (Phase 6).
 Login · forced/voluntary change-password · Dashboard (MANAGEMENT, AUDITOR) · Users (MANAGEMENT writes, AUDITOR reads) ·
 Groups · Equipment · Report types (everyone reads their scope; MANAGEMENT writes) · Settings (MANAGEMENT only).
 
+## Equipment import page (Phase 5)
+`/equipment/import`, MANAGEMENT only: group + file → preview → confirm; history with undo. Uploads use `request(..., { form })`
+(no Content-Type header, the browser adds the boundary); the template is fetched with `{ blob: true }` through the authenticated client.
+
 ## Forgotten password (current process)
 There is no email/SMS service in the MVP, so there is no self-service reset. The user tells a manager; the manager opens
 **Users -> actions -> "تعیین رمز موقت"**, enters a temporary password (the user must change it at next login, all their sessions

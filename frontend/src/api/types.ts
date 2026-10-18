@@ -98,3 +98,50 @@ export interface Dashboard {
   active_groups: number;
   groups: { id: number; code: string; name: string; active_equipment: number; active_members: number }[];
 }
+
+/** Equipment import (docs/equipment-import.md). Reason-specific fields are omitted by the server when not relevant. */
+export interface ImportRowError {
+  row: number;
+  equipment_code: string;
+  code: string;
+  found?: string;
+  expected?: string;
+  first_row?: number;
+  existing_group_code?: string;
+  existing_is_active?: boolean;
+  bad_chars?: string[];
+  column?: string;
+}
+
+export interface ImportPreview {
+  group: { id: number; code: string; name: string };
+  file_name: string;
+  file_sha256: string;
+  rows_total: number;
+  valid_count: number;
+  error_count: number;
+  ignored_columns: string[];
+  errors: ImportRowError[];
+  sample: { row: number; equipment_code: string; description?: string }[];
+}
+
+export interface ImportCommit extends ImportPreview {
+  batch_id: number;
+  created_count: number;
+}
+
+export interface ImportBatch {
+  id: number;
+  group_id: number;
+  group_code: string;
+  group_name: string;
+  file_name: string;
+  created_by_name: string;
+  created_at: string;
+  created_count: number;
+  rejected_count: number;
+  remaining_count: number;
+  report_count: number;
+  undone_at: string | null;
+  can_undo: boolean;
+}
