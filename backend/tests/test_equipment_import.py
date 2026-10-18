@@ -172,8 +172,9 @@ async def test_inactive_or_unknown_group_is_refused(api, world, db):
 ])
 async def test_file_level_rejections(api, world, data, code):
     r = await preview(api, "boss", world.elv.id, data)
-    assert r.status_code == 422 and r.json()["detail"] in (code, {"code": code, **r.json()["detail"]} if isinstance(r.json()["detail"], dict) else code) \
-        or r.json()["detail"]["code"] == code, r.text
+    detail = r.json()["detail"]
+    got = detail["code"] if isinstance(detail, dict) else detail
+    assert r.status_code == 422 and got == code, r.text
 
 
 async def test_unsupported_extensions_are_refused(api, world):

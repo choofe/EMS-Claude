@@ -90,6 +90,24 @@ describe("import page", () => {
     expect(screen.queryByRole("table", { name: "ردیف‌های ردشده" })).not.toBeInTheDocument();    // stale preview is cleared
   });
 
+  it("while a preview request is in flight the group, the file and the button are locked, so a late answer can never attach to other inputs", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    mockFetch({
+      ...session(), "GET /groups": () => json(200, page([group])), "GET /equipment/import/batches": () => json(200, page([])),
+      "POST /equipment/import/preview": async () => { await gate; return json(200, preview()); },
+    });
+    const { container } = renderApp("/equipment/import");
+    await pickGroupAndFile(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "بررسی فایل" })).toBeDisabled());
+    expect(screen.getByRole("combobox", { name: "گروه مقصد" })).toHaveAttribute("aria-disabled", "true");
+    expect(container.querySelector("input[type=file]")).toBeDisabled();
+    release();
+    expect(await screen.findByRole("button", { name: "ورود ۲ ردیف معتبر" })).toBeInTheDocument();
+    expect(container.querySelector("input[type=file]")).not.toBeDisabled();       // unlocked again afterwards
+  });
+
   it("changing the file or the group discards the old preview (the confirm button cannot act on a stale one)", async () => {
     mockFetch({ ...session(), "GET /groups": () => json(200, page([group])), "GET /equipment/import/batches": () => json(200, page([])), "POST /equipment/import/preview": () => json(200, preview()) });
     const { container } = renderApp("/equipment/import");

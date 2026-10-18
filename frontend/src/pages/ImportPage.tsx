@@ -120,13 +120,13 @@ export function ImportPage() {
       <Stack direction={{ xs: "column", sm: "row" }} gap={1.5} alignItems={{ sm: "center" }} sx={{ mb: 2 }}>
         <FormControl size="small" sx={{ minWidth: 220 }}>
           <InputLabel id="imp-grp">گروه مقصد</InputLabel>
-          <Select labelId="imp-grp" label="گروه مقصد" value={groupId} onChange={(e) => setGroupId(e.target.value as number | "")}>
+          <Select labelId="imp-grp" label="گروه مقصد" value={groupId} disabled={busy} onChange={(e) => setGroupId(e.target.value as number | "")}>
             {activeGroups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name} ({g.code})</MenuItem>)}
           </Select>
         </FormControl>
-        <Button component="label" variant="outlined" startIcon={<UploadIcon />}>
+        <Button component="label" variant="outlined" startIcon={<UploadIcon />} disabled={busy}>
           انتخاب فایل
-          <input type="file" hidden accept=".xlsx,.csv" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setResult(null); e.target.value = ""; }} />
+          <input type="file" hidden disabled={busy} accept=".xlsx,.csv" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setResult(null); e.target.value = ""; }} />
         </Button>
         <Typography variant="body2" sx={{ flexGrow: 1 }}>{file ? <Ltr>{file.name}</Ltr> : "فایلی انتخاب نشده است"}</Typography>
         <Button variant="contained" disabled={groupId === "" || !file || busy} onClick={runPreview}>بررسی فایل</Button>
