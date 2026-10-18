@@ -475,6 +475,22 @@ async def test_undo_race_path_has_the_same_response_contract(api, world, db, mon
     assert r.json()["detail"] == {"code": "batch_has_reports", "report_count": 1, "equipment_codes": ["Q-1"]}
 
 
+async def test_moving_equipment_out_and_back_does_not_restore_undo(api, world, db):
+    """CodeRabbit finding: comparing only the CURRENT group let A -> B -> A look 'never moved'."""
+    batch_id, _ = await _import(api, world.elv, [["W-1", "ELV", None], ["W-2", "ELV", None]])
+    e = (await db.execute(select(m.Equipment).where(m.Equipment.equipment_code == "W-1"))).scalar_one()
+    eid, elv_id, door_id = e.id, world.elv.id, world.door.id
+    assert (await api.post(f"/equipment/{eid}/move", "boss", json={"group_id": door_id})).status_code == 200
+    assert (await api.post(f"/equipment/{eid}/move", "boss", json={"group_id": elv_id})).status_code == 200
+    listing = (await api.get("/equipment/import/batches", "boss")).json()["items"][0]
+    assert listing["can_undo"] is False
+    r = await api.post(f"/equipment/import/batches/{batch_id}/undo", "boss")
+    assert r.status_code == 409 and r.json()["detail"] == {"code": "batch_equipment_moved", "moved_count": 1}
+    db.expire_all()
+    assert (await db.execute(select(func.count()).select_from(m.Equipment)
+                             .where(m.Equipment.import_batch_id == batch_id))).scalar_one() == 2
+
+
 async def test_undo_unknown_batch_is_404_and_manual_equipment_is_never_touched(api, world, db):
     assert (await api.post("/equipment/import/batches/9999/undo", "boss")).status_code == 404
     batch_id, _ = await _import(api, world.elv, [["N-1", "ELV", None]])

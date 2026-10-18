@@ -22,12 +22,13 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
 from app.core.normalize import canonical_equipment_code, clean_text
+from app.models.audit_log import AuditLog
 from app.models.equipment import Equipment
 from app.models.group import Group
 from app.models.import_batch import EquipmentImportBatch
@@ -218,10 +219,14 @@ async def _batch_stats(db: AsyncSession, batch_ids: list[int]) -> dict[int, dict
                                     .where(Equipment.import_batch_id.in_(batch_ids))
                                     .group_by(Equipment.import_batch_id))).all():
         stats[bid]["reports"] = n
+    # "moved" = away from the batch's group NOW, or EVER moved (audit row): moving it out and back must not restore
+    # undo eligibility. Every group change goes through the audited move endpoint.
+    ever_moved = exists().where(AuditLog.entity_type == "equipment", AuditLog.entity_id == Equipment.id,
+                                AuditLog.action == "equipment.move")
     for bid, n in (await db.execute(select(Equipment.import_batch_id, func.count(Equipment.id))
                                     .join(EquipmentImportBatch, EquipmentImportBatch.id == Equipment.import_batch_id)
                                     .where(Equipment.import_batch_id.in_(batch_ids),
-                                           Equipment.group_id != EquipmentImportBatch.group_id)
+                                           or_(Equipment.group_id != EquipmentImportBatch.group_id, ever_moved))
                                     .group_by(Equipment.import_batch_id))).all():
         stats[bid]["moved"] = n
     return stats

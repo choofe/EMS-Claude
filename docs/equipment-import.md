@@ -43,7 +43,8 @@ File-level errors (nothing is imported): `unsupported_file_type`, `file_too_larg
 Every import is a batch (`equipment_import_batches`; `equipment.import_batch_id`). `undo` **hard-deletes** the batch's equipment — the
 single, deliberate exception to "never hard-delete history" — and only when ALL hold:
 * no report exists for any of its equipment (soft-deleted reports count too) → else `409 batch_has_reports`;
-* none of its equipment was moved to another group → else `409 batch_equipment_moved`;
+* none of its equipment was ever moved to another group (current group differs, or an `equipment.move` audit row exists —
+  moving it out and back does not count as "never moved") → else `409 batch_equipment_moved`;
 * the batch was not already undone (`409 batch_already_undone`).
 The batch row stays (`undone_at`, `undone_by`) and an audit row `equipment.import_undo` lists the deleted codes. The FK
 `reports.equipment_id … ON DELETE RESTRICT` is the last line of defence against a report appearing concurrently.
