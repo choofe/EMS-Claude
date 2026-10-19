@@ -18,7 +18,7 @@ MANAGEMENT everywhere, **AUDITOR none (403)**. Report detail/history/editing = P
 - **Report type** active (`409 report_type_inactive`; unknown `404`). Types are organisation-wide (per-group types: future, see below).
 - **Group snapshot**: `reports.group_id` = `equipment.group_id` at creation, frozen. The equipment row is read `FOR SHARE`, so a concurrent equipment move either finishes first (new group is used) or waits for the report to commit.
 - **Participants**: count by `labor_mode` (below), ≤30, active users, each at most once (`422 participant_duplicate`), `minutes` integer 1–1440 (`422`). Eligibility (one function, `participant_filter`, used by both the candidate list and the create check → `422 participant_not_allowed` + `user_ids`):
-  USER → members of the report's group · EXPERT → any active user (setting `REPORT_EXPERT_PARTICIPANTS_ALL_USERS`=1, default) or group members (=0) · MANAGEMENT → any active user.
+  USER → members of the report's group (default), or any active user when `REPORT_USER_PARTICIPANTS_ALL_USERS`=1 (e.g. a helper from another group; default 0) · EXPERT → any active user (`REPORT_EXPERT_PARTICIPANTS_ALL_USERS`=1, default) or group members (=0) · MANAGEMENT → any active user. The two settings are independent (per role) and MANAGEMENT-editable.
 - **`event_datetime`**: converted to UTC; more than 5 minutes in the future → `422 event_in_future`.
 - **`description`**: trimmed, line breaks kept, 1–5000 chars (`422 invalid_description`).
 - **DB integrity** (migration `f6c3d9a7b104`): `UNIQUE(report_id, user_id)` and `CHECK 0 < minutes ≤ 1440` on `report_participants`.
@@ -47,7 +47,7 @@ The sequence row lock is taken last and released at commit, so concurrent creato
 ## Drafts
 Server-side table `report_drafts` (`user_id`, JSON `payload`, `version`). A draft is **not** a report: no number, never in analytics/export, visible to its owner only (another user's id → 404, same as missing). It is hard-deleted when the report is created from it (same transaction, row locked → a double submit or two tabs yield exactly one report, the loser gets `404 draft_not_found`) or when discarded.
 - **Limit** per user = setting `MAX_DRAFTS_PER_USER` (default 1, 1–20; MANAGEMENT-editable). It is a setting, not a constraint: raising it needs no migration. `409 draft_limit_reached` (+`limit`). Creation locks the user row (`FOR NO KEY UPDATE`) so parallel creates cannot exceed it.
-- **Autosave** = `PUT` with the `version` last seen; stale version → `409 draft_version_conflict` (+`current_version`), nothing overwritten. Payload fields are all optional and untrusted; ids in a draft are validated only at submit.
+- **Autosave** = `PUT` with the `version` last seen; stale version → `409 draft_version_conflict` (+`current_version`), nothing overwritten. Payload fields are all optional and untrusted; ids in a draft are validated only at submit. Each draft participant may carry a display `name` (≤128 chars) so a restored draft can show it when the person cannot be looked up; it is cosmetic and never used for authorization.
 - Not done (future): per-role draft limits (the setting is global today; a per-role value fits the same registry), stale-draft cleanup job, offline copy on the phone (Phase 11).
 
 ## Tests

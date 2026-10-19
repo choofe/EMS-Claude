@@ -20,7 +20,7 @@ export const HEARTBEAT_MS = 60_000;
 interface Boot { cfg: EntryConfig; types: ReportType[]; draft: Draft | null; state: FormState | null; quick: Awaited<ReturnType<typeof reportsApi.quickPick>> | null }
 
 /** Everything the form needs, and the latest draft re-resolved against the server (its ids are untrusted). */
-async function bootstrap(): Promise<Boot> {
+async function bootstrap(author: { id: number; full_name: string }): Promise<Boot> {
   const [cfg, types, drafts, quick] = await Promise.all([
     reportsApi.entryConfig(), reportTypesApi.list(false), reportsApi.drafts(), reportsApi.quickPick().catch(() => null),
   ]);
@@ -30,7 +30,7 @@ async function bootstrap(): Promise<Boot> {
   const equipment: EquipmentOption | null = p.equipment_id
     ? await equipmentApi.get(p.equipment_id).then((e) => (e.is_active ? e : null)).catch(() => null) : null;
   const ctx = equipment ? { equipment_id: equipment.id } : p.group_id ? { group_id: p.group_id } : null;
-  const names: Record<number, string> = {};
+  const names: Record<number, string> = { [author.id]: author.full_name };
   if (ctx && (p.participants ?? []).some((x) => x.user_id !== null)) {
     for (const c of await reportsApi.candidates({ ...ctx, limit: 100 }).catch(() => [])) names[c.id] = c.full_name;
   }
@@ -39,7 +39,8 @@ async function bootstrap(): Promise<Boot> {
 
 export function ReportCreatePage() {
   const [epoch, setEpoch] = useState(0);
-  const { data, error, loading } = useLoad(bootstrap, [epoch]);
+  const { user } = useAuth();
+  const { data, error, loading } = useLoad(() => bootstrap({ id: user!.id, full_name: user!.full_name }), [epoch]);
   return (
     <>
       <PageHeader title="ثبت گزارش" />

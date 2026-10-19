@@ -55,6 +55,9 @@ class ReportCreated(BaseModel):
 # ---- drafts: everything optional, minutes may be 0 while the form is half filled
 class DraftParticipant(_Request):
     user_id: int | None = None
+    # Display name remembered by the form so a restored draft can show it even when the person cannot be looked up
+    # (e.g. no equipment chosen yet). Purely cosmetic and never trusted: submit uses user_id only.
+    name: str | None = Field(default=None, max_length=128)
     minutes: int = Field(default=0, ge=0, le=MAX_PARTICIPANT_MINUTES)
 
 

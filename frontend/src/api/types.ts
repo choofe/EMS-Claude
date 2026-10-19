@@ -93,7 +93,7 @@ export interface DraftPayload {
   report_type_id?: number | null;
   event_datetime?: string | null;
   description?: string | null;
-  participants?: { user_id: number | null; minutes: number }[];
+  participants?: { user_id: number | null; name?: string | null; minutes: number }[];
 }
 export interface Draft { id: number; payload: DraftPayload; version: number; created_at: string; updated_at: string }
 export interface ReportCreateBody {

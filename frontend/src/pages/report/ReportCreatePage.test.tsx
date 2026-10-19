@@ -100,6 +100,8 @@ describe("report entry page", () => {
     await chooseEquipment();
     await describeIt();
     await userEvent.click(await screen.findByRole("button", { name: "حذف ردیف 1" }));
+    await userEvent.click(await screen.findByRole("button", { name: "بله، حذف شود" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await screen.findByText(/شما \(تولیدکنندهٔ گزارش\) از فهرست ساعت‌ها حذف شده‌اید/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
     expect(await screen.findByText(/ساعت کاری وارد نشده است/)).toBeInTheDocument();
@@ -111,12 +113,29 @@ describe("report entry page", () => {
     await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
   });
 
-  it("removing someone else gives no warning", async () => {
+  it("removing yourself asks first: cancel keeps the row, confirm removes it", async () => {
+    mockFetch(routes());
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await userEvent.click(await screen.findByRole("button", { name: "حذف ردیف 1" }));
+    expect(await screen.findByText(/اگر خودتان را حذف کنید، ساعت کار شما در این گزارش ثبت نمی‌شود/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "انصراف" }));
+    await waitFor(() => expect(screen.queryByText(/اگر خودتان را حذف کنید/)).not.toBeInTheDocument());
+    expect(screen.getByRole("group", { name: "ردیف 1" })).toBeInTheDocument();
+    expect(screen.queryByText(/از فهرست ساعت‌ها حذف شده‌اید/)).not.toBeInTheDocument(); // cancelled: nothing happened
+    await userEvent.click(screen.getByRole("button", { name: "حذف ردیف 1" }));
+    await userEvent.click(await screen.findByRole("button", { name: "بله، حذف شود" }));
+    expect(screen.queryByRole("group", { name: "ردیف 1" })).not.toBeInTheDocument();
+  });
+
+  it("removing someone else needs no confirmation and gives no warning", async () => {
     mockFetch(routes());
     renderApp("/reports/new");
     await chooseType("تعمیر خرابی جزئی");
     await userEvent.click(await screen.findByRole("button", { name: "افزودن نفر" }));
     await userEvent.click(await screen.findByRole("button", { name: "حذف ردیف 2" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "ردیف 2" })).not.toBeInTheDocument();
     expect(screen.queryByText(/از فهرست ساعت‌ها حذف شده‌اید/)).not.toBeInTheDocument();
   });
 
@@ -224,6 +243,8 @@ describe("report entry page", () => {
     await userEvent.click(screen.getByRole("button", { name: "اضافه کردن ساعات افراد - اختیاری" }));
     expect(await screen.findByRole("group", { name: "ردیف 1" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "حذف ردیف 1" }));
+    await userEvent.click(await screen.findByRole("button", { name: "بله، حذف شود" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" })); // optional: empty is fine
     await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
     expect((posts(m, "/reports")[0].body as { participants: unknown }).participants).toEqual([]);
@@ -346,6 +367,18 @@ describe("drafts and heartbeat", () => {
     await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
     await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
     expect(posts(m, "/reports")[0].body).toMatchObject({ draft_id: 4, equipment_id: 9, participants: [{ user_id: 3, minutes: 90 }] });
+  });
+
+  it("a restored draft shows names, not 'کاربر N', even when no equipment was chosen yet (the author is known; others come from the draft)", async () => {
+    const draft = draftOf({ payload: { report_type_id: 5, description: "x", participants: [{ user_id: 2, minutes: 30 }, { user_id: 3, name: "سعید احمدی", minutes: 15 }] } });
+    mockFetch(routes({}, { drafts: [draft] }));
+    renderApp("/reports/new");
+    await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
+    const r1 = screen.getByRole("group", { name: "ردیف 1" });
+    const r2 = screen.getByRole("group", { name: "ردیف 2" });
+    expect(within(r1).getByRole("combobox", { name: "نام فرد" })).toHaveValue("علی رضایی"); // the signed-in author
+    expect(within(r2).getByRole("combobox", { name: "نام فرد" })).toHaveValue("سعید احمدی"); // remembered in the draft
+    expect(screen.queryByDisplayValue(/کاربر \d/)).not.toBeInTheDocument();
   });
 
   it("drops restored equipment that is no longer available instead of submitting a stale id", async () => {

@@ -122,7 +122,7 @@ export function toDraftPayload(s: FormState): DraftPayload {
     report_type_id: s.typeId === "" ? null : s.typeId,
     event_datetime: when ? when.toISOString() : null,
     description: s.description || null,
-    participants: s.labor.map((r) => ({ user_id: r.userId, minutes: Math.min(Math.max(rowMinutes(r) ?? 0, 0), MAX_MINUTES) })),
+    participants: s.labor.map((r) => ({ user_id: r.userId, name: r.name || null, minutes: Math.min(Math.max(rowMinutes(r) ?? 0, 0), MAX_MINUTES) })),
   };
 }
 
@@ -134,7 +134,8 @@ export function isBlank(s: FormState): boolean {
 
 /**
  * Draft -> form. Ids in a draft are untrusted: equipment is re-resolved by the caller (it may have been moved or
- * deactivated since), and names of participants are looked up the same way, so unknown ones are dropped upstream.
+ * deactivated since). Names come from the server lookup when possible, else from the name remembered in the draft
+ * (display only; submit sends ids), else a placeholder.
  */
 export function fromDraftPayload(p: DraftPayload, resolve: { equipment: EquipmentOption | null; names: Record<number, string> }, now: Date = new Date()): FormState {
   const base = emptyState(p.event_datetime ? new Date(p.event_datetime) : now);
@@ -145,7 +146,7 @@ export function fromDraftPayload(p: DraftPayload, resolve: { equipment: Equipmen
     typeId: p.report_type_id ?? "",
     description: p.description ?? "",
     labor: (p.participants ?? []).map((x) => ({
-      key: newRowKey(), userId: x.user_id, name: x.user_id !== null ? resolve.names[x.user_id] ?? `کاربر ${x.user_id}` : "",
+      key: newRowKey(), userId: x.user_id, name: x.user_id !== null ? resolve.names[x.user_id] ?? x.name ?? `کاربر ${x.user_id}` : "",
       ...(x.minutes > 0 ? splitMinutes(x.minutes) : { hours: "", minutes: "" }),
     })),
     laborOpened: (p.participants ?? []).length > 0,

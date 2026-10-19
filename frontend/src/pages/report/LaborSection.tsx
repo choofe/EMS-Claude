@@ -1,4 +1,5 @@
-import { Alert, Button, IconButton, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { useState } from "react";
+import { Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import type { LaborMode } from "../../api/types";
@@ -15,6 +16,8 @@ export function LaborSection(p: {
   context: { equipment_id?: number; group_id?: number } | null; author: { id: number; full_name: string };
   authorRemoved: boolean; maxMinutes: number; error?: string;
 }) {
+  const [confirming, setConfirming] = useState<LaborRow | null>(null);
+  const remove = (r: LaborRow) => p.onChange(p.rows.filter((x) => x.key !== r.key), r);
   const set = (key: string, patch: Partial<LaborRow>) => p.onChange(p.rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const taken = p.rows.map((r) => r.userId).filter((x): x is number => x !== null);
   const authorMissing = p.authorRemoved && !taken.includes(p.author.id);
@@ -45,7 +48,7 @@ export function LaborSection(p: {
                   slotProps={{ htmlInput: { inputMode: "numeric", dir: "ltr", "aria-label": `ساعت ${r.name || i + 1}` } }} />
                 <TextField size="small" label="دقیقه" value={r.minutes} onChange={(e) => set(r.key, { minutes: e.target.value })} sx={{ width: 90 }}
                   slotProps={{ htmlInput: { inputMode: "numeric", dir: "ltr", "aria-label": `دقیقه ${r.name || i + 1}` } }} />
-                <Tooltip title="حذف ردیف"><IconButton aria-label={`حذف ردیف ${i + 1}`} onClick={() => p.onChange(p.rows.filter((x) => x.key !== r.key), r)}><DeleteIcon /></IconButton></Tooltip>
+                <Tooltip title="حذف ردیف"><IconButton aria-label={`حذف ردیف ${i + 1}`} onClick={() => (r.userId === p.author.id ? setConfirming(r) : remove(r))}><DeleteIcon /></IconButton></Tooltip>
               </Stack>
               <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center">
                 {PRESETS.map((x) => (
@@ -64,6 +67,16 @@ export function LaborSection(p: {
         <Button startIcon={<AddIcon />} onClick={() => p.onChange([...p.rows, { key: newRowKey(), userId: null, name: "", hours: "", minutes: "" }])}>افزودن نفر</Button>
         {p.rows.length > 1 && <Typography variant="body2">جمع کل: {formatMinutes(total)}</Typography>}
       </Stack>
+      <Dialog open={confirming !== null} onClose={() => setConfirming(null)} aria-labelledby="confirm-self-remove">
+        <DialogTitle id="confirm-self-remove">حذف خودتان از فهرست ساعت‌ها؟</DialogTitle>
+        <DialogContent>
+          <DialogContentText>شما تولیدکنندهٔ این گزارش هستید. اگر خودتان را حذف کنید، ساعت کار شما در این گزارش ثبت نمی‌شود. مطمئن هستید؟</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirming(null)} autoFocus>انصراف</Button>
+          <Button color="warning" onClick={() => { if (confirming) remove(confirming); setConfirming(null); }}>بله، حذف شود</Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 }

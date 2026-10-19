@@ -59,6 +59,10 @@ DEFAULT_LABOR_MINUTES = IntSettingSpec(
     "DEFAULT_LABOR_MINUTES", 30, 1, 1440, "ساعت کار پیش‌فرض تولیدکننده گزارش (دقیقه) برای انواع گزارشِ «ساعت الزامی»",
     "Minutes pre-filled for the report's author in the labor section of a report type whose labor is REQUIRED.",
 )
+REPORT_USER_PARTICIPANTS_ALL_USERS = IntSettingSpec(
+    "REPORT_USER_PARTICIPANTS_ALL_USERS", 0, 0, 1, "کاربر عادی می‌تواند هر کاربر سازمان را شرکت‌کننده گزارش کند (۱ = بله، ۰ = فقط اعضای گروه گزارش)",
+    "1: a USER may list any active user as a report participant (e.g. a helper from another group). 0: only members of the report's group.",
+)
 REPORT_EXPERT_PARTICIPANTS_ALL_USERS = IntSettingSpec(
     "REPORT_EXPERT_PARTICIPANTS_ALL_USERS", 1, 0, 1, "کارشناس می‌تواند هر کاربر سازمان را شرکت‌کننده گزارش کند (۱ = بله، ۰ = فقط اعضای گروه گزارش)",
     "1: an EXPERT may list any active user as a report participant. 0: only members of the report's group. "
@@ -75,6 +79,7 @@ REGISTRY: dict[str, IntSettingSpec] = {
         LOGIN_MAX_ATTEMPTS_PER_IP,
         MAX_DRAFTS_PER_USER,
         DEFAULT_LABOR_MINUTES,
+        REPORT_USER_PARTICIPANTS_ALL_USERS,
         REPORT_EXPERT_PARTICIPANTS_ALL_USERS,
     )
 }
@@ -140,14 +145,16 @@ async def get_report_edit_window_hours(db: AsyncSession) -> int | None:
 class ReportEntryPolicy:
     max_drafts_per_user: int
     expert_participants_all_users: bool
+    user_participants_all_users: bool
     default_labor_minutes: int
 
 
 async def get_report_entry_policy(db: AsyncSession) -> ReportEntryPolicy:
-    raw = await _raw_values(db, [MAX_DRAFTS_PER_USER.key, REPORT_EXPERT_PARTICIPANTS_ALL_USERS.key, DEFAULT_LABOR_MINUTES.key])
+    raw = await _raw_values(db, [MAX_DRAFTS_PER_USER.key, REPORT_EXPERT_PARTICIPANTS_ALL_USERS.key, REPORT_USER_PARTICIPANTS_ALL_USERS.key, DEFAULT_LABOR_MINUTES.key])
     return ReportEntryPolicy(
         max_drafts_per_user=resolve(MAX_DRAFTS_PER_USER, raw.get(MAX_DRAFTS_PER_USER.key)),
         default_labor_minutes=resolve(DEFAULT_LABOR_MINUTES, raw.get(DEFAULT_LABOR_MINUTES.key)),
+        user_participants_all_users=bool(resolve(REPORT_USER_PARTICIPANTS_ALL_USERS, raw.get(REPORT_USER_PARTICIPANTS_ALL_USERS.key))),
         expert_participants_all_users=bool(
             resolve(REPORT_EXPERT_PARTICIPANTS_ALL_USERS, raw.get(REPORT_EXPERT_PARTICIPANTS_ALL_USERS.key))
         ),

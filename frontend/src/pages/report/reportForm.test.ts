@@ -123,9 +123,17 @@ describe("drafts", () => {
     expect(back.equipment?.id).toBe(9);
     expect(back.labor[0]).toMatchObject({ userId: 7, name: "علی", hours: "1", minutes: "30" });
   });
+  it("a participant's name is remembered in the draft and used when the server cannot resolve it (server name wins)", () => {
+    const payload = toDraftPayload(ok({ labor: [authorRow(author, 90)] }));
+    expect(payload.participants![0]).toMatchObject({ user_id: 7, name: "علی", minutes: 90 });
+    const offline = fromDraftPayload(payload, { equipment: null, names: {} }, NOW);
+    expect(offline.labor[0].name).toBe("علی"); // no lookup possible (e.g. no equipment yet): stored name, not "کاربر 7"
+    const renamed = fromDraftPayload(payload, { equipment: null, names: { 7: "علی رضایی" } }, NOW);
+    expect(renamed.labor[0].name).toBe("علی رضایی");
+  });
   it("a half-filled form is a valid draft (incomplete labor row, no equipment, bad date)", () => {
     const s = ok({ equipment: null, dateText: "garbage", labor: [{ key: "k", userId: null, name: "", hours: "", minutes: "" }] });
-    expect(toDraftPayload(s)).toMatchObject({ equipment_id: null, event_datetime: null, participants: [{ user_id: null, minutes: 0 }] });
+    expect(toDraftPayload(s)).toMatchObject({ equipment_id: null, event_datetime: null, participants: [{ user_id: null, name: null, minutes: 0 }] });
   });
   it("unknown participants fall back to a placeholder name; equipment that no longer resolves is dropped", () => {
     const back = fromDraftPayload({ equipment_id: 9, group_id: 1, participants: [{ user_id: 99, minutes: 15 }] }, { equipment: null, names: {} }, NOW);

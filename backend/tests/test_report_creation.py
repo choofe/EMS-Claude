@@ -159,6 +159,22 @@ async def test_expert_participant_scope_is_a_setting(api, db, world, rtype):
     assert (await api.post("/reports", "boss", json=body(world, rtype, participants=outsider))).status_code == 201
 
 
+async def test_user_participant_scope_is_a_setting_and_independent_of_the_expert_one(api, db, world, rtype):
+    helper = [{"user_id": world.omid.id, "minutes": 60}]  # Omid is in DOOR; the report is in ELV
+    r = await api.post("/reports", "ali", json=body(world, rtype, participants=helper))
+    assert r.status_code == 422  # default 0: USER stays inside the report's group
+    names = lambda x: sorted(c["full_name"] for c in x.json())  # noqa: E731
+    assert "Omid" not in names(await api.get(f"/reports/participant-candidates?equipment_id={world.e1.id}", "ali"))
+    await set_setting(db, "REPORT_USER_PARTICIPANTS_ALL_USERS", 1)
+    assert (await api.post("/reports", "ali", json=body(world, rtype, participants=helper))).status_code == 201
+    assert "Omid" in names(await api.get(f"/reports/participant-candidates?equipment_id={world.e1.id}", "ali"))
+    # turning the USER setting off must not affect EXPERT (own setting, default on) and vice versa
+    await db.execute(m.SystemSetting.__table__.update().where(m.SystemSetting.key == "REPORT_USER_PARTICIPANTS_ALL_USERS").values(value="0"))
+    await set_setting(db, "REPORT_EXPERT_PARTICIPANTS_ALL_USERS", 0)
+    assert (await api.post("/reports", "ali", json=body(world, rtype, participants=helper))).status_code == 422
+    assert (await api.post("/reports", "exp", json=body(world, rtype, participants=helper))).status_code == 422
+
+
 async def test_event_time_rules(api, world, rtype):
     soon = (NOW() + timedelta(minutes=4)).isoformat()
     assert (await api.post("/reports", "ali", json=body(world, rtype, event_datetime=soon))).status_code == 201
@@ -211,6 +227,14 @@ async def test_draft_limit_is_a_setting(api, db, world):
     assert (await api.post("/reports/drafts", "ali", json=DRAFT)).status_code == 201
     assert (await api.post("/reports/drafts", "ali", json=DRAFT)).status_code == 409
     assert (await api.post("/reports/drafts", "exp", json=DRAFT)).status_code == 201  # limit is per user
+
+
+async def test_draft_keeps_participant_display_names(api, world):
+    payload = {"payload": {"participants": [{"user_id": world.ali.id, "name": "علی رضایی", "minutes": 30}]}}
+    d = await api.post("/reports/drafts", "ali", json=payload)
+    assert d.status_code == 201 and d.json()["payload"]["participants"][0]["name"] == "علی رضایی"
+    too_long = {"payload": {"participants": [{"user_id": 1, "name": "x" * 129, "minutes": 1}]}}
+    assert (await api.put(f"/reports/drafts/{d.json()['id']}", "ali", json={**too_long, "version": 1})).status_code == 422
 
 
 async def test_drafts_are_private(api, world):

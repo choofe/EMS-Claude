@@ -50,8 +50,10 @@ FUTURE_TOLERANCE = timedelta(minutes=5)  # approved 2026-10-16: clock skew betwe
 def participant_filter(principal: Principal, policy: ReportEntryPolicy, group_id: int):
     """WHERE-clause of users that `principal` may list as participants of a report in `group_id`."""
     active = User.is_active.is_(True)
-    unrestricted = principal.scope(Capability.REPORT_CREATE) is Scope.ALL or (
-        principal.role_code == "EXPERT" and policy.expert_participants_all_users
+    unrestricted = (
+        principal.scope(Capability.REPORT_CREATE) is Scope.ALL
+        or (principal.role_code == "EXPERT" and policy.expert_participants_all_users)
+        or (principal.role_code == "USER" and policy.user_participants_all_users)
     )
     if unrestricted:
         return active
