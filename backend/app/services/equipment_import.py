@@ -15,18 +15,20 @@ batch — the single exception to "never hard-delete", allowed only while NO equ
 history (no report of any kind, active or soft-deleted), nothing was moved to another group, and only for
 Management. The batch row and an audit row (with the deleted codes) remain.
 """
+import asyncio
 import hashlib
 import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
 from app.core.normalize import canonical_equipment_code, clean_text
+from app.models.audit_log import AuditLog
 from app.models.equipment import Equipment
 from app.models.group import Group
 from app.models.import_batch import EquipmentImportBatch
@@ -127,7 +129,8 @@ async def _active_group(db: AsyncSession, group_id: int, *, lock: bool) -> Group
 
 
 async def _analyse(db: AsyncSession, group: Group, filename: str, data: bytes) -> tuple[dict, list[ValidRow]]:
-    parsed = parse_upload(filename, data)
+    # CPU-bound (zip + XML): keep it off the event loop so one big upload cannot stall every other request.
+    parsed = await asyncio.to_thread(parse_upload, filename, data)
     valid: list[ValidRow] = []
     errors: list[dict] = []
     first_seen: dict[str, int] = {}
@@ -216,10 +219,14 @@ async def _batch_stats(db: AsyncSession, batch_ids: list[int]) -> dict[int, dict
                                     .where(Equipment.import_batch_id.in_(batch_ids))
                                     .group_by(Equipment.import_batch_id))).all():
         stats[bid]["reports"] = n
+    # "moved" = away from the batch's group NOW, or EVER moved (audit row): moving it out and back must not restore
+    # undo eligibility. Every group change goes through the audited move endpoint.
+    ever_moved = exists().where(AuditLog.entity_type == "equipment", AuditLog.entity_id == Equipment.id,
+                                AuditLog.action == "equipment.move")
     for bid, n in (await db.execute(select(Equipment.import_batch_id, func.count(Equipment.id))
                                     .join(EquipmentImportBatch, EquipmentImportBatch.id == Equipment.import_batch_id)
                                     .where(Equipment.import_batch_id.in_(batch_ids),
-                                           Equipment.group_id != EquipmentImportBatch.group_id)
+                                           or_(Equipment.group_id != EquipmentImportBatch.group_id, ever_moved))
                                     .group_by(Equipment.import_batch_id))).all():
         stats[bid]["moved"] = n
     return stats
@@ -247,6 +254,16 @@ async def list_batches(db: AsyncSession, *, limit: int, offset: int) -> tuple[li
     return items, total
 
 
+async def _batch_has_reports(db: AsyncSession, batch_id: int) -> DomainError:
+    """One response contract for 'cannot undo: reports exist', whether the guard or the FK caught it."""
+    report_count = (await _batch_stats(db, [batch_id]))[batch_id]["reports"]
+    codes = (await db.execute(
+        select(Equipment.equipment_code).join(Report, Report.equipment_id == Equipment.id)
+        .where(Equipment.import_batch_id == batch_id).distinct().order_by(Equipment.equipment_code).limit(20)
+    )).scalars().all()
+    return DomainError("batch_has_reports", 409, report_count=report_count, equipment_codes=list(codes))
+
+
 async def undo_batch(db: AsyncSession, *, actor_id: int, batch_id: int) -> dict:
     batch = (await db.execute(select(EquipmentImportBatch).where(EquipmentImportBatch.id == batch_id)
                               .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
@@ -261,11 +278,7 @@ async def undo_batch(db: AsyncSession, *, actor_id: int, batch_id: int) -> dict:
         raise DomainError("batch_empty", 409)
     stats = (await _batch_stats(db, [batch_id]))[batch_id]
     if stats["reports"]:
-        with_reports = (await db.execute(
-            select(Equipment.equipment_code).join(Report, Report.equipment_id == Equipment.id)
-            .where(Equipment.import_batch_id == batch_id).distinct().order_by(Equipment.equipment_code).limit(20)
-        )).scalars().all()
-        raise DomainError("batch_has_reports", 409, report_count=stats["reports"], equipment_codes=with_reports)
+        raise await _batch_has_reports(db, batch_id)
     if stats["moved"]:
         raise DomainError("batch_equipment_moved", 409, moved_count=stats["moved"])
     codes = [e.equipment_code for e in equipment]
@@ -278,7 +291,7 @@ async def undo_batch(db: AsyncSession, *, actor_id: int, batch_id: int) -> dict:
         await db.commit()
     except IntegrityError:  # a report referencing one of them appeared concurrently: the FK is the last line of defence
         await db.rollback()
-        raise DomainError("batch_has_reports", 409)
+        raise await _batch_has_reports(db, batch_id)
     return {"batch_id": batch_id, "deleted_count": len(codes)}
 
 

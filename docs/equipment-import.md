@@ -43,7 +43,8 @@ File-level errors (nothing is imported): `unsupported_file_type`, `file_too_larg
 Every import is a batch (`equipment_import_batches`; `equipment.import_batch_id`). `undo` **hard-deletes** the batch's equipment — the
 single, deliberate exception to "never hard-delete history" — and only when ALL hold:
 * no report exists for any of its equipment (soft-deleted reports count too) → else `409 batch_has_reports`;
-* none of its equipment was moved to another group → else `409 batch_equipment_moved`;
+* none of its equipment was ever moved to another group (current group differs, or an `equipment.move` audit row exists —
+  moving it out and back does not count as "never moved") → else `409 batch_equipment_moved`;
 * the batch was not already undone (`409 batch_already_undone`).
 The batch row stays (`undone_at`, `undone_by`) and an audit row `equipment.import_undo` lists the deleted codes. The FK
 `reports.equipment_id … ON DELETE RESTRICT` is the last line of defence against a report appearing concurrently.
@@ -55,6 +56,20 @@ A single wrongly-typed code can therefore be fixed by: undo the batch → correc
   before `openpyxl` sees it. `defusedxml` is a hard dependency (XML entity bombs / XXE); formulas are never evaluated.
 * Concurrent identical imports: the unique constraint decides; the loser gets `import_conflict` / `nothing_to_import` and nothing is persisted.
 * A reverse proxy in front of the API should also cap request bodies (Phase 12).
+* xlsx members refused as macros/active content: `vbaProject*`, `xl/activeX/`, `xl/embeddings/`. Other binary members are
+  allowed: Excel itself writes `xl/printerSettings/printerSettings1.bin` into ordinary workbooks.
+* Parsing (CPU-bound) runs in a worker thread, off the event loop.
+
+## Accepted limitations (independent review, 2026-10-17)
+* **No rate limit on the import endpoints.** They need an authenticated MANAGEMENT user and every request is bounded
+  (size, rows, uncompressed size), so the risk is accepted for the MVP; abuse limiting belongs to Phase 12 (reverse proxy).
+  Login brute-force protection already exists (Phase 3).
+* `import_conflict` (409) is a normal, fail-closed answer when two imports create the same code at the same moment; the
+  unique constraint decides, nothing is persisted.
+* The group dropdown loads the first 100 active groups (API page limit). Fine for the expected number of groups; revisit
+  if an organisation ever has more.
+* Undo is allowed while the group is inactive (it removes equipment, not the group).
+* An import file with more than 50 000 physical rows (even blank ones) is refused as `too_many_rows`.
 
 ## Frontend
 `/equipment/import` (MANAGEMENT only; nav item "ورود گروهی تجهیزات"): choose group → choose file → "بررسی فایل" → preview with Persian
