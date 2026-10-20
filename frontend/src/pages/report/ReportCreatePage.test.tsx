@@ -411,9 +411,27 @@ describe("drafts and heartbeat", () => {
     await userEvent.type(screen.getByLabelText("شرح گزارش"), "!"); // typing while the request is pending schedules an autosave
     expect(await screen.findByText(/گزارش ثبت شد/, undefined, { timeout: 5000 })).toBeInTheDocument();
     await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
-    expect(posts(m, "/reports/drafts")).toHaveLength(0);
+    expect(posts(m, "/reports/drafts")).toHaveLength(1); // exactly the one made before the submit, none created by typing during it
     expect(posts(m, "/reports")).toHaveLength(1);
   }, 15_000);
+
+  it("a first-time submit still goes through a draft, so a retry after a lost response cannot create a second report", async () => {
+    let n = 0;
+    const m = mockFetch(routes({
+      "POST /reports": () => (++n === 1 ? json(503, {}) : json(404, { detail: "draft_not_found" })), // 1st: response lost; 2nd: server already consumed the draft
+    }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt();
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    expect(posts(m, "/reports/drafts")).toHaveLength(1);
+    expect(posts(m, "/reports")[0].body).toMatchObject({ draft_id: 1 });
+    await userEvent.click(await screen.findByRole("button", { name: "ثبت گزارش" }));
+    expect(await screen.findByText(/پیش‌نویس پیدا نشد؛ ممکن است قبلاً ثبت یا حذف شده باشد/)).toBeInTheDocument();
+    expect(posts(m, "/reports")[1].body).toMatchObject({ draft_id: 1 }); // same draft id on the retry
+  });
 
   it("discarding the restored draft deletes it on the server and starts clean", async () => {
     const m = mockFetch(routes({ "DELETE /reports/drafts/1": () => json(204) }, { drafts: [draftOf({ payload: { description: "قدیمی" } })] }));

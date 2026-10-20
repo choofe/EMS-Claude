@@ -56,4 +56,4 @@ Server-side table `report_drafts` (`user_id`, JSON `payload`, `version`). A draf
 ## Future (not built)
 - Report types restricted per group (needs a `report_type_groups` mapping + admin UI); today all active types are offered to everyone.
 - Phase 7 must handle `equipment_id IS NULL` in report detail/lists and add the "general" tag/filter (`is_general`).
-- Idempotency key for submissions made without a draft (the UI always submits from a draft).
+- Idempotency key for API clients that submit without a draft (the web UI always submits from a draft, creating one first if needed).

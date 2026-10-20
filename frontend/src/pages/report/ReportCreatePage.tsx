@@ -176,6 +176,14 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
     clearTimeout(timer.current);
     setSubmitting(true);
     await chain.current; // let an in-flight save finish so we submit from its draft
+    if (!draftRef.current) {
+      // Always submit FROM a draft: the server consumes it in the same transaction, so a retry after a lost response
+      // (flaky mall Wi-Fi) answers "draft not found" instead of silently creating a second report with doubled hours.
+      try {
+        const d = await reportsApi.createDraft(toDraftPayload(form));
+        draftRef.current = { id: d.id, version: d.version };
+      } catch { /* e.g. draft limit held by another tab, or offline: submit without the retry protection */ }
+    }
     try {
       const report = await reportsApi.create(buildCreateBody(form, type, draftRef.current?.id ?? null));
       draftRef.current = null; // consumed by the server in the same transaction
