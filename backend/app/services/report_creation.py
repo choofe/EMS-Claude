@@ -9,8 +9,9 @@ creation rolls the counter back with everything else.
 
 Everything is re-validated here whatever the client (or a draft) says:
   * equipment must be in the caller's REPORT_CREATE scope and active (not-yours == missing -> 404); it may be
-    omitted only for types with equipment_required = false, then an explicit in-scope group is required;
-  * labor rules follow the type's labor_mode (REQUIRED >=1 / OPTIONAL / ON_REQUEST / NONE none);
+    omitted only for types whose equipment_mode is not REQUIRED (NONE rejects equipment altogether), then an explicit in-scope
+    group is required;
+  * labor rules follow the type's labor_mode (REQUIRED >=1 / OPTIONAL any / NONE none);
   * reports.group_id is a snapshot of equipment.group_id taken now; the FOR SHARE lock stops a concurrent
     equipment move from changing it between our read and our insert;
   * participants: active users only, each at most once, and eligible per `participant_filter` (the single
@@ -19,7 +20,7 @@ Everything is re-validated here whatever the client (or a draft) says:
 """
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -170,8 +171,10 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
     if not rtype.is_active:
         raise DomainError("report_type_inactive", 409)
 
+    if equipment is not None and rtype.equipment_mode == "NONE":
+        raise DomainError("equipment_not_allowed", 422)
     if equipment is None:
-        if rtype.equipment_required:
+        if rtype.equipment_mode == "REQUIRED":
             raise DomainError("equipment_required", 422)
         group = await _group_for_report(db, principal, body.group_id, lock=True)
 
@@ -191,20 +194,21 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
     if rejected:
         raise DomainError("participant_not_allowed", 422, user_ids=rejected)
 
-    if body.draft_id is not None:  # lock + consume the draft: a double-submit finds it gone -> 404, no 2nd report
+    if body.draft_id is not None:  # lock the named draft: a double-submit finds it gone -> 404, no 2nd report
         draft = (await db.execute(select(ReportDraft).where(ReportDraft.id == body.draft_id,
                                                             ReportDraft.user_id == principal.user_id)
                                   .with_for_update())).scalar_one_or_none()
         if draft is None:
             raise DomainError("draft_not_found", 404)
-        await db.delete(draft)
+    # Whatever was submitted, the author's draft(s) are consumed in the same transaction (one draft per user).
+    await db.execute(delete(ReportDraft).where(ReportDraft.user_id == principal.user_id))
 
     year = jalali_year(now)
     number = await _next_number(db, group.id, year)
     report = Report(
         report_number=f"{report_year_prefix(year)}-{group.code}-{number:03d}",
         equipment_id=equipment.id if equipment else None, group_id=group.id,  # group_id: frozen snapshot
-        report_type_id=rtype.id, is_general=not rtype.equipment_required, event_datetime=event, report_jalali_year=year,
+        report_type_id=rtype.id, is_general=rtype.equipment_mode != "REQUIRED", event_datetime=event, report_jalali_year=year,
         created_by=principal.user_id, description=description, created_at=now,
     )
     db.add(report)

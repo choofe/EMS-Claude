@@ -55,7 +55,7 @@ class Report(TimestampMixin, SoftDeleteMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     report_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
 
-    # NULL only for "general" reports (type.equipment_required = False); see ck_reports_equipment_or_general.
+    # NULL only for "general" reports (type.equipment_mode != REQUIRED); see ck_reports_equipment_or_general.
     equipment_id: Mapped[int | None] = mapped_column(
         ForeignKey("equipment.id", ondelete="RESTRICT"), nullable=True, index=True
     )

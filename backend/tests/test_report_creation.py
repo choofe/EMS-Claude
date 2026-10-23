@@ -221,12 +221,21 @@ async def test_draft_lifecycle_and_limit(api, db, world):
     assert (await api.get("/reports/drafts", "ali")).json() == []
 
 
-async def test_draft_limit_is_a_setting(api, db, world):
-    await set_setting(db, "MAX_DRAFTS_PER_USER", 2)
+async def test_a_user_holds_exactly_one_draft_and_limits_are_per_user(api, db, world):
     assert (await api.post("/reports/drafts", "ali", json=DRAFT)).status_code == 201
-    assert (await api.post("/reports/drafts", "ali", json=DRAFT)).status_code == 201
-    assert (await api.post("/reports/drafts", "ali", json=DRAFT)).status_code == 409
-    assert (await api.post("/reports/drafts", "exp", json=DRAFT)).status_code == 201  # limit is per user
+    second = await api.post("/reports/drafts", "ali", json=DRAFT)
+    assert second.status_code == 409 and second.json()["detail"]["code"] == "draft_limit_reached"
+    assert (await api.post("/reports/drafts", "exp", json=DRAFT)).status_code == 201  # per user
+    assert "MAX_DRAFTS_PER_USER" not in {x["key"] for x in (await api.get("/settings", "boss")).json()}  # no setting any more
+
+
+async def test_submitting_any_report_deletes_all_of_the_authors_drafts(api, db, world, rtype):
+    other = (await api.post("/reports/drafts", "exp", json=DRAFT)).json()["id"]
+    mine = (await api.post("/reports/drafts", "ali", json=DRAFT)).json()["id"]
+    # no draft_id at all (e.g. another client): the author's draft is still consumed, nobody else's
+    assert (await api.post("/reports", "ali", json=body(world, rtype))).status_code == 201
+    assert (await api.get(f"/reports/drafts/{mine}", "ali")).status_code == 404
+    assert (await api.get(f"/reports/drafts/{other}", "exp")).status_code == 200
 
 
 async def test_draft_keeps_participant_display_names(api, world):
@@ -327,9 +336,8 @@ async def test_db_rejects_duplicate_labor_row_and_bad_minutes(db, world):
 
 
 # ------------------------------------------------------------------ labor modes and general reports (2026-10-16)
-async def mk_type(db, code, labor_mode="REQUIRED", equipment_required=True):
-    rt = m.ReportType(code=code, name_fa=code, is_failure=False, labor_mode=labor_mode,
-                      equipment_required=equipment_required)
+async def mk_type(db, code, labor_mode="REQUIRED", equipment_mode="REQUIRED"):
+    rt = m.ReportType(code=code, name_fa=code, is_failure=False, labor_mode=labor_mode, equipment_mode=equipment_mode)
     db.add(rt)
     await db.commit()
     return rt
@@ -342,8 +350,7 @@ def general(world, rt, **over):
     return data
 
 
-@pytest.mark.parametrize("mode,empty_ok,with_ok", [("REQUIRED", False, True), ("OPTIONAL", True, True),
-                                                   ("ON_REQUEST", True, True), ("NONE", True, False)])
+@pytest.mark.parametrize("mode,empty_ok,with_ok", [("REQUIRED", False, True), ("OPTIONAL", True, True), ("NONE", True, False)])
 async def test_labor_modes(api, db, world, mode, empty_ok, with_ok):
     rt = await mk_type(db, f"T_{mode}", labor_mode=mode)
     empty = await api.post("/reports", "ali", json=body(world, rt, participants=[]))
@@ -357,7 +364,7 @@ async def test_labor_modes(api, db, world, mode, empty_ok, with_ok):
 
 
 async def test_general_report_without_equipment(api, db, world):
-    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_required=False)
+    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_mode="OPTIONAL")
     r = await api.post("/reports", "ali", json=general(world, rt))
     assert r.status_code == 201, r.text
     j = r.json()
@@ -371,7 +378,7 @@ async def test_general_report_without_equipment(api, db, world):
 
 
 async def test_general_and_equipment_reports_share_one_sequence_per_group(api, db, world, rtype):
-    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_required=False)
+    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_mode="OPTIONAL")
     a = await api.post("/reports", "ali", json=body(world, rtype))
     b = await api.post("/reports", "ali", json=general(world, rt))
     c = await api.post("/reports", "ali", json=body(world, rtype))
@@ -379,7 +386,7 @@ async def test_general_and_equipment_reports_share_one_sequence_per_group(api, d
 
 
 async def test_equipment_may_still_be_attached_to_a_general_type(api, db, world):
-    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_required=False)
+    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_mode="OPTIONAL")
     r = await api.post("/reports", "ali", json=general(world, rt, equipment_id=world.e1.id, group_id=None))
     assert r.status_code == 201 and r.json()["equipment_code"] == "ELV-1" and r.json()["is_general"] is True
     mismatch = await api.post("/reports", "ali", json=general(world, rt, equipment_id=world.e1.id, group_id=world.door.id))
@@ -392,7 +399,7 @@ async def test_equipment_is_still_required_for_normal_types(api, world, rtype):
 
 
 async def test_general_report_needs_an_explicit_group_inside_the_callers_scope(api, db, world):
-    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_required=False)
+    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_mode="OPTIONAL")
     none = await api.post("/reports", "ali", json=general(world, rt, group_id=None))
     assert none.status_code == 422 and none.json()["detail"] == "group_required"
     foreign = await api.post("/reports", "ali", json=general(world, rt, group_id=world.door.id))
@@ -409,7 +416,7 @@ async def test_general_report_needs_an_explicit_group_inside_the_callers_scope(a
 
 
 async def test_participant_rules_use_the_explicit_group_for_general_reports(api, db, world):
-    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_required=False)
+    rt = await mk_type(db, "GENERAL", labor_mode="OPTIONAL", equipment_mode="OPTIONAL")
     outsider = [{"user_id": world.omid.id, "minutes": 10}]
     r = await api.post("/reports", "ali", json=general(world, rt, participants=outsider))
     assert r.status_code == 422 and r.json()["detail"]["code"] == "participant_not_allowed"
@@ -437,7 +444,7 @@ async def test_entry_config(api, db, world):
 
 
 async def test_quick_pick_ignores_equipmentless_reports(api, db, world, rtype):
-    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_required=False)
+    rt = await mk_type(db, "GENERAL", labor_mode="NONE", equipment_mode="OPTIONAL")
     await api.post("/reports", "ali", json=general(world, rt))
     assert (await api.get("/reports/equipment-quick-pick", "ali")).json() == {"recent": [], "frequent": []}
 
@@ -457,24 +464,47 @@ async def test_db_rejects_equipmentless_report_unless_general(db, world):
 
 
 # ------------------------------------------------------------------ report-type admin
-async def test_type_admin_labor_mode_and_equipment_required(api, db, world):
+async def test_type_admin_three_modes_and_help_text(api, db, world):
     created = await api.post("/report-types", "boss", json={"code": "spare_part_request", "name_fa": "درخواست قطعه",
-                                                            "labor_mode": "ON_REQUEST", "equipment_required": False})
+                             "labor_mode": "OPTIONAL", "equipment_mode": "NONE", "help_fa": "  برای درخواست قطعه   یدکی  "})
     assert created.status_code == 201, created.text
     j = created.json()
-    assert j["code"] == "SPARE_PART_REQUEST" and j["labor_mode"] == "ON_REQUEST" and j["equipment_required"] is False
+    assert j["code"] == "SPARE_PART_REQUEST" and j["labor_mode"] == "OPTIONAL" and j["equipment_mode"] == "NONE"
+    assert j["help_fa"] == "برای درخواست قطعه یدکی"
     defaults = await api.post("/report-types", "boss", json={"code": "plain", "name_fa": "ساده"})
-    assert defaults.json()["labor_mode"] == "REQUIRED" and defaults.json()["equipment_required"] is True
-    assert (await api.post("/report-types", "boss", json={"code": "bad", "name_fa": "x", "labor_mode": "SOMETIMES"})).status_code == 422
+    assert defaults.json()["labor_mode"] == "REQUIRED" and defaults.json()["equipment_mode"] == "REQUIRED" and defaults.json()["help_fa"] is None
+    for bad in ({"labor_mode": "ON_REQUEST"}, {"labor_mode": "SOMETIMES"}, {"equipment_mode": "MAYBE"}, {"equipment_required": False},
+                {"help_fa": "x" * 301}):
+        assert (await api.post("/report-types", "boss", json={"code": "bad", "name_fa": "x", **bad})).status_code == 422, bad
     assert (await api.post("/report-types", "ali", json={"code": "z", "name_fa": "x", "labor_mode": "NONE"})).status_code == 403
     # editable even when reports already use the type (unlike is_failure)
     rt = await mk_type(db, "USED")
     await api.post("/reports", "ali", json=body(world, rt))
-    up = await api.patch(f"/report-types/{rt.id}", "boss", json={"labor_mode": "OPTIONAL", "equipment_required": False})
-    assert up.status_code == 200 and up.json()["labor_mode"] == "OPTIONAL" and up.json()["equipment_required"] is False
+    up = await api.patch(f"/report-types/{rt.id}", "boss", json={"labor_mode": "OPTIONAL", "equipment_mode": "OPTIONAL", "help_fa": "راهنما"})
+    assert up.status_code == 200 and up.json()["labor_mode"] == "OPTIONAL" and up.json()["equipment_mode"] == "OPTIONAL"
     log = (await db.execute(select(m.AuditLog).where(m.AuditLog.action == "report_type.update"))).scalars().all()[-1]
-    assert log.metadata_json["changes"] == {"labor_mode": ["REQUIRED", "OPTIONAL"], "equipment_required": [True, False]}
+    assert log.metadata_json["changes"] == {"help_fa": [None, "راهنما"], "labor_mode": ["REQUIRED", "OPTIONAL"], "equipment_mode": ["REQUIRED", "OPTIONAL"]}
+    cleared = await api.patch(f"/report-types/{rt.id}", "boss", json={"help_fa": None})
+    assert cleared.status_code == 200 and cleared.json()["help_fa"] is None
     assert (await api.patch(f"/report-types/{rt.id}", "boss", json={"labor_mode": None})).status_code == 422
     assert (await api.patch(f"/report-types/{rt.id}", "aud", json={"labor_mode": "NONE"})).status_code == 403
     listed = (await api.get("/report-types", "ali")).json()
-    assert {"labor_mode", "equipment_required"} <= set(listed[0])
+    assert {"labor_mode", "equipment_mode", "help_fa"} <= set(listed[0]) and "equipment_required" not in listed[0]
+
+
+async def test_equipment_none_rejects_equipment_and_needs_a_group(api, db, world):
+    rt = await mk_type(db, "LETTER", labor_mode="NONE", equipment_mode="NONE")
+    r = await api.post("/reports", "ali", json=general(world, rt, equipment_id=world.e1.id, group_id=None))
+    assert r.status_code == 422 and r.json()["detail"] == "equipment_not_allowed"
+    assert (await api.post("/reports", "ali", json=general(world, rt, group_id=None))).json()["detail"] == "group_required"
+    ok = await api.post("/reports", "ali", json=general(world, rt))
+    assert ok.status_code == 201 and ok.json()["is_general"] is True and ok.json()["equipment_id"] is None
+
+
+async def test_optional_equipment_may_be_given_or_omitted(api, db, world):
+    rt = await mk_type(db, "FLEX", labor_mode="OPTIONAL", equipment_mode="OPTIONAL")
+    with_eq = await api.post("/reports", "ali", json=general(world, rt, equipment_id=world.e1.id, group_id=None))
+    without = await api.post("/reports", "ali", json=general(world, rt))
+    assert with_eq.status_code == without.status_code == 201
+    assert with_eq.json()["equipment_code"] == "ELV-1" and without.json()["equipment_code"] is None
+    assert with_eq.json()["is_general"] is without.json()["is_general"] is True

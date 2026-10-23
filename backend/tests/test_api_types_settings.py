@@ -68,7 +68,7 @@ async def test_settings_list_defaults_and_permissions(api, world):
     by_key = {s["key"]: s for s in r.json()}
     assert set(by_key) == {"REPORT_EDIT_WINDOW_HOURS", "PASSWORD_MIN_LENGTH", "LOGIN_MAX_ATTEMPTS",
                            "LOGIN_LOCKOUT_MINUTES", "LOGIN_MAX_ATTEMPTS_PER_IP",
-                           "MAX_DRAFTS_PER_USER", "DEFAULT_LABOR_MINUTES",
+                           "DEFAULT_LABOR_MINUTES",
                            "REPORT_USER_PARTICIPANTS_ALL_USERS", "REPORT_EXPERT_PARTICIPANTS_ALL_USERS"}
     w = by_key["REPORT_EDIT_WINDOW_HOURS"]
     assert (w["value"], w["default"], w["minimum"], w["maximum"], w["special_values"], w["is_default"]) == (24, 24, 0, 720, [-1], True)

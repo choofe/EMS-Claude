@@ -215,7 +215,7 @@ async def test_creation_waits_for_an_in_flight_equipment_move_and_uses_the_new_g
 async def test_mixed_general_and_equipment_reports_share_gapless_numbering(committed_engine):
     maker, gid, eid, tid, users = await seed(committed_engine, n_users=1)
     async with maker() as s:
-        gen = m.ReportType(code="GEN_PG", name_fa="g", is_failure=False, labor_mode="NONE", equipment_required=False)
+        gen = m.ReportType(code="GEN_PG", name_fa="g", is_failure=False, labor_mode="NONE", equipment_mode="OPTIONAL")
         s.add(gen)
         await s.commit()
         gen_id = gen.id
@@ -239,7 +239,7 @@ async def test_group_deactivation_vs_general_report_creation(committed_engine):
     """A general report takes FOR SHARE on its group: it either commits before a deactivation or sees it inactive."""
     maker, gid, eid, tid, users = await seed(committed_engine, n_users=1)
     async with maker() as s:
-        gen = m.ReportType(code="GEN_PG2", name_fa="g", is_failure=False, labor_mode="NONE", equipment_required=False)
+        gen = m.ReportType(code="GEN_PG2", name_fa="g", is_failure=False, labor_mode="NONE", equipment_mode="OPTIONAL")
         s.add(gen)
         await s.commit()
         gen_id = gen.id

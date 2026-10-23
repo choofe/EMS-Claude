@@ -9,7 +9,7 @@ from app.core.password_policy import MAX_PASSWORD_LENGTH
 
 T = TypeVar("T")
 
-LaborMode = Literal["REQUIRED", "OPTIONAL", "ON_REQUEST", "NONE"]
+Mode = Literal["REQUIRED", "OPTIONAL", "NONE"]  # labor and equipment share one rule set
 
 MAX_OFFSET = 100_000  # deep OFFSETs make PostgreSQL walk that many rows; use keyset pagination if data ever outgrows this
 
@@ -123,8 +123,9 @@ class ReportTypeOut(BaseModel):
     code: str
     name_fa: str
     is_failure: bool
-    labor_mode: LaborMode
-    equipment_required: bool
+    labor_mode: Mode
+    equipment_mode: Mode
+    help_fa: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -134,15 +135,17 @@ class ReportTypeCreate(Request):
     code: str = Field(min_length=1, max_length=32)
     name_fa: str = Field(min_length=1, max_length=128)
     is_failure: bool = False
-    labor_mode: LaborMode = "REQUIRED"
-    equipment_required: bool = True
+    labor_mode: Mode = "REQUIRED"
+    equipment_mode: Mode = "REQUIRED"
+    help_fa: str | None = Field(default=None, max_length=300)
 
 
 class ReportTypeUpdate(Request):
     name_fa: str | None = Field(default=None, max_length=128)
     is_failure: bool | None = None
-    labor_mode: LaborMode | None = None
-    equipment_required: bool | None = None
+    labor_mode: Mode | None = None
+    equipment_mode: Mode | None = None
+    help_fa: str | None = Field(default=None, max_length=300)  # explicit null clears it
 
 
 # ---- settings

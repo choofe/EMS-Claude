@@ -10,7 +10,8 @@ from app.core.permissions import Principal
 from app.models.report_draft import ReportDraft
 from app.models.user import User
 from app.schemas.reports import DraftPayload
-from app.services.runtime_settings import get_report_entry_policy
+
+MAX_DRAFTS_PER_USER = 1  # decided 2026-10-22: one draft at a time (lifting it later needs no migration)
 
 
 def view(d: ReportDraft) -> dict:
@@ -45,7 +46,7 @@ async def create_draft(db: AsyncSession, principal: Principal, payload: DraftPay
     # Serialise this user's creates: two simultaneous requests must not both pass the limit check.
     # FOR NO KEY UPDATE conflicts with itself but not with the FK checks other inserts do on the user row.
     await db.execute(select(User.id).where(User.id == principal.user_id).with_for_update(key_share=True))
-    limit = (await get_report_entry_policy(db)).max_drafts_per_user
+    limit = MAX_DRAFTS_PER_USER
     count = (await db.execute(select(func.count()).select_from(ReportDraft)
                               .where(ReportDraft.user_id == principal.user_id))).scalar_one()
     if count >= limit:

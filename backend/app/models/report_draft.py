@@ -9,8 +9,8 @@ import-undo where physical deletion is intended, because a draft carries no hist
 `payload` holds the raw form values (ids and text only). Nothing in it is trusted: submitting a report
 re-validates every field (equipment scope, active type, participants, ...) exactly as if no draft existed.
 
-How many drafts a user may hold is the runtime setting MAX_DRAFTS_PER_USER (default 1), NOT a unique
-constraint — raising the limit later needs no migration.
+A user holds at most ONE draft (2026-10-22 decision, enforced in the service under a user-row lock, not by a unique
+constraint, so lifting the limit later needs no migration).
 
 `version` is an optimistic-lock counter: a save must quote the version it last saw, so two open tabs cannot
 silently overwrite each other.

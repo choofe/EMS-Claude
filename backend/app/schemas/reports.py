@@ -22,7 +22,7 @@ class ParticipantIn(_Request):
 
 
 class ReportCreate(_Request):
-    equipment_id: int | None = None  # may be omitted only for report types with equipment_required = false
+    equipment_id: int | None = None  # may be omitted only for report types whose equipment_mode is not REQUIRED
     group_id: int | None = None  # required exactly when equipment_id is omitted; must match the equipment's group otherwise
     report_type_id: int
     event_datetime: AwareDatetime
