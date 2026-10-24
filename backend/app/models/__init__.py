@@ -16,6 +16,7 @@ from app.models.report_type import ReportType  # noqa: F401
 from app.models.report_sequence import ReportSequence  # noqa: F401
 from app.models.report import Report  # noqa: F401
 from app.models.report_participant import ReportParticipant  # noqa: F401
+from app.models.report_draft import ReportDraft  # noqa: F401
 from app.models.system_setting import SystemSetting  # noqa: F401
 from app.models.audit_log import AuditLog  # noqa: F401
 from app.models.refresh_token import RefreshToken  # noqa: F401
@@ -32,6 +33,7 @@ __all__ = [
     "ReportSequence",
     "Report",
     "ReportParticipant",
+    "ReportDraft",
     "SystemSetting",
     "AuditLog",
     "RefreshToken",
