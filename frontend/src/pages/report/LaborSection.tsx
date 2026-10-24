@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
-import type { LaborMode } from "../../api/types";
+import type { Mode } from "../../api/types";
 import { formatMinutes, splitMinutes } from "../../lib/labor";
 import { newRowKey, rowMinutes, type LaborRow } from "./reportForm";
 import { PersonPicker } from "./pickers";
@@ -12,7 +12,7 @@ const PRESETS: { label: string; minutes: number }[] = [
 ];
 
 export function LaborSection(p: {
-  mode: LaborMode; rows: LaborRow[]; onChange: (rows: LaborRow[], removed?: LaborRow) => void;
+  mode: Mode; rows: LaborRow[]; onChange: (rows: LaborRow[], removed?: LaborRow) => void;
   context: { equipment_id?: number; group_id?: number } | null; author: { id: number; full_name: string };
   authorRemoved: boolean; maxMinutes: number; error?: string;
 }) {

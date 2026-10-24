@@ -45,7 +45,7 @@ Excel/CSV import per group with preview, error report and undo: see `docs/equipm
 
 Create reports with server-side drafts, gap-free numbering, per-type labor rules and "general" (equipment-less) reports:
 see `docs/report-creation.md` (API) and the "Report entry page" section of `docs/frontend.md`. Run `alembic upgrade head`
-(migrations `f6c3d9a7b104`, `a7d4e1b8c215`). Page: `/reports/new`.
+(migrations `f6c3d9a7b104`, `a7d4e1b8c215`, `b8e5f2a9c326`). Page: `/reports/new`.
 
 ### Management API (Phase 4a)
 

@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Candidate, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, LaborMode, QuickPick, ReportCreateBody, ReportCreated, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Candidate, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -55,9 +55,9 @@ export const equipmentApi = {
 
 export const reportTypesApi = {
   list: (include_inactive: boolean) => request<ReportType[]>("/report-types", { query: { include_inactive } }),
-  create: (body: { code: string; name_fa: string; is_failure: boolean; labor_mode: LaborMode; equipment_required: boolean }) =>
+  create: (body: { code: string; name_fa: string; is_failure: boolean; labor_mode: Mode; equipment_mode: Mode; help_fa: string | null }) =>
     request<ReportType>("/report-types", { method: "POST", body }),
-  update: (id: number, body: { name_fa?: string; is_failure?: boolean; labor_mode?: LaborMode; equipment_required?: boolean }) =>
+  update: (id: number, body: { name_fa?: string; is_failure?: boolean; labor_mode?: Mode; equipment_mode?: Mode; help_fa?: string | null }) =>
     request<ReportType>(`/report-types/${id}`, { method: "PATCH", body }),
   setActive: (id: number, active: boolean) =>
     request<ReportType>(`/report-types/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" }),

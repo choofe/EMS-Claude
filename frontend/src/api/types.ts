@@ -66,14 +66,16 @@ export interface ReportType {
   code: string;
   name_fa: string;
   is_failure: boolean;
-  labor_mode: LaborMode;
-  equipment_required: boolean;
+  labor_mode: Mode;
+  equipment_mode: Mode;
+  help_fa: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export type LaborMode = "REQUIRED" | "OPTIONAL" | "ON_REQUEST" | "NONE";
+/** Labor hours and equipment share one rule set per report type: required / optional (added on request) / none. */
+export type Mode = "REQUIRED" | "OPTIONAL" | "NONE";
 
 /** Report entry (docs/report-creation.md). */
 export interface EntryConfig {

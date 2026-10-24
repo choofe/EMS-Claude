@@ -14,7 +14,7 @@ const cfg = (o: Partial<EntryConfig> = {}): EntryConfig => ({
   default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5,
   groups: [{ id: 1, code: "ELV", name: "آسانسور" }], ...o,
 });
-const rtype = (o: Partial<ReportType> = {}): ReportType => ({ id: 5, code: "MINOR", name_fa: "تعمیر خرابی جزئی", is_failure: true, labor_mode: "REQUIRED", equipment_required: true, is_active: true, created_at: ts, updated_at: ts, ...o });
+const rtype = (o: Partial<ReportType> = {}): ReportType => ({ id: 5, code: "MINOR", name_fa: "تعمیر خرابی جزئی", is_failure: true, labor_mode: "REQUIRED", equipment_mode: "REQUIRED", help_fa: null, is_active: true, created_at: ts, updated_at: ts, ...o });
 const equip = { id: 9, equipment_code: "ELV-001", group_id: 1, group_code: "ELV", group_name: "آسانسور", description: "آسانسور شمالی", is_active: true, created_at: ts, updated_at: ts };
 const ali = makeUser({ id: 2, username: "ali", full_name: "علی رضایی", role_code: "USER", role_label_fa: "کاربر", group_ids: [1] });
 const draftOf = (o: Partial<Draft> = {}): Draft => ({ id: 1, payload: {}, version: 1, created_at: ts, updated_at: ts, ...o });
@@ -36,8 +36,7 @@ function routes(over: Record<string, (c: never) => Response | Promise<Response>>
 }
 
 async function chooseType(name: string) {
-  await userEvent.click(await screen.findByRole("combobox", { name: "نوع گزارش" }));
-  await userEvent.click(await screen.findByRole("option", { name }));
+  await userEvent.click(await screen.findByRole("radio", { name: new RegExp(name) }));
 }
 async function chooseEquipment() {
   const box = await screen.findByRole("combobox", { name: /^تجهیز/ });
@@ -233,8 +232,8 @@ describe("report entry page", () => {
     expect(screen.queryByText(/این افراد در گروه جدید مجاز نیستند/)).not.toBeInTheDocument();
   });
 
-  it("ON_REQUEST: the labor section is hidden until the optional button is pressed, then the author is pre-filled", async () => {
-    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }, { types: [rtype({ id: 6, name_fa: "گزارش تفصیلی", labor_mode: "ON_REQUEST" })] }));
+  it("OPTIONAL labor: hidden until the optional button is pressed, then the author is pre-filled; empty is fine", async () => {
+    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }, { types: [rtype({ id: 6, name_fa: "گزارش تفصیلی", labor_mode: "OPTIONAL" })] }));
     renderApp("/reports/new");
     await chooseType("گزارش تفصیلی");
     await chooseEquipment();
@@ -245,29 +244,40 @@ describe("report entry page", () => {
     await userEvent.click(screen.getByRole("button", { name: "حذف ردیف 1" }));
     await userEvent.click(await screen.findByRole("button", { name: "بله، حذف شود" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" })); // optional: empty is fine
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
     await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
     expect((posts(m, "/reports")[0].body as { participants: unknown }).participants).toEqual([]);
   });
 
-  it("OPTIONAL: section visible, not pre-filled, may stay empty", async () => {
-    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }, { types: [rtype({ labor_mode: "OPTIONAL" })] }));
+  it("OPTIONAL equipment: hidden behind «افزودن تجهیز - اختیاری»; without it a group is needed and group_id is sent; with it equipment_id", async () => {
+    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }, { types: [rtype({ id: 8, name_fa: "گزارش تفصیلی", equipment_mode: "OPTIONAL", labor_mode: "NONE" })] }));
     renderApp("/reports/new");
-    await chooseType("تعمیر خرابی جزئی");
-    expect(await screen.findByRole("group", { name: "ساعت کار افراد" })).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "ردیف 1" })).not.toBeInTheDocument();
-    await chooseEquipment();
+    await chooseType("گزارش تفصیلی");
+    expect(screen.queryByRole("combobox", { name: /^تجهیز/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "گروه" })).toHaveTextContent("آسانسور (ELV)"); // the only group, preselected
     await describeIt();
     await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
     await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    expect(posts(m, "/reports")[0].body).toMatchObject({ group_id: 1 });
+    expect(posts(m, "/reports")[0].body).not.toHaveProperty("equipment_id");
+    await userEvent.click(await screen.findByRole("button", { name: "ثبت گزارش جدید" }));
+    await chooseType("گزارش تفصیلی");
+    await userEvent.click(await screen.findByRole("button", { name: "افزودن تجهیز - اختیاری" }));
+    await chooseEquipment();
+    expect(screen.queryByRole("combobox", { name: "گروه" })).not.toBeInTheDocument(); // equipment decides the group
+    await describeIt();
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(2));
+    expect(posts(m, "/reports")[1].body).toMatchObject({ equipment_id: 9 });
   });
 
-  it("general type with NONE labor: equipment optional, group preselected when it is the only one, no labor section, sends group_id", async () => {
+  it("general type with NONE labor and NONE equipment: no equipment field, group preselected when it is the only one, no labor section, sends group_id", async () => {
     const m = mockFetch(routes({ "POST /reports": () => json(201, { ...created, equipment_id: null, equipment_code: null, is_general: true }) },
-      { types: [rtype({ id: 7, name_fa: "درخواست قطعه یدکی", labor_mode: "NONE", equipment_required: false })] }));
+      { types: [rtype({ id: 7, name_fa: "درخواست قطعه یدکی", labor_mode: "NONE", equipment_mode: "NONE" })] }));
     renderApp("/reports/new");
     await chooseType("درخواست قطعه یدکی");
-    expect(screen.getByRole("combobox", { name: "تجهیز (اختیاری)" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /^تجهیز/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "افزودن تجهیز - اختیاری" })).not.toBeInTheDocument();
     expect(await screen.findByRole("combobox", { name: "گروه" })).toHaveTextContent("آسانسور (ELV)");
     expect(screen.queryByRole("group", { name: "ساعت کار افراد" })).not.toBeInTheDocument();
     await describeIt("نیاز به بلبرینگ");
@@ -324,17 +334,19 @@ describe("drafts and heartbeat", () => {
   it("the manual button saves the draft to the server at once and shows the status", async () => {
     const m = mockFetch(routes());
     renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
     await describeIt("شروع شرح");
     await userEvent.click(screen.getByRole("button", { name: "ذخیرهٔ پیش‌نویس" }));
     expect(await screen.findByText(/پیش‌نویس ذخیره شد/)).toBeInTheDocument();
     const body = posts(m, "/reports/drafts")[0].body as { payload: Record<string, unknown> };
-    expect(body.payload).toMatchObject({ description: "شروع شرح", equipment_id: null, report_type_id: null });
+    expect(body.payload).toMatchObject({ description: "شروع شرح", equipment_id: null, report_type_id: 5 });
     expect(typeof body.payload.event_datetime).toBe("string");
   });
 
   it("autosaves ~1.5 s after the last edit: first a POST, later edits PUT with the version it last saw", async () => {
     const m = mockFetch(routes({ "PUT /reports/drafts/1": () => json(200, draftOf({ version: 2 })) }));
     renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
     await describeIt("الف");
     await waitFor(() => expect(posts(m, "/reports/drafts")).toHaveLength(1), { timeout: 4000 });
     await userEvent.type(screen.getByLabelText("شرح گزارش"), "ب");
@@ -345,7 +357,7 @@ describe("drafts and heartbeat", () => {
   it("does not create a draft for an untouched form", async () => {
     const m = mockFetch(routes());
     renderApp("/reports/new");
-    await screen.findByRole("combobox", { name: "نوع گزارش" });
+    await screen.findByRole("radiogroup", { name: "نوع گزارش" });
     await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
     expect(posts(m, "/reports/drafts")).toHaveLength(0);
   });
@@ -390,7 +402,7 @@ describe("drafts and heartbeat", () => {
   });
 
   it("a stale save (another tab changed the draft) halts autosave, says so, and never overwrites", async () => {
-    const m = mockFetch(routes({ "PUT /reports/drafts/1": () => json(409, { detail: { code: "draft_version_conflict", current_version: 5 } }) }, { drafts: [draftOf({ payload: { description: "a" } })] }));
+    const m = mockFetch(routes({ "PUT /reports/drafts/1": () => json(409, { detail: { code: "draft_version_conflict", current_version: 5 } }) }, { drafts: [draftOf({ payload: { description: "a", report_type_id: 5 } })] }));
     renderApp("/reports/new");
     await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
     await userEvent.type(screen.getByLabelText("شرح گزارش"), "z");
@@ -445,7 +457,7 @@ describe("drafts and heartbeat", () => {
     let fail = false;
     const m = mockFetch(routes({ "POST /reports/heartbeat": () => (fail ? json(503, {}) : json(200, { ok: true, server_time: ts })) }));
     renderApp("/reports/new");
-    await screen.findByRole("combobox", { name: "نوع گزارش" });
+    await screen.findByRole("radiogroup", { name: "نوع گزارش" });
     await act(async () => { await vi.advanceTimersByTimeAsync(HEARTBEAT_MS + 100); });
     expect(m.count("POST /reports/heartbeat")).toBe(1);
     fail = true;
@@ -454,6 +466,157 @@ describe("drafts and heartbeat", () => {
     fail = false;
     await act(async () => { await vi.advanceTimersByTimeAsync(HEARTBEAT_MS); });
     await waitFor(() => expect(screen.queryByText(/ارتباط با سرور قطع است/)).not.toBeInTheDocument());
+  });
+});
+
+describe("fixes found in Amin's PC test", () => {
+  const eqDraft = (o: Record<string, unknown> = {}) => draftOf({ payload: { report_type_id: 5, equipment_id: 9, description: "قدیمی", participants: [{ user_id: 2, minutes: 30 }], ...o } });
+
+  it("discarding the restored draft needs ONE click: the old text and banner are gone at once (no stale data while reloading)", async () => {
+    let deleted = false;
+    const m = mockFetch(routes({
+      "GET /reports/drafts": () => json(200, deleted ? [] : [draftOf({ payload: { report_type_id: 5, description: "قدیمی" } })]),
+      "DELETE /reports/drafts/1": () => { deleted = true; return json(204); },
+    }));
+    renderApp("/reports/new");
+    await userEvent.click(await screen.findByRole("button", { name: "دورانداختن پیش‌نویس" }));
+    await waitFor(() => expect(m.count("DELETE /reports/drafts/1")).toBe(1));
+    expect(await screen.findByRole("radiogroup", { name: "نوع گزارش" })).toBeInTheDocument(); // fresh, empty form: type chooser again
+    expect(screen.queryByText("پیش‌نویس قبلی شما بازیابی شد.")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("شرح گزارش")).not.toBeInTheDocument();
+    expect(m.count("DELETE /reports/drafts/1")).toBe(1);
+  });
+
+  it("«بارگذاری نسخهٔ ذخیره‌شده» after a conflict shows the saved draft from the server, not the stale page", async () => {
+    let reloaded = false;
+    const m = mockFetch(routes({
+      "GET /reports/drafts": () => json(200, [reloaded ? draftOf({ version: 5, payload: { report_type_id: 5, description: "نسخهٔ تب دیگر" } }) : draftOf({ payload: { report_type_id: 5, description: "الف" } })]),
+      "PUT /reports/drafts/1": () => { reloaded = true; return json(409, { detail: { code: "draft_version_conflict", current_version: 5 } }); },
+    }));
+    renderApp("/reports/new");
+    await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
+    await userEvent.type(screen.getByLabelText("شرح گزارش"), "z");
+    await userEvent.click(await screen.findByRole("button", { name: "بارگذاری نسخهٔ ذخیره‌شده" }, { timeout: 4000 }));
+    await waitFor(() => expect(screen.getByLabelText("شرح گزارش")).toHaveValue("نسخهٔ تب دیگر"));
+    expect(m.calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+  }, 15_000);
+
+  it("a draft that another tab/device already submitted (404) is NEVER recreated by this stale tab", async () => {
+    const m = mockFetch(routes({
+      "GET /reports/drafts": () => json(200, [draftOf({ payload: { report_type_id: 5, description: "الف" } })]),
+      "PUT /reports/drafts/1": () => json(404, { detail: "draft_not_found" }),
+    }));
+    renderApp("/reports/new");
+    await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
+    await userEvent.type(screen.getByLabelText("شرح گزارش"), "x");
+    expect(await screen.findByText(/ثبت یا حذف شد/, undefined, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "شروع فرم جدید" })).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
+    expect(posts(m, "/reports/drafts")).toHaveLength(0);
+    expect(m.calls.filter((c) => c.method === "PUT")).toHaveLength(1); // and it stopped trying
+  }, 15_000);
+
+  it("only one draft exists: creating a second one (another device made it) is a conflict, not an error chip", async () => {
+    const m = mockFetch(routes({ "POST /reports/drafts": () => json(409, { detail: { code: "draft_limit_reached", limit: 1 } }) }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await describeIt("شروع");
+    await userEvent.click(screen.getByRole("button", { name: "ذخیرهٔ پیش‌نویس" }));
+    expect(await screen.findByText(/ذخیرهٔ خودکار متوقف شد تا نسخهٔ دیگر بازنویسی نشود/)).toBeInTheDocument();
+    expect(posts(m, "/reports/drafts")).toHaveLength(1);
+  });
+
+  it("OFFLINE: a never-answered autosave does not freeze the submit (it waits a bounded time, then submits)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const m = mockFetch(routes({
+      "GET /reports/drafts": () => json(200, [eqDraft()]),
+      "GET /equipment/9": () => json(200, equip),
+      "PUT /reports/drafts/1": () => new Promise<Response>(() => undefined), // the request never completes
+      "POST /reports": () => json(201, created),
+    }));
+    renderApp("/reports/new");
+    await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
+    await userEvent.type(screen.getByLabelText("شرح گزارش"), "x");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1700); }); // autosave fires and hangs
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    expect(posts(m, "/reports")).toHaveLength(0); // still waiting for the hung save...
+    await act(async () => { await vi.advanceTimersByTimeAsync(8200); });
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1)); // ...but not forever
+    expect(await screen.findByText(/گزارش ثبت شد/)).toBeInTheDocument();
+  }, 20_000);
+
+  it("hiding the page (switching app / locking the phone) saves the draft immediately instead of waiting for the debounce", async () => {
+    const m = mockFetch(routes());
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await describeIt("شرح نیمه");
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await waitFor(() => expect(posts(m, "/reports/drafts")).toHaveLength(1), { timeout: 800 }); // far below the 1.5 s debounce
+      expect((posts(m, "/reports/drafts")[0].body as { payload: { description: string } }).payload.description).toBe("شرح نیمه");
+    } finally {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    }
+  });
+});
+
+describe("type first, three modes", () => {
+  it("shows only the type chooser until a type is picked; every type lists its rules and a guide behind «؟»", async () => {
+    mockFetch(routes({}, { types: [rtype({ help_fa: "برای خرابی‌های کوچک" }), rtype({ id: 6, name_fa: "درخواست قطعه", labor_mode: "OPTIONAL", equipment_mode: "NONE", help_fa: null })] }));
+    renderApp("/reports/new");
+    expect(await screen.findByRole("radiogroup", { name: "نوع گزارش" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("شرح گزارش")).not.toBeInTheDocument();
+    expect(screen.getByText("ساعت کار: الزامی · تجهیز: الزامی")).toBeInTheDocument();
+    expect(screen.getByText("ساعت کار: اختیاری · تجهیز: ندارد")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "راهنمای تعمیر خرابی جزئی" }));
+    expect(screen.getByText(/برای خرابی‌های کوچک/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "راهنمای درخواست قطعه" }));
+    expect(screen.getByText(/راهنمای ویژه‌ای ثبت نشده/)).toBeInTheDocument();
+  });
+
+  it("highlights the last used type, and «تغییر نوع» brings the chooser back without losing what was typed", async () => {
+    localStorage.setItem("ems.lastReportType.2", "5");
+    mockFetch(routes());
+    renderApp("/reports/new");
+    expect(await screen.findByText("آخرین استفاده")).toBeInTheDocument();
+    await chooseType("تعمیر خرابی جزئی");
+    await describeIt("متن من");
+    await userEvent.click(screen.getByRole("button", { name: "تغییر نوع" }));
+    expect(await screen.findByRole("radiogroup", { name: "نوع گزارش" })).toBeInTheDocument();
+    await chooseType("تعمیر خرابی جزئی");
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("متن من");
+  });
+
+  it("switching to a type that hides labor/equipment says so, never sends the hidden data, and the button brings it back", async () => {
+    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }, { types: [rtype(), rtype({ id: 6, name_fa: "گزارش تفصیلی", labor_mode: "OPTIONAL", equipment_mode: "OPTIONAL" })] }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt();
+    expect(screen.getByRole("group", { name: "ردیف 1" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "تغییر نوع" }));
+    await chooseType("گزارش تفصیلی");
+    expect(await screen.findByText(/ساعت‌های واردشده در این نوع نمایش داده نمی‌شود/)).toBeInTheDocument();
+    expect(screen.getByText(/تجهیز انتخاب‌شده در این نوع نمایش داده نمی‌شود/)).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "ردیف 1" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /^تجهیز/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" })); // single group is preselected: submit works with nothing hidden sent
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    expect(posts(m, "/reports")[0].body).toMatchObject({ report_type_id: 6, group_id: 1, participants: [] });
+    expect(posts(m, "/reports")[0].body).not.toHaveProperty("equipment_id");
+  });
+
+  it("the previously entered labor comes back when the author asks for it on the OPTIONAL type", async () => {
+    mockFetch(routes({}, { types: [rtype(), rtype({ id: 6, name_fa: "گزارش تفصیلی", labor_mode: "OPTIONAL" })] }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await userEvent.click(screen.getByRole("button", { name: "تغییر نوع" }));
+    await chooseType("گزارش تفصیلی");
+    await userEvent.click(await screen.findByRole("button", { name: "اضافه کردن ساعات افراد - اختیاری" }));
+    const row = await screen.findByRole("group", { name: "ردیف 1" });
+    expect(within(row).getByRole("combobox", { name: "نام فرد" })).toHaveValue("علی رضایی");
+    expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(1); // not duplicated
   });
 });
 

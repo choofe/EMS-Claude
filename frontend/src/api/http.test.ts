@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, getAccessToken, request, refreshSession, setAccessToken, setSessionHandlers } from "./http";
+import { ApiError, getAccessToken, request, refreshSession, REQUEST_TIMEOUT_MS, setAccessToken, setSessionHandlers } from "./http";
 import { json, makeUser, mockFetch, resetClientState, tokenBody } from "../test/utils";
 
 beforeEach(() => resetClientState());
@@ -110,6 +110,25 @@ describe("request()", () => {
     await expect(request("/e")).rejects.toMatchObject({ code: "http_502" });
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
     await expect(request("/f")).rejects.toMatchObject({ status: 0, code: "network_error" });
+  });
+
+  it("a request that never answers fails with network_error after the timeout instead of hanging the UI", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise((_, reject) => {
+        init.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      })));
+      const result = request("/slow").catch((e) => e);
+      await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS - 1000);
+      let settled = false;
+      void result.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false); // still waiting just before the limit
+      await vi.advanceTimersByTimeAsync(1500);
+      await expect(result).resolves.toMatchObject({ status: 0, code: "network_error" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("204 responses resolve to undefined", async () => {

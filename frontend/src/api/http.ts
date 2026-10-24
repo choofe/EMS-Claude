@@ -51,11 +51,19 @@ async function toApiError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, code, detail, Number.isFinite(retry) && retry > 0 ? retry : undefined);
 }
 
-async function rawFetch(path: string, init: RequestInit): Promise<Response> {
+/** No request may hang the UI: a lost connection (phone in a lift, Wi-Fi dropped) must surface as an error, not as a frozen page. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+const TRANSFER_TIMEOUT_MS = 120_000; // file uploads / downloads
+
+async function rawFetch(path: string, init: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(`${API_BASE}${path}`, { credentials: "include", ...init });
+    return await fetch(`${API_BASE}${path}`, { credentials: "include", ...init, signal: controller.signal });
   } catch {
     throw new ApiError(0, "network_error");
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -115,7 +123,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
         ...(auth && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
       body: form ?? (body !== undefined ? JSON.stringify(body) : undefined),
-    });
+    }, form || blob ? TRANSFER_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
 
   let res = await send();
   if (res.status === 401 && auth) {
