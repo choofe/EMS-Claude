@@ -3,7 +3,7 @@ Every route needs REPORT_CREATE (USER/EXPERT within their groups, MANAGEMENT eve
 Report detail/history/editing are Phase 7 — add `/{report_id}` routes AFTER these static paths."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_principal, require_capability
@@ -19,9 +19,12 @@ _create = require_capability(C.REPORT_CREATE)
 
 
 @router.post("", response_model=ReportCreated, status_code=201)
-async def create_report(body: ReportCreate, principal: Principal = Depends(_create),
+async def create_report(body: ReportCreate, response: Response, principal: Principal = Depends(_create),
                         db: AsyncSession = Depends(get_db)) -> dict:
-    return await report_creation.create_report(db, principal, body)
+    created = await report_creation.create_report(db, principal, body)
+    if created["already_created"]:
+        response.status_code = 200  # same key as an earlier successful attempt: that report, not a new one
+    return created
 
 
 @router.get("/entry-config", response_model=EntryConfigOut)

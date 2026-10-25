@@ -142,6 +142,38 @@ async def _next_number(db: AsyncSession, group_id: int, year: int) -> int:
     )).scalar_one()
 
 
+async def _existing_by_key(db: AsyncSession, principal: Principal, key: str | None) -> dict | None:
+    """The report this author already created with this idempotency key, as the same response a fresh creation gives."""
+    if not key:
+        return None
+    report = (await db.execute(select(Report).where(Report.created_by == principal.user_id,
+                                                    Report.client_request_id == key))).scalar_one_or_none()
+    if report is None:
+        return None
+    equipment = (await db.get(Equipment, report.equipment_id)) if report.equipment_id else None
+    group = await db.get(Group, report.group_id)
+    rows = (await db.execute(select(ReportParticipant.user_id, User.full_name, ReportParticipant.minutes)
+                             .join(User, User.id == ReportParticipant.user_id)
+                             .where(ReportParticipant.report_id == report.id).order_by(ReportParticipant.id))).all()
+    return {
+        "id": report.id, "report_number": report.report_number,
+        "equipment_id": equipment.id if equipment else None, "equipment_code": equipment.equipment_code if equipment else None,
+        "group_id": group.id, "group_code": group.code, "report_type_id": report.report_type_id, "is_general": report.is_general,
+        "event_datetime": report.event_datetime, "created_at": report.created_at, "description": report.description,
+        "participants": [{"user_id": u, "full_name": n, "minutes": m} for u, n, m in rows], "already_created": True,
+    }
+
+
+async def _lost_race_or_conflict(db: AsyncSession, principal: Principal, body: ReportCreate) -> dict:
+    """Two attempts with the same key raced and the other one won: hand back ITS report (our transaction, including the
+    sequence increment, is rolled back). Anything else (unique report_number) is the last line of defence."""
+    await db.rollback()
+    winner = await _existing_by_key(db, principal, body.client_request_id)
+    if winner is not None:
+        return winner
+    raise DomainError("report_number_conflict", 409)
+
+
 async def create_report(db: AsyncSession, principal: Principal, body: ReportCreate) -> dict:
     try:
         return await _create(db, principal, body)
@@ -151,6 +183,9 @@ async def create_report(db: AsyncSession, principal: Principal, body: ReportCrea
 
 
 async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) -> dict:
+    earlier = await _existing_by_key(db, principal, body.client_request_id)  # a retry of an attempt that already succeeded
+    if earlier is not None:
+        return earlier
     now = datetime.now(timezone.utc)
     event = body.event_datetime.astimezone(timezone.utc)
     if event > now + FUTURE_TOLERANCE:
@@ -209,10 +244,13 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
         report_number=f"{report_year_prefix(year)}-{group.code}-{number:03d}",
         equipment_id=equipment.id if equipment else None, group_id=group.id,  # group_id: frozen snapshot
         report_type_id=rtype.id, is_general=rtype.equipment_mode != "REQUIRED", event_datetime=event, report_jalali_year=year,
-        created_by=principal.user_id, description=description, created_at=now,
+        created_by=principal.user_id, description=description, created_at=now, client_request_id=body.client_request_id,
     )
     db.add(report)
-    await db.flush()
+    try:
+        await db.flush()  # a unique violation (same author + key, or report_number) surfaces here, at INSERT time
+    except IntegrityError:
+        return await _lost_race_or_conflict(db, principal, body)
     for p in body.participants:
         db.add(ReportParticipant(report_id=report.id, user_id=p.user_id, minutes=p.minutes))
     add_audit(db, actor_id=principal.user_id, action="report.create", entity_type="report", entity_id=report.id,
@@ -224,8 +262,8 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
                         "from_draft": body.draft_id is not None})
     try:
         await db.commit()
-    except IntegrityError:  # unique(report_number) is the last line of defence; should be unreachable
-        raise DomainError("report_number_conflict", 409)
+    except IntegrityError:
+        return await _lost_race_or_conflict(db, principal, body)
 
     names = dict((await db.execute(select(User.id, User.full_name).where(User.id.in_(user_ids)))).all())
     return {
@@ -236,6 +274,7 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
         "description": report.description,
         "participants": [{"user_id": p.user_id, "full_name": names[p.user_id], "minutes": p.minutes}
                          for p in body.participants],
+        "already_created": False,
     }
 
 

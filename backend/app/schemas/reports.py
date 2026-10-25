@@ -29,6 +29,8 @@ class ReportCreate(_Request):
     description: str = Field(max_length=MAX_DESCRIPTION_LENGTH * 2)  # real limit enforced after trimming
     participants: list[ParticipantIn] = Field(default_factory=list, max_length=MAX_PARTICIPANTS)
     draft_id: int | None = None
+    # Idempotency key: the form makes one per submission attempt chain; the same key never creates a second report.
+    client_request_id: str | None = Field(default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class ParticipantOut(BaseModel):
@@ -50,6 +52,7 @@ class ReportCreated(BaseModel):
     created_at: datetime
     description: str
     participants: list[ParticipantOut]
+    already_created: bool = False  # True when the idempotency key matched a report created by an earlier attempt
 
 
 # ---- drafts: everything optional, minutes may be 0 while the form is half filled

@@ -508,3 +508,43 @@ async def test_optional_equipment_may_be_given_or_omitted(api, db, world):
     assert with_eq.status_code == without.status_code == 201
     assert with_eq.json()["equipment_code"] == "ELV-1" and without.json()["equipment_code"] is None
     assert with_eq.json()["is_general"] is without.json()["is_general"] is True
+
+
+# ------------------------------------------------------------------ idempotency key (2026-10-24)
+KEY = "form-7f3a9c21-b4d0"
+
+
+async def test_same_key_returns_the_same_report_and_creates_nothing_new(api, db, world, rtype):
+    first = await api.post("/reports", "ali", json=body(world, rtype, client_request_id=KEY))
+    again = await api.post("/reports", "ali", json=body(world, rtype, client_request_id=KEY))
+    assert first.status_code == 201 and again.status_code == 200, again.text
+    assert first.json()["already_created"] is False and again.json()["already_created"] is True
+    assert again.json()["id"] == first.json()["id"] and again.json()["report_number"] == first.json()["report_number"]
+    assert again.json()["participants"] == first.json()["participants"] and again.json()["description"] == first.json()["description"]
+    assert await count(db, m.Report) == 1 and await count(db, m.ReportParticipant) == 1
+    assert (await db.execute(select(func.count()).select_from(m.AuditLog).where(m.AuditLog.action == "report.create"))).scalar_one() == 1
+    nxt = await api.post("/reports", "ali", json=body(world, rtype))
+    assert nxt.json()["report_number"].endswith("-ELV-002")  # the retry burned no number
+
+
+async def test_a_retry_after_the_draft_was_consumed_still_returns_the_report(api, db, world, rtype):
+    did = (await api.post("/reports/drafts", "ali", json=DRAFT)).json()["id"]
+    first = await api.post("/reports", "ali", json=body(world, rtype, draft_id=did, client_request_id=KEY))
+    retry = await api.post("/reports", "ali", json=body(world, rtype, draft_id=did, client_request_id=KEY))  # draft is gone now
+    assert first.status_code == 201 and retry.status_code == 200 and retry.json()["id"] == first.json()["id"]
+    without_key = await api.post("/reports", "ali", json=body(world, rtype, draft_id=did))
+    assert without_key.status_code == 404 and without_key.json()["detail"] == "draft_not_found"  # the old protection still holds
+
+
+async def test_keys_are_per_author_and_a_failed_attempt_does_not_use_up_the_key(api, db, world, rtype):
+    bad = await api.post("/reports", "ali", json=body(world, rtype, equipment_id=world.d1.id, client_request_id=KEY))
+    assert bad.status_code == 404 and await count(db, m.Report) == 0
+    ok = await api.post("/reports", "ali", json=body(world, rtype, client_request_id=KEY))
+    assert ok.status_code == 201
+    other = await api.post("/reports", "exp", json=body(world, rtype, participants=[{"user_id": world.exp.id, "minutes": 5}], client_request_id=KEY))
+    assert other.status_code == 201 and other.json()["id"] != ok.json()["id"]  # same key text, different author: independent
+
+
+@pytest.mark.parametrize("key", ["short", "has space in it", "bad/char/key", "x" * 65])
+async def test_malformed_keys_are_rejected(api, world, rtype, key):
+    assert (await api.post("/reports", "ali", json=body(world, rtype, client_request_id=key))).status_code == 422

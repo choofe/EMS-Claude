@@ -41,7 +41,7 @@ report_participants / audit_logs rows still reference it.
 from datetime import datetime
 
 from sqlalchemy import false as sa_false
-from sqlalchemy import CheckConstraint, Boolean, DateTime, ForeignKey, Integer, String, Text, false
+from sqlalchemy import CheckConstraint, UniqueConstraint, Boolean, DateTime, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -50,10 +50,16 @@ from app.models.mixins import SoftDeleteMixin, TimestampMixin
 
 class Report(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "reports"
-    __table_args__ = (CheckConstraint("equipment_id IS NOT NULL OR is_general", name="equipment_or_general"),)
+    __table_args__ = (
+        CheckConstraint("equipment_id IS NOT NULL OR is_general", name="equipment_or_general"),
+        # Idempotency (2026-10-24): a retried submit (lost response, flaky Wi-Fi) quoting the same key returns the SAME report
+        # instead of creating a second one. NULLs (API clients that send no key) never collide.
+        UniqueConstraint("created_by", "client_request_id", name="uq_reports_created_by_client_request_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     report_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # NULL only for "general" reports (type.equipment_mode != REQUIRED); see ck_reports_equipment_or_general.
     equipment_id: Mapped[int | None] = mapped_column(

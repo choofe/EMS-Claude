@@ -265,3 +265,24 @@ async def test_group_deactivation_vs_general_report_creation(committed_engine):
     result = await asyncio.gather(task, return_exceptions=True)
     assert blocked, "creation must wait for the uncommitted group deactivation"
     assert isinstance(result[0], DomainError) and result[0].code == "group_inactive"
+
+
+async def test_parallel_submissions_with_one_key_create_exactly_one_report(committed_engine):
+    maker, gid, eid, tid, users = await seed(committed_engine, n_users=1)
+    uid, uname, fname = users[0]
+    p = Principal(user_id=uid, username=uname, full_name=fname, role_code="USER", role_label_fa="USER",
+                  group_ids=frozenset({gid}), must_change_password=False)
+
+    async def attempt():
+        async with maker() as s:
+            body = req(eid, tid, uid)
+            body.client_request_id = "parallel-key-0001"
+            return await report_creation.create_report(s, p, body)
+
+    results = await asyncio.gather(*[attempt() for _ in range(10)])
+    assert len({r["id"] for r in results}) == 1 and len({r["report_number"] for r in results}) == 1
+    assert sum(1 for r in results if not r["already_created"]) == 1  # exactly one real creation, nine echoes
+    async with maker() as s:
+        assert (await s.execute(select(func.count()).select_from(m.Report))).scalar_one() == 1
+        assert (await s.execute(select(func.sum(m.ReportParticipant.minutes)))).scalar_one() == 15  # hours never doubled
+        assert (await s.execute(select(m.ReportSequence.last_number))).scalar_one() == 1  # losers burned no number
