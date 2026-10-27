@@ -35,7 +35,7 @@ export function AppRoutes() {
         <Route path="/equipment" element={<EquipmentPage />} />
         <Route path="/equipment/import" element={<RequireRole check="management"><ImportPage /></RequireRole>} />
         <Route path="/reports/new" element={<RequireRole check="reporter"><ReportCreatePage /></RequireRole>} />
-        <Route path="/report-types" element={<ReportTypesPage />} />
+        <Route path="/report-types" element={<RequireRole check="admin-view"><ReportTypesPage /></RequireRole>} />
         <Route path="/settings" element={<RequireRole check="management"><SettingsPage /></RequireRole>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
 import type { Draft, EntryConfig, ReportType } from "../../api/types";
@@ -43,6 +43,7 @@ async function chooseEquipment() {
   await userEvent.click(box);
   await userEvent.click(await screen.findByRole("option", { name: /ELV-001/ }));
 }
+const pasteText = async (text: string) => { await userEvent.click(await screen.findByLabelText("شرح گزارش")); await userEvent.paste(text); };
 const describeIt = async (text = "تعویض بلبرینگ") => userEvent.type(await screen.findByLabelText("شرح گزارش"), text);
 const posts = (m: ReturnType<typeof mockFetch>, path: string) => m.calls.filter((c) => c.method === "POST" && c.path === path);
 
@@ -343,16 +344,44 @@ describe("drafts and heartbeat", () => {
     expect(typeof body.payload.event_datetime).toBe("string");
   });
 
-  it("autosaves ~1.5 s after the last edit: first a POST, later edits PUT with the version it last saw", async () => {
+  it("server saves follow the schedule: nothing for a few words, the first at 100 changed characters, later ones at fewer (70)", async () => {
     const m = mockFetch(routes({ "PUT /reports/drafts/1": () => json(200, draftOf({ version: 2 })) }));
     renderApp("/reports/new");
     await chooseType("تعمیر خرابی جزئی");
-    await describeIt("الف");
-    await waitFor(() => expect(posts(m, "/reports/drafts")).toHaveLength(1), { timeout: 4000 });
+    await pasteText("ا".repeat(99));
+    await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
+    expect(posts(m, "/reports/drafts")).toHaveLength(0); // 99 characters: not yet
     await userEvent.type(screen.getByLabelText("شرح گزارش"), "ب");
-    await waitFor(() => expect(m.calls.filter((c) => c.method === "PUT")).toHaveLength(1), { timeout: 4000 });
-    expect(m.calls.find((c) => c.method === "PUT")!.body).toMatchObject({ version: 1, payload: { description: "الفب" } });
-  });
+    await waitFor(() => expect(posts(m, "/reports/drafts")).toHaveLength(1), { timeout: 2500 }); // the 100th character
+    await pasteText("ج".repeat(69));
+    await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
+    expect(m.calls.filter((c) => c.method === "PUT")).toHaveLength(0); // 69 changed characters since the save: not yet
+    await userEvent.type(screen.getByLabelText("شرح گزارش"), "د");
+    await waitFor(() => expect(m.calls.filter((c) => c.method === "PUT")).toHaveLength(1), { timeout: 2500 });
+    expect(m.calls.find((c) => c.method === "PUT")!.body).toMatchObject({ version: 1 });
+  }, 20_000);
+
+  it("a short note is still saved by time: ~25 s after typing started (first), the floor later is ~10 s", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const m = mockFetch(routes());
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await describeIt("لامپ سوخته");
+    await act(async () => { await vi.advanceTimersByTimeAsync(24_000); });
+    expect(posts(m, "/reports/drafts")).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    await waitFor(() => expect(posts(m, "/reports/drafts")).toHaveLength(1));
+  }, 20_000);
+
+  it("choosing a type, equipment and people alone never creates a server draft — only report text does", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const m = mockFetch(routes());
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(posts(m, "/reports/drafts")).toHaveLength(0);
+  }, 20_000);
 
   it("does not create a draft for an untouched form", async () => {
     const m = mockFetch(routes());
@@ -405,10 +434,10 @@ describe("drafts and heartbeat", () => {
     const m = mockFetch(routes({ "PUT /reports/drafts/1": () => json(409, { detail: { code: "draft_version_conflict", current_version: 5 } }) }, { drafts: [draftOf({ payload: { description: "a", report_type_id: 5 } })] }));
     renderApp("/reports/new");
     await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
-    await userEvent.type(screen.getByLabelText("شرح گزارش"), "z");
+    await pasteText("z".repeat(25));
     expect(await screen.findByText(/ذخیرهٔ خودکار متوقف شد/, undefined, { timeout: 4000 })).toBeInTheDocument();
     const puts = m.calls.filter((c) => c.method === "PUT").length;
-    await userEvent.type(screen.getByLabelText("شرح گزارش"), "y");
+    await pasteText("y".repeat(25));
     await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
     expect(m.calls.filter((c) => c.method === "PUT")).toHaveLength(puts); // no further attempts
   });
@@ -495,7 +524,7 @@ describe("fixes found in Amin's PC test", () => {
     }));
     renderApp("/reports/new");
     await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
-    await userEvent.type(screen.getByLabelText("شرح گزارش"), "z");
+    await pasteText("z".repeat(25));
     await userEvent.click(await screen.findByRole("button", { name: "بارگذاری نسخهٔ ذخیره‌شده" }, { timeout: 4000 }));
     await waitFor(() => expect(screen.getByLabelText("شرح گزارش")).toHaveValue("نسخهٔ تب دیگر"));
     expect(m.calls.filter((c) => c.method === "PUT")).toHaveLength(1);
@@ -508,7 +537,7 @@ describe("fixes found in Amin's PC test", () => {
     }));
     renderApp("/reports/new");
     await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
-    await userEvent.type(screen.getByLabelText("شرح گزارش"), "x");
+    await pasteText("x".repeat(25));
     expect(await screen.findByText(/ثبت یا حذف شد/, undefined, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "شروع فرم جدید" })).toBeInTheDocument();
     await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
@@ -536,7 +565,7 @@ describe("fixes found in Amin's PC test", () => {
     }));
     renderApp("/reports/new");
     await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
-    await userEvent.type(screen.getByLabelText("شرح گزارش"), "x");
+    await pasteText("x".repeat(25));
     await act(async () => { await vi.advanceTimersByTimeAsync(1700); }); // autosave fires and hangs
     await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
     expect(posts(m, "/reports")).toHaveLength(0); // still waiting for the hung save...
@@ -558,6 +587,173 @@ describe("fixes found in Amin's PC test", () => {
     } finally {
       Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
     }
+  });
+});
+
+describe("device-local working copy, restore decisions, undo", () => {
+  const view = (o: Partial<{ id: number; version: number; description: string }> = {}) =>
+    draftOf({ id: o.id ?? 1, version: o.version ?? 1, updated_at: "2026-03-20T10:05:00", payload: { report_type_id: 5, description: o.description ?? "نسخه‌ی سرور" } });
+  const snap = (description: string, base: { draftId: number | null; version: number | null }, at = "2026-03-20T10:09:00Z") => ({
+    v: 1, userId: 2, savedAt: at, baseDraftId: base.draftId, baseVersion: base.version,
+    form: { equipment: null, groupId: "", typeId: 5, dateText: "1405/01/01", timeText: "10:00", description, labor: [], laborOpened: false, equipmentOpened: false, authorRemoved: false },
+  });
+  const putLocal = (value: unknown, key = "ems.reportForm.2") => localStorage.setItem(key, JSON.stringify(value));
+
+  it("what is typed survives a reload even though no server draft was ever made (a short note, offline, killed tab)", async () => {
+    const m = mockFetch(routes());
+    const first = renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await describeIt("لامپ راهرو سوخته");
+    await act(async () => { await new Promise((r) => setTimeout(r, 600)); }); // the local copy is written ~0.3 s after the last edit
+    expect(posts(m, "/reports/drafts")).toHaveLength(0);
+    first.unmount();
+    renderApp("/reports/new");
+    expect(await screen.findByText(/نسخه‌ی ذخیره‌نشده‌ی این دستگاه .* بازیابی شد/)).toBeInTheDocument();
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("لامپ راهرو سوخته");
+  });
+
+  it("AMIN'S OFFLINE CASE: edits made while the network was down are NOT replaced by the older server draft after a reload", async () => {
+    putLocal(snap("متن قدیمی و بخشی که آفلاین نوشتم", { draftId: 1, version: 1 })); // based on server draft v1, still v1 on the server
+    mockFetch(routes({}, { drafts: [view({ version: 1, description: "متن قدیمی" })] }));
+    renderApp("/reports/new");
+    expect(await screen.findByText(/نسخه‌ی ذخیره‌نشده‌ی این دستگاه/)).toBeInTheDocument();
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("متن قدیمی و بخشی که آفلاین نوشتم");
+  });
+
+  it("only a server draft (made on another device): restored automatically, nothing to lose", async () => {
+    mockFetch(routes({}, { drafts: [view()] }));
+    renderApp("/reports/new");
+    expect(await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.")).toBeInTheDocument();
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("نسخه‌ی سرور");
+  });
+
+  it("both exist and the server moved on (another device saved): the author chooses; the other version is kept and can be brought back", async () => {
+    putLocal(snap("نسخه‌ی این دستگاه", { draftId: 1, version: 1 }));
+    mockFetch(routes({}, { drafts: [view({ version: 3, description: "نسخه‌ی تازه‌ی سرور" })] }));
+    renderApp("/reports/new");
+    expect(await screen.findByText(/از این گزارش دو نسخه دارید/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("شرح گزارش")).not.toBeInTheDocument(); // nothing is shown (or saved) until the author decides
+    await userEvent.click(screen.getByRole("button", { name: /نسخه‌ی این دستگاه/ }));
+    expect(await screen.findByLabelText("شرح گزارش")).toHaveValue("نسخه‌ی این دستگاه");
+    expect(screen.getByText(/نسخه‌ی دیگری از این گزارش .* نگه داشته شده است/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "بازگرداندن" })); // undo: the server's version comes back
+    await waitFor(() => expect(screen.getByLabelText("شرح گزارش")).toHaveValue("نسخه‌ی تازه‌ی سرور"));
+    await userEvent.click(screen.getByRole("button", { name: "بازگرداندن" })); // and back again: nothing is ever lost
+    await waitFor(() => expect(screen.getByLabelText("شرح گزارش")).toHaveValue("نسخه‌ی این دستگاه"));
+  });
+
+  it("choosing the server version keeps this device's version for undo", async () => {
+    putLocal(snap("نسخه‌ی این دستگاه", { draftId: null, version: null })); // never reached the server, but a draft exists there
+    mockFetch(routes({}, { drafts: [view({ description: "نسخه‌ی سرور" })] }));
+    renderApp("/reports/new");
+    await userEvent.click(await screen.findByRole("button", { name: /نسخه‌ی سرور/ }));
+    expect(await screen.findByLabelText("شرح گزارش")).toHaveValue("نسخه‌ی سرور");
+    expect(JSON.parse(localStorage.getItem("ems.reportForm.undo.2")!).form.description).toBe("نسخه‌ی این دستگاه");
+    await userEvent.click(screen.getByRole("button", { name: "بازگرداندن" }));
+    await waitFor(() => expect(screen.getByLabelText("شرح گزارش")).toHaveValue("نسخه‌ی این دستگاه"));
+  });
+
+  it("a local copy built on a draft that no longer exists (submitted/deleted elsewhere) is restored but cannot be re-submitted by accident", async () => {
+    const gone = snap("ممکن است قبلاً ثبت شده باشد", { draftId: 9, version: 4 });
+    Object.assign(gone.form, { equipment: { id: 9, equipment_code: "ELV-001", group_id: 1, group_code: "ELV", description: null }, equipmentOpened: true,
+      labor: [{ key: "k", userId: 2, name: "علی رضایی", hours: "0", minutes: "30" }], laborOpened: true });
+    putLocal(gone);
+    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
+    renderApp("/reports/new");
+    expect(await screen.findByText(/ممکن است همین گزارش قبلاً ثبت شده باشد/)).toBeInTheDocument();
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("ممکن است قبلاً ثبت شده باشد");
+    expect(screen.getByRole("button", { name: "ثبت گزارش" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "ثبت به‌عنوان گزارش جدید" })); // explicit decision
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+  });
+
+  it("submit success clears the local copy and the undo slot", async () => {
+    putLocal(snap("x", { draftId: null, version: null }), "ems.reportForm.undo.2");
+    mockFetch(routes({ "POST /reports": () => json(201, created) }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt();
+    await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
+    expect(localStorage.getItem("ems.reportForm.2")).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await screen.findByText(/گزارش ثبت شد/);
+    expect(localStorage.getItem("ems.reportForm.2")).toBeNull();
+    expect(localStorage.getItem("ems.reportForm.undo.2")).toBeNull();
+  });
+});
+
+describe("one submission = one report (idempotency key)", () => {
+  async function fillAndSubmit() {
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt();
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+  }
+
+  it("every attempt of one submission carries the SAME key; a repeated key echoes the first report instead of a second", async () => {
+    let n = 0;
+    const m = mockFetch(routes({ "POST /reports": () => (++n === 1 ? json(503, {}) : json(200, { ...created, already_created: true })) }));
+    renderApp("/reports/new");
+    await fillAndSubmit();
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    await userEvent.click(await screen.findByRole("button", { name: "ثبت گزارش" })); // the author retries after the failure
+    expect(await screen.findByText(/گزارش تکراری ساخته نشد/)).toBeInTheDocument();
+    const [a, b] = posts(m, "/reports").map((c) => (c.body as { client_request_id: string }).client_request_id);
+    expect(a).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    expect(b).toBe(a);
+  });
+
+  it("a second report from the same page gets a NEW key", async () => {
+    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
+    renderApp("/reports/new");
+    await fillAndSubmit();
+    await userEvent.click(await screen.findByRole("button", { name: "ثبت گزارش جدید" }));
+    await fillAndSubmit();
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(2));
+    const keys = posts(m, "/reports").map((c) => (c.body as { client_request_id: string }).client_request_id);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it("pressing Enter / tapping twice sends ONE request", async () => {
+    const m = mockFetch(routes({ "POST /reports": async () => { await new Promise((r) => setTimeout(r, 400)); return json(201, created); } }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt();
+    const form = screen.getByRole("button", { name: "ثبت گزارش" }).closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await screen.findByText(/گزارش ثبت شد/);
+    expect(posts(m, "/reports")).toHaveLength(1);
+  });
+
+  it("'draft not found' on submit (the draft was consumed elsewhere) blocks a plain retry; only an explicit confirmation sends it again, with a new key", async () => {
+    let n = 0;
+    const m = mockFetch(routes({ "POST /reports": () => (++n === 1 ? json(404, { detail: "draft_not_found" }) : json(201, created)) }));
+    renderApp("/reports/new");
+    await fillAndSubmit();
+    expect(await screen.findByText(/ممکن است همین گزارش قبلاً ثبت شده باشد/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ثبت گزارش" })).toBeDisabled();
+    expect(posts(m, "/reports")).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: "ثبت به‌عنوان گزارش جدید" }));
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(2));
+    const [a, b] = posts(m, "/reports").map((c) => c.body as { client_request_id: string; draft_id?: number });
+    expect(b.client_request_id).not.toBe(a.client_request_id);
+  });
+});
+
+describe("labor «افزودن خودم» uses the configured default minutes", () => {
+  it("45, not a hard-coded 30", async () => {
+    mockFetch(routes({}, { cfgOver: { default_labor_minutes: 45 } }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await userEvent.click(await screen.findByRole("button", { name: "حذف ردیف 1" }));
+    await userEvent.click(await screen.findByRole("button", { name: "بله، حذف شود" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await userEvent.click(await screen.findByRole("button", { name: "افزودن خودم" }));
+    expect(within(await screen.findByRole("group", { name: "ردیف 1" })).getByLabelText(/^دقیقه/)).toHaveValue("45");
   });
 });
 

@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { authApi } from "../api/resources";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { authApi, reportsApi } from "../api/resources";
+import { clearAllFor, purgeOtherUsers } from "../lib/localDraft";
 import { refreshSession, setAccessToken, setSessionHandlers } from "../api/http";
 import type { AuthUser, TokenResponse } from "../api/types";
 
@@ -21,7 +22,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = user;
+
   const accept = useCallback((res: TokenResponse) => {
+    purgeOtherUsers(res.user.id); // a different person signing in on this device must never find the previous user's unsaved report
     setAccessToken(res.access_token);
     setUser(res.user);
     setStatus("authenticated");
@@ -46,6 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => accept(await authApi.login(username, password)), [accept]);
 
   const logout = useCallback(async () => {
+    // Explicit sign-out discards the author's report draft on the server and on this device (Supervisor's rule, 2026-10-24).
+    // Best effort and time-boxed: it must never keep someone from signing out. (A mere session EXPIRY keeps the local copy.)
+    const uid = userRef.current?.id;
+    try {
+      const drafts = await Promise.race([reportsApi.drafts(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("slow")), 4000))]);
+      await Promise.allSettled(drafts.map((d) => reportsApi.deleteDraft(d.id)));
+    } catch { /* offline or slow: the draft stays on the server */ }
+    if (uid !== undefined) clearAllFor(uid);
     try {
       await authApi.logout();
     } catch {

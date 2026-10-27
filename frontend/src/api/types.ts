@@ -106,6 +106,7 @@ export interface ReportCreateBody {
   description: string;
   participants: { user_id: number; minutes: number }[];
   draft_id?: number;
+  client_request_id?: string;
 }
 export interface ReportCreated {
   id: number;
@@ -120,6 +121,7 @@ export interface ReportCreated {
   created_at: string;
   description: string;
   participants: { user_id: number; full_name: string; minutes: number }[];
+  already_created: boolean;
 }
 
 export interface Setting {

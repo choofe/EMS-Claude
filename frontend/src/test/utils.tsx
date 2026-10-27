@@ -41,6 +41,7 @@ export function resetClientState() {
   setAccessToken(null);
   setSessionHandlers({});
   vi.unstubAllGlobals();
+  try { localStorage.clear(); } catch { /* not available */ } // the report form keeps a device-local working copy
 }
 
 export function renderApp(path: string, opts: { strict?: boolean } = {}) {

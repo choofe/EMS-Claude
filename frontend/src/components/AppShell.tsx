@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  AppBar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery, useTheme,
+  AppBar, Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/SpaceDashboardOutlined";
@@ -15,11 +15,14 @@ import AccountIcon from "@mui/icons-material/AccountCircleOutlined";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { canReport, canViewAdmin, isManagement } from "../lib/access";
+import { loadLocal } from "../lib/localDraft";
 
 const DRAWER = 232;
 
 export function AppShell() {
   const { user, logout } = useAuth();
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const signOut = async () => { setConfirmLogout(false); await logout(); navigate("/login"); };
   const theme = useTheme();
   const desktop = useMediaQuery(theme.breakpoints.up("md"));
   const [open, setOpen] = useState(false);
@@ -33,7 +36,7 @@ export function AppShell() {
     { to: "/groups", label: "گروه‌ها", icon: <GroupsIcon /> },
     { to: "/equipment", label: "تجهیزات", icon: <BuildIcon /> },
     ...(isManagement(user) ? [{ to: "/equipment/import", label: "ورود گروهی تجهیزات", icon: <ImportIcon /> }] : []),
-    { to: "/report-types", label: "انواع گزارش", icon: <LabelIcon /> },
+    ...(canViewAdmin(user) ? [{ to: "/report-types", label: "انواع گزارش", icon: <LabelIcon /> }] : []), // users pick a type (with its guide) in the entry form
     ...(isManagement(user) ? [{ to: "/settings", label: "تنظیمات", icon: <SettingsIcon /> }] : []),
   ];
 
@@ -65,10 +68,20 @@ export function AppShell() {
             </MenuItem>
             <Divider />
             <MenuItem onClick={() => { setMenuEl(null); navigate("/change-password"); }}>تغییر رمز عبور</MenuItem>
-            <MenuItem onClick={async () => { setMenuEl(null); await logout(); navigate("/login"); }}>خروج</MenuItem>
+            <MenuItem onClick={() => { setMenuEl(null); if (user && loadLocal(user.id)) setConfirmLogout(true); else void signOut(); }}>خروج</MenuItem>
           </Menu>
         </Toolbar>
       </AppBar>
+      <Dialog open={confirmLogout} onClose={() => setConfirmLogout(false)} aria-labelledby="confirm-logout">
+        <DialogTitle id="confirm-logout">خروج از حساب؟</DialogTitle>
+        <DialogContent>
+          <DialogContentText>گزارشِ در حال نوشتنِ شما (روی این دستگاه و پیش‌نویس ذخیره‌شده‌اش روی سرور) با خروج حذف می‌شود. اگر می‌خواهید بعداً ادامه دهید، فقط صفحه را ترک کنید.</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmLogout(false)} autoFocus>انصراف</Button>
+          <Button color="warning" onClick={() => void signOut()}>خروج و حذف پیش‌نویس</Button>
+        </DialogActions>
+      </Dialog>
       <Drawer variant={desktop ? "permanent" : "temporary"} open={desktop || open} onClose={() => setOpen(false)} ModalProps={{ keepMounted: true }}
         sx={{ width: desktop ? DRAWER : 0, flexShrink: 0, "& .MuiDrawer-paper": { width: DRAWER, boxSizing: "border-box" } }}>
         <Toolbar />

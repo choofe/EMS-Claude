@@ -14,7 +14,7 @@ const PRESETS: { label: string; minutes: number }[] = [
 export function LaborSection(p: {
   mode: Mode; rows: LaborRow[]; onChange: (rows: LaborRow[], removed?: LaborRow) => void;
   context: { equipment_id?: number; group_id?: number } | null; author: { id: number; full_name: string };
-  authorRemoved: boolean; maxMinutes: number; error?: string;
+  authorRemoved: boolean; maxMinutes: number; defaultMinutes: number; error?: string;
 }) {
   const [confirming, setConfirming] = useState<LaborRow | null>(null);
   const remove = (r: LaborRow) => p.onChange(p.rows.filter((x) => x.key !== r.key), r);
@@ -30,7 +30,7 @@ export function LaborSection(p: {
 
       {authorMissing && (
         <Alert severity="warning" sx={{ mt: 1 }}
-          action={<Button color="inherit" size="small" onClick={() => p.onChange([...p.rows, { key: newRowKey(), userId: p.author.id, name: p.author.full_name, ...splitMinutes(30) }])}>افزودن خودم</Button>}>
+          action={<Button color="inherit" size="small" onClick={() => p.onChange([...p.rows, { key: newRowKey(), userId: p.author.id, name: p.author.full_name, ...splitMinutes(p.defaultMinutes) }])}>افزودن خودم</Button>}>
           شما (تولیدکنندهٔ گزارش) از فهرست ساعت‌ها حذف شده‌اید. اگر در این کار نقش داشته‌اید، خودتان را اضافه کنید.
         </Alert>
       )}

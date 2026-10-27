@@ -141,7 +141,7 @@ export function validate(s: FormState, t: ReportType | undefined, cfg: EntryConf
 }
 
 /** Body for POST /reports. Throws if called with an invalid form (call validate first). */
-export function buildCreateBody(s: FormState, t: ReportType, draftId: number | null): ReportCreateBody {
+export function buildCreateBody(s: FormState, t: ReportType, draftId: number | null, clientRequestId?: string): ReportCreateBody {
   const when = dateTimeFromTexts(s.dateText, s.timeText);
   if (!when || s.typeId === "") throw new Error("invalid form");
   const body: ReportCreateBody = {
@@ -156,6 +156,7 @@ export function buildCreateBody(s: FormState, t: ReportType, draftId: number | n
   if (eq) body.equipment_id = eq.id;
   else if (s.groupId !== "") body.group_id = s.groupId;
   if (draftId !== null) body.draft_id = draftId;
+  if (clientRequestId) body.client_request_id = clientRequestId;
   return body;
 }
 
