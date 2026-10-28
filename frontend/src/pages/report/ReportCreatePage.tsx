@@ -410,6 +410,11 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
       {notice && <Alert severity="warning" onClose={() => setNotice(null)}>{notice}</Alert>}
       {typeNotices.map((n) => <Alert key={n} severity="info" onClose={() => setTypeNotices((l) => l.filter((x) => x !== n))}>{n}</Alert>)}
 
+      {/* While the request is pending nothing can be edited: edits made after the submitted snapshot would be neither in the report
+          nor recoverable (the success screen replaces the form and the local copy is cleared). A disabled fieldset disables every
+          native control and button inside; pointer events are also blocked for the custom (non-native) controls. */}
+      <Box component="fieldset" disabled={submitting} aria-busy={submitting}
+        sx={{ border: 0, m: 0, p: 0, minWidth: 0, display: "flex", flexDirection: "column", gap: 2, pointerEvents: submitting ? "none" : undefined, opacity: submitting ? 0.7 : 1 }}>
       {showChooser ? (
         <TypePicker types={types} value={form.typeId} lastUsedId={lastType} onChange={chooseType} error={issueOf("type")} />
       ) : (
@@ -467,6 +472,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
         </>
       )}
       {showChooser && form.typeId === "" && <Typography variant="body2" color="text.secondary">بعد از انتخاب نوع، فرم مناسب همان نوع نمایش داده می‌شود.</Typography>}
+      </Box>
     </Stack>
   );
 }

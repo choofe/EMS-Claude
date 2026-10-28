@@ -449,7 +449,7 @@ describe("drafts and heartbeat", () => {
     await chooseEquipment();
     await describeIt();
     await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
-    await userEvent.type(screen.getByLabelText("شرح گزارش"), "!"); // typing while the request is pending schedules an autosave
+    fireEvent.change(screen.getByLabelText("شرح گزارش"), { target: { value: "متن نهایی" + "!".repeat(130) } }); // a late edit (the UI now locks the form; this simulates one anyway)
     expect(await screen.findByText(/گزارش ثبت شد/, undefined, { timeout: 5000 })).toBeInTheDocument();
     await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
     expect(posts(m, "/reports/drafts")).toHaveLength(1); // exactly the one made before the submit, none created by typing during it
@@ -702,6 +702,24 @@ describe("a submitted report never comes back as an unsaved copy", () => {
     }
     expect(localStorage.getItem("ems.reportForm.2")).toBeNull();
     expect(posts(m, "/reports/drafts")).toHaveLength(drafts);
+  });
+});
+
+describe("nothing can be edited while a submission is pending", () => {
+  it("the form is locked during the request (edits would be lost on success), and editable again if it fails", async () => {
+    let n = 0;
+    mockFetch(routes({ "POST /reports": async () => { await new Promise((r) => setTimeout(r, 600)); return ++n === 1 ? json(503, {}) : json(201, created); } }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt("متن من");
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await waitFor(() => expect(screen.getByLabelText("شرح گزارش")).toBeDisabled());
+    await userEvent.setup({ pointerEventsCheck: 0 }).type(screen.getByLabelText("شرح گزارش"), "اضافه"); // ignored: the control is disabled
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("متن من");
+    await waitFor(() => expect(screen.getByLabelText("شرح گزارش")).toBeEnabled(), { timeout: 3000 }); // request failed (503)
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("متن من");
+    expect(screen.getByRole("button", { name: "ثبت گزارش" })).toBeEnabled();
   });
 });
 
