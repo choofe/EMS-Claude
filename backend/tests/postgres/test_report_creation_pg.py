@@ -286,3 +286,27 @@ async def test_parallel_submissions_with_one_key_create_exactly_one_report(commi
         assert (await s.execute(select(func.count()).select_from(m.Report))).scalar_one() == 1
         assert (await s.execute(select(func.sum(m.ReportParticipant.minutes)))).scalar_one() == 15  # hours never doubled
         assert (await s.execute(select(m.ReportSequence.last_number))).scalar_one() == 1  # losers burned no number
+
+
+async def test_parallel_submissions_with_one_key_AND_one_draft_all_get_the_report_never_draft_not_found(committed_engine):
+    """The losers wait on the draft row lock, the winner consumes the draft and commits: for them the draft is gone, but this
+    is a retry of a successful submission (same key), so they must receive the report, not a 404."""
+    maker, gid, eid, tid, users = await seed(committed_engine, n_users=1)
+    uid, uname, fname = users[0]
+    p = Principal(user_id=uid, username=uname, full_name=fname, role_code="USER", role_label_fa="USER",
+                  group_ids=frozenset({gid}), must_change_password=False)
+    async with maker() as s:
+        draft = await report_drafts.create_draft(s, p, DraftPayload(description="x"))
+
+    async def attempt():
+        async with maker() as s:
+            body = req(eid, tid, uid, draft_id=draft["id"])
+            body.client_request_id = "race-key-and-draft-01"
+            return await report_creation.create_report(s, p, body)
+
+    results = await asyncio.gather(*[attempt() for _ in range(8)], return_exceptions=True)
+    assert all(isinstance(r, dict) for r in results), [r for r in results if not isinstance(r, dict)]
+    assert len({r["id"] for r in results}) == 1 and sum(1 for r in results if not r["already_created"]) == 1
+    async with maker() as s:
+        assert (await s.execute(select(func.count()).select_from(m.Report))).scalar_one() == 1
+        assert (await s.execute(select(func.count()).select_from(m.ReportDraft))).scalar_one() == 0

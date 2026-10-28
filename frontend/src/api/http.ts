@@ -55,15 +55,18 @@ async function toApiError(res: Response): Promise<ApiError> {
 export const REQUEST_TIMEOUT_MS = 30_000;
 const TRANSFER_TIMEOUT_MS = 120_000; // file uploads / downloads
 
-async function rawFetch(path: string, init: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<Response> {
+async function rawFetch(path: string, init: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS, outer?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onOuterAbort = () => controller.abort();
+  if (outer?.aborted) controller.abort(); else outer?.addEventListener("abort", onOuterAbort, { once: true }); // the caller can cancel too
   try {
     return await fetch(`${API_BASE}${path}`, { credentials: "include", ...init, signal: controller.signal });
   } catch {
     throw new ApiError(0, "network_error");
   } finally {
     clearTimeout(timer);
+    outer?.removeEventListener("abort", onOuterAbort);
   }
 }
 
@@ -102,6 +105,8 @@ export interface RequestOptions {
   /** false for endpoints that must not carry/refresh a token (login). */
   auth?: boolean;
   csrf?: boolean;
+  /** lets the caller cancel the request (best-effort clean-ups that must not outlive a deadline). */
+  signal?: AbortSignal;
 }
 
 function withQuery(path: string, query?: Query): string {
@@ -123,7 +128,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
         ...(auth && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
       body: form ?? (body !== undefined ? JSON.stringify(body) : undefined),
-    }, form || blob ? TRANSFER_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+    }, form || blob ? TRANSFER_TIMEOUT_MS : REQUEST_TIMEOUT_MS, opts.signal);
 
   let res = await send();
   if (res.status === 401 && auth) {

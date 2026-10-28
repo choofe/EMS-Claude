@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../test/utils";
 import { emptyState } from "../pages/report/reportForm";
@@ -80,6 +80,27 @@ describe("explicit sign-out discards the report draft (server + this device)", (
     expect(await screen.findByRole("heading", { name: "ورود به سامانه" })).toBeInTheDocument();
     expect(m.count("POST /auth/logout")).toBe(1);
   });
+});
+
+describe("sign-out clean-up has ONE deadline", () => {
+  it("a stalled draft DELETE cannot keep the user signed in: after ~4 s the request is cancelled and sign-out goes on", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let signalSeen: AbortSignal | undefined;
+    const m = mockFetch(app(ali, {
+      "GET /reports/drafts": () => json(200, [{ id: 5, payload: {}, version: 2, created_at: ts, updated_at: ts }]),
+      "DELETE /reports/drafts/5": () => new Promise<Response>(() => undefined), // the request never answers
+    }));
+    renderApp("/reports/new");
+    await openMenu();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "خروج" }));
+    expect(m.count("POST /auth/logout")).toBe(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(m.count("POST /auth/logout")).toBe(0); // still inside the deadline
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(await screen.findByRole("heading", { name: "ورود به سامانه" })).toBeInTheDocument();
+    expect(m.count("POST /auth/logout")).toBe(1);
+    void signalSeen;
+  }, 20_000);
 });
 
 describe("session end vs another person signing in", () => {

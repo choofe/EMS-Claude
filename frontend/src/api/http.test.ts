@@ -131,6 +131,20 @@ describe("request()", () => {
     }
   });
 
+  it("a caller-supplied AbortSignal cancels the request (clean-ups with their own deadline)", async () => {
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise((_, reject) => {
+      const fail = () => reject(new DOMException("aborted", "AbortError")); // like the real fetch: also when already aborted
+      if (init.signal!.aborted) fail(); else init.signal!.addEventListener("abort", fail);
+    })));
+    const ctl = new AbortController();
+    const result = request("/slow", { signal: ctl.signal }).catch((e) => e);
+    ctl.abort();
+    await expect(result).resolves.toMatchObject({ status: 0, code: "network_error" });
+    const already = new AbortController();
+    already.abort();
+    await expect(request("/slow2", { signal: already.signal })).rejects.toMatchObject({ code: "network_error" }); // aborted before sending
+  });
+
   it("204 responses resolve to undefined", async () => {
     mockFetch({ "POST /auth/logout": () => json(204) });
     await expect(request("/auth/logout", { method: "POST", csrf: true, auth: false })).resolves.toBeUndefined();

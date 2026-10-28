@@ -683,6 +683,28 @@ describe("device-local working copy, restore decisions, undo", () => {
   });
 });
 
+describe("a submitted report never comes back as an unsaved copy", () => {
+  it("after a successful submit, hiding the page or a late timer writes nothing to the local copy and nothing to the server", async () => {
+    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await describeIt("متن گزارش");
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await screen.findByText(/گزارش ثبت شد/);
+    const drafts = posts(m, "/reports/drafts").length;
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await act(async () => { await new Promise((r) => setTimeout(r, 800)); });
+    } finally {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    }
+    expect(localStorage.getItem("ems.reportForm.2")).toBeNull();
+    expect(posts(m, "/reports/drafts")).toHaveLength(drafts);
+  });
+});
+
 describe("one submission = one report (idempotency key)", () => {
   async function fillAndSubmit() {
     await chooseType("تعمیر خرابی جزئی");

@@ -129,11 +129,13 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   const skipChange = useRef(false); // set right before a programmatic load of the form: that is not an edit
   const lastForm = useRef(form);     // the effect only reacts to a form object that really changed (also under StrictMode double effects)
   const submittingRef = useRef(false);
+  const submitted = useRef(false); // after a successful submit nothing may be written locally or sent to the server any more
   const requestId = useRef(newRequestId());
   const localTimer = useRef<ReturnType<typeof setTimeout>>();
 
   /** Write the device-local working copy now (never touches the server). */
   const persistLocal = useCallback(() => {
+    if (submitted.current) return;
     const s = formRef.current;
     if (isBlank(s)) { clearLocal(uid); return; }
     saveLocal(makeSnapshot(uid, s, { draftId: draftRef.current?.id ?? null, version: draftRef.current?.version ?? null }));
@@ -141,7 +143,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
 
   const saveNow = useCallback((): Promise<boolean> => {
     const run = async (): Promise<boolean> => {
-      if (halted.current) return false;
+      if (halted.current || submitted.current) return false;
       const s = formRef.current;
       if (isBlank(s) && !draftRef.current) return true; // nothing worth a server row
       setSave({ kind: "saving" });
@@ -324,6 +326,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
     try {
       const report = await reportsApi.create(buildCreateBody(form, type, draftRef.current?.id ?? null, requestId.current));
       draftRef.current = null; // consumed by the server in the same transaction
+      submitted.current = true; dirty.current = false; dirtySince.current = null; clearTimeout(localTimer.current); // no stale write may resurrect it
       clearAllFor(uid); setUndo(null);
       writeLastType(uid, type.id);
       setCreated(report);
@@ -360,7 +363,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
         </Alert>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>زمان ثبت در سامانه: {formatJalaliDateTime(created.created_at)}</Typography>
         <Button variant="contained" onClick={() => {
-          draftRef.current = null; halted.current = false; skipChange.current = true; dirty.current = false; dirtySince.current = null; saves.current = 0; savedText.current = "";
+          submitted.current = false; draftRef.current = null; halted.current = false; skipChange.current = true; dirty.current = false; dirtySince.current = null; saves.current = 0; savedText.current = "";
           requestId.current = newRequestId(); setCreated(null); setForm(emptyState()); setIssues([]); setTypeNotices([]); setSave({ kind: "idle" }); setSubmitGone(false);
         }}>
           ثبت گزارش جدید

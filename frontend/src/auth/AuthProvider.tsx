@@ -17,6 +17,8 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const DRAFT_CLEANUP_MS = 4000; // sign-out never waits longer than this for the draft clean-up
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -52,12 +54,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     // Explicit sign-out discards the author's report draft on the server and on this device (Supervisor's rule, 2026-10-24).
-    // Best effort and time-boxed: it must never keep someone from signing out. (A mere session EXPIRY keeps the local copy.)
+    // Best effort with ONE deadline for the whole clean-up (listing AND deleting): when it passes, in-flight requests are
+    // cancelled and sign-out goes on. It must never keep someone from signing out. (A mere session EXPIRY keeps the local copy.)
     const uid = userRef.current?.id;
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), DRAFT_CLEANUP_MS);
     try {
-      const drafts = await Promise.race([reportsApi.drafts(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("slow")), 4000))]);
-      await Promise.allSettled(drafts.map((d) => reportsApi.deleteDraft(d.id)));
-    } catch { /* offline or slow: the draft stays on the server */ }
+      const cleanup = (async () => {
+        const drafts = await reportsApi.drafts(deadline.signal);
+        await Promise.allSettled(drafts.map((d) => reportsApi.deleteDraft(d.id, deadline.signal)));
+      })();
+      const expired = new Promise<void>((resolve) => deadline.signal.addEventListener("abort", () => resolve(), { once: true }));
+      await Promise.race([cleanup.catch(() => undefined), expired]);
+    } finally {
+      clearTimeout(timer);
+    }
     if (uid !== undefined) clearAllFor(uid);
     try {
       await authApi.logout();

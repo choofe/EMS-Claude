@@ -95,9 +95,9 @@ export const reportsApi = {
   quickPick: () => request<QuickPick>("/reports/equipment-quick-pick"),
   heartbeat: () => request<{ ok: boolean; server_time: string }>("/reports/heartbeat", { method: "POST" }),
   create: (body: ReportCreateBody) => request<ReportCreated>("/reports", { method: "POST", body }),
-  drafts: () => request<Draft[]>("/reports/drafts"),
+  drafts: (signal?: AbortSignal) => request<Draft[]>("/reports/drafts", { signal }),
   createDraft: (payload: DraftPayload) => request<Draft>("/reports/drafts", { method: "POST", body: { payload } }),
   updateDraft: (id: number, payload: DraftPayload, version: number) =>
     request<Draft>(`/reports/drafts/${id}`, { method: "PUT", body: { payload, version } }),
-  deleteDraft: (id: number) => request<void>(`/reports/drafts/${id}`, { method: "DELETE" }),
+  deleteDraft: (id: number, signal?: AbortSignal) => request<void>(`/reports/drafts/${id}`, { method: "DELETE", signal }),
 };

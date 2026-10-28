@@ -234,6 +234,11 @@ async def _create(db: AsyncSession, principal: Principal, body: ReportCreate) ->
                                                             ReportDraft.user_id == principal.user_id)
                                   .with_for_update())).scalar_one_or_none()
         if draft is None:
+            # A parallel attempt with the SAME key may have created the report and consumed this draft while we waited for its
+            # lock: then this is a retry of a successful submission, not a missing draft — hand back that report.
+            raced = await _existing_by_key(db, principal, body.client_request_id)
+            if raced is not None:
+                return raced
             raise DomainError("draft_not_found", 404)
     # Whatever was submitted, the author's draft(s) are consumed in the same transaction (one draft per user).
     await db.execute(delete(ReportDraft).where(ReportDraft.user_id == principal.user_id))
