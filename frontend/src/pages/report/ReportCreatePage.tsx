@@ -107,6 +107,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   const [serverError, setServerError] = useState<unknown>(null);
   const [created, setCreated] = useState<ReportCreated | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [save, setSave] = useState<SaveState>(restore.kind === "local" && restore.goneFromServer ? { kind: "gone" } : { kind: "idle" });
   const [submitGone, setSubmitGone] = useState(false);
   const [online, setOnline] = useState(true);
@@ -128,7 +129,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   const savedText = useRef(boot.draft?.payload.description ?? "");
   const skipChange = useRef(false); // set right before a programmatic load of the form: that is not an edit
   const lastForm = useRef(form);     // the effect only reacts to a form object that really changed (also under StrictMode double effects)
-  const submittingRef = useRef(false);
+  const opRef = useRef<"submit" | "discard" | null>(null); // ONE in-flight operation at a time: submit and discard exclude each other
   const submitted = useRef(false); // after a successful submit nothing may be written locally or sent to the server any more
   const requestId = useRef(newRequestId());
   const localTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -295,7 +296,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   const persistLocalSoon = () => { clearTimeout(localTimer.current); localTimer.current = setTimeout(persistLocal, 0); };
 
   function restoreReplaced() {
-    if (!undo || submittingRef.current) return;
+    if (!undo || opRef.current) return;
     const current = makeSnapshot(uid, formRef.current, { draftId: draftRef.current?.id ?? null, version: draftRef.current?.version ?? null });
     saveUndo(current); setUndo(current);
     skipChange.current = false; // an edit: it must reach the local copy and, in time, the server
@@ -303,12 +304,12 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   }
 
   async function submit(force = false) {
-    if (submittingRef.current) return; // Enter pressed twice / double tap
+    if (opRef.current) return; // Enter pressed twice / double tap / a discard is running
     setServerError(null);
     const found = validate(form, type, cfg);
     setIssues(found);
     if (found.length || !type) return;
-    submittingRef.current = true;
+    opRef.current = "submit";
     halted.current = true; // no autosave may race with the submit
     clearTimeout(localTimer.current);
     setSubmitting(true);
@@ -338,13 +339,14 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
         draftRef.current = null; halted.current = true; setSubmitGone(true);
       } else halted.current = false;
     } finally {
-      submittingRef.current = false;
+      opRef.current = null;
       setSubmitting(false);
     }
   }
 
   async function discardDraft() {
-    if (submittingRef.current) return; // the pending submit uses this very draft
+    if (opRef.current) return; // a pending submit uses this very draft; a second discard would race with the first
+    opRef.current = "discard"; setDiscarding(true);
     halted.current = true;
     await Promise.race([chain.current, new Promise((r) => setTimeout(r, SAVE_WAIT_MS))]);
     if (draftRef.current) await reportsApi.deleteDraft(draftRef.current.id).catch(() => undefined);
@@ -393,8 +395,8 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
       {/* While the request is pending nothing can be edited: edits made after the submitted snapshot would be neither in the report
           nor recoverable (the success screen replaces the form and the local copy is cleared). A disabled fieldset disables every
           native control and button inside; pointer events are also blocked for the custom (non-native) controls. */}
-      <Box component="fieldset" disabled={submitting} aria-busy={submitting}
-        sx={{ border: 0, m: 0, p: 0, minWidth: 0, display: "flex", flexDirection: "column", gap: 2, pointerEvents: submitting ? "none" : undefined, opacity: submitting ? 0.7 : 1 }}>
+      <Box component="fieldset" disabled={submitting || discarding} aria-busy={submitting || discarding}
+        sx={{ border: 0, m: 0, p: 0, minWidth: 0, display: "flex", flexDirection: "column", gap: 2, pointerEvents: submitting || discarding ? "none" : undefined, opacity: submitting || discarding ? 0.7 : 1 }}>
       {restore.kind === "server" && <Alert severity="info" action={<Button color="inherit" size="small" onClick={() => void discardDraft()}>دورانداختن پیش‌نویس</Button>}>پیش‌نویس قبلی شما بازیابی شد.</Alert>}
       {restore.kind === "local" && !restore.goneFromServer && <Alert severity="info" action={<Button color="inherit" size="small" onClick={() => void discardDraft()}>دورانداختن پیش‌نویس</Button>}>نسخه‌ی ذخیره‌نشده‌ی این دستگاه (ساعت {timeOf(restore.snap.savedAt)}) بازیابی شد.</Alert>}
       {undo && <Alert severity="info" action={<Button color="inherit" size="small" onClick={restoreReplaced}>بازگرداندن</Button>}>نسخه‌ی دیگری از این گزارش (ساعت {timeOf(undo.savedAt)}) نگه داشته شده است.</Alert>}

@@ -742,6 +742,21 @@ describe("every control that could change the form is locked while a submission 
   });
 });
 
+describe("submit and discard exclude each other", () => {
+  it("while a discard is running the form is locked and a submit is ignored (and the other way round)", async () => {
+    const draft = draftOf({ payload: { report_type_id: 5, equipment_id: 9, description: "از سرور", participants: [{ user_id: 2, minutes: 30 }] } });
+    const m = mockFetch(routes({ "GET /equipment/9": () => json(200, equip), "POST /reports": () => json(201, created),
+      "DELETE /reports/drafts/1": async () => { await new Promise((r) => setTimeout(r, 600)); return json(204); } }, { drafts: [draft] }));
+    renderApp("/reports/new");
+    await userEvent.click(await screen.findByRole("button", { name: "دورانداختن پیش‌نویس" }));
+    await waitFor(() => expect(screen.getByLabelText("شرح گزارش")).toBeDisabled());
+    fireEvent.submit(screen.getByLabelText("شرح گزارش").closest("form")!); // Enter / programmatic submit during the discard
+    await waitFor(() => expect(m.count("DELETE /reports/drafts/1")).toBe(1));
+    expect(posts(m, "/reports")).toHaveLength(0);
+    expect(m.count("DELETE /reports/drafts/1")).toBe(1);
+  });
+});
+
 describe("one submission = one report (idempotency key)", () => {
   async function fillAndSubmit() {
     await chooseType("تعمیر خرابی جزئی");
