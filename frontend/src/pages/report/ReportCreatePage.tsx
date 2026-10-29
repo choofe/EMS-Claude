@@ -295,7 +295,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   const persistLocalSoon = () => { clearTimeout(localTimer.current); localTimer.current = setTimeout(persistLocal, 0); };
 
   function restoreReplaced() {
-    if (!undo) return;
+    if (!undo || submittingRef.current) return;
     const current = makeSnapshot(uid, formRef.current, { draftId: draftRef.current?.id ?? null, version: draftRef.current?.version ?? null });
     saveUndo(current); setUndo(current);
     skipChange.current = false; // an edit: it must reach the local copy and, in time, the server
@@ -344,6 +344,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   }
 
   async function discardDraft() {
+    if (submittingRef.current) return; // the pending submit uses this very draft
     halted.current = true;
     await Promise.race([chain.current, new Promise((r) => setTimeout(r, SAVE_WAIT_MS))]);
     if (draftRef.current) await reportsApi.deleteDraft(draftRef.current.id).catch(() => undefined);
@@ -389,6 +390,11 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
 
   return (
     <Stack gap={2} component="form" noValidate onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+      {/* While the request is pending nothing can be edited: edits made after the submitted snapshot would be neither in the report
+          nor recoverable (the success screen replaces the form and the local copy is cleared). A disabled fieldset disables every
+          native control and button inside; pointer events are also blocked for the custom (non-native) controls. */}
+      <Box component="fieldset" disabled={submitting} aria-busy={submitting}
+        sx={{ border: 0, m: 0, p: 0, minWidth: 0, display: "flex", flexDirection: "column", gap: 2, pointerEvents: submitting ? "none" : undefined, opacity: submitting ? 0.7 : 1 }}>
       {restore.kind === "server" && <Alert severity="info" action={<Button color="inherit" size="small" onClick={() => void discardDraft()}>دورانداختن پیش‌نویس</Button>}>پیش‌نویس قبلی شما بازیابی شد.</Alert>}
       {restore.kind === "local" && !restore.goneFromServer && <Alert severity="info" action={<Button color="inherit" size="small" onClick={() => void discardDraft()}>دورانداختن پیش‌نویس</Button>}>نسخه‌ی ذخیره‌نشده‌ی این دستگاه (ساعت {timeOf(restore.snap.savedAt)}) بازیابی شد.</Alert>}
       {undo && <Alert severity="info" action={<Button color="inherit" size="small" onClick={restoreReplaced}>بازگرداندن</Button>}>نسخه‌ی دیگری از این گزارش (ساعت {timeOf(undo.savedAt)}) نگه داشته شده است.</Alert>}
@@ -410,11 +416,6 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
       {notice && <Alert severity="warning" onClose={() => setNotice(null)}>{notice}</Alert>}
       {typeNotices.map((n) => <Alert key={n} severity="info" onClose={() => setTypeNotices((l) => l.filter((x) => x !== n))}>{n}</Alert>)}
 
-      {/* While the request is pending nothing can be edited: edits made after the submitted snapshot would be neither in the report
-          nor recoverable (the success screen replaces the form and the local copy is cleared). A disabled fieldset disables every
-          native control and button inside; pointer events are also blocked for the custom (non-native) controls. */}
-      <Box component="fieldset" disabled={submitting} aria-busy={submitting}
-        sx={{ border: 0, m: 0, p: 0, minWidth: 0, display: "flex", flexDirection: "column", gap: 2, pointerEvents: submitting ? "none" : undefined, opacity: submitting ? 0.7 : 1 }}>
       {showChooser ? (
         <TypePicker types={types} value={form.typeId} lastUsedId={lastType} onChange={chooseType} error={issueOf("type")} />
       ) : (

@@ -723,6 +723,25 @@ describe("nothing can be edited while a submission is pending", () => {
   });
 });
 
+describe("every control that could change the form is locked while a submission is pending", () => {
+  it("undo, discard and the conflict/gone buttons are disabled during the request", async () => {
+    localStorage.setItem("ems.reportForm.undo.2", JSON.stringify({ v: 1, userId: 2, savedAt: "2026-03-20T10:00:00Z", baseDraftId: null, baseVersion: null,
+      form: { equipment: null, groupId: "", typeId: 5, dateText: "1405/01/01", timeText: "10:00", description: "نسخه‌ی دیگر", labor: [], laborOpened: false, equipmentOpened: false, authorRemoved: false } }));
+    const draft = draftOf({ payload: { report_type_id: 5, equipment_id: 9, description: "از سرور", participants: [{ user_id: 2, minutes: 30 }] } });
+    mockFetch(routes({ "GET /equipment/9": () => json(200, equip), "POST /reports": async () => { await new Promise((r) => setTimeout(r, 700)); return json(201, created); } }, { drafts: [draft] }));
+    renderApp("/reports/new");
+    await screen.findByText("پیش‌نویس قبلی شما بازیابی شد.");
+    const undo = screen.getByRole("button", { name: "بازگرداندن" });
+    const discard = screen.getByRole("button", { name: "دورانداختن پیش‌نویس" });
+    expect(undo).toBeEnabled();
+    expect(discard).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await waitFor(() => expect(undo).toBeDisabled());
+    expect(discard).toBeDisabled();
+    await screen.findByText(/گزارش ثبت شد/);
+  });
+});
+
 describe("one submission = one report (idempotency key)", () => {
   async function fillAndSubmit() {
     await chooseType("تعمیر خرابی جزئی");
