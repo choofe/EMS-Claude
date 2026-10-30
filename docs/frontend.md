@@ -32,7 +32,7 @@ Backend must be running (`uvicorn app.main:app --reload` in `backend/`) with an 
 The server stores UTC. The UI shows the Persian calendar in `Asia/Tehran` via the browser's `Intl` (no dependency;
 handles the historical +04:30 DST). A timestamp without a timezone designator is treated as UTC. Tests run in a
 non-UTC timezone and share boundary fixtures with the backend (`tests/test_jalali.py`). `jalaali-js` is only needed when
-users TYPE dates (Phase 6).
+users TYPE dates (Phase 6) — **not used**: typed Jalali dates are converted by `lib/jalali.ts`, which searches with the same `Intl` formatter that renders dates (so display and input can never disagree) and rejects non-existent days.
 
 ## Pages
 Login · forced/voluntary change-password · Dashboard (MANAGEMENT, AUDITOR) · Users (MANAGEMENT writes, AUDITOR reads) ·
@@ -42,6 +42,25 @@ Groups · Equipment · Report types (everyone reads their scope; MANAGEMENT writ
 `/equipment/import`, MANAGEMENT only: group + file → preview → confirm; history with undo. Uploads use `request(..., { form })`
 (no Content-Type header, the browser adds the boundary); the template is fetched with `{ blob: true }` through the authenticated client.
 
+## Report entry page (Phase 6)
+`/reports/new` (USER, EXPERT, MANAGEMENT; AUDITOR has no menu entry and is redirected). Backend rules: `docs/report-creation.md`.
+- **Type first.** The page opens with the type chooser only: one card per type with an auto-generated rules summary («ساعت کار: الزامی · تجهیز: اختیاری») and a «؟» guide (management-written `help_fa`); the last used type is highlighted. After choosing, the rest of the form follows that type; «تغییر نوع» brings the chooser back.
+- **Three modes for labor AND equipment** (`REQUIRED` / `OPTIONAL` = hidden behind a button / `NONE`). Changing the type keeps what was typed in memory, but the NEW type decides what is shown and what is sent; if data becomes hidden a visible notice says so, hidden data is never sent, and the button/back-to-previous-type brings it back. REQUIRED labor is pre-filled with the author and `DEFAULT_LABOR_MINUTES`; removing the author's own row first asks for confirmation, then warns with «افزودن خودم»; submitting with nobody listed is blocked («ساعت کاری وارد نشده است»).
+- Order: type → equipment (search + «میان‌بر» chips; or the optional button) → group (only for a report without equipment; preselected when you have one) → Jalali date + time → description → labor (hours and minutes boxes, whole numbers, max 24 h, presets, live total). People come from `/reports/participant-candidates` (same eligibility function as the server check); changing the report's group removes people not eligible there, with a notice.
+- **Dates**: two text boxes (Jalali date, 24 h time; Persian or Latin digits); conversion in `lib/jalali.ts` uses the same `Intl` formatter that renders dates, so display and input cannot disagree; non-existent days are rejected.
+- **Two layers protect what the author types** (2026-10-24):
+  1. **Device-local working copy** (`lib/localDraft.ts`, `localStorage`, keyed by user id, time-stamped, remembers the server draft id/version it was based on). Written ~0.3 s after every edit and when the page is hidden; costs the server nothing; survives offline editing, a killed tab, a reload (the Vite dev server reloads the page when its connection returns — production does not, but phones kill tabs). Removed on submit, on «دورانداختن پیش‌نویس» and on explicit sign-out; KEPT when the session merely expires; every OTHER user's copy is deleted the moment a different user signs in.
+  2. **Server draft** (cross-device, ONE per user) — only for report TEXT, i.e. large work: choosing a type/equipment/people never creates one. Schedule (`lib/saveSchedule.ts`): first save after ~100 changed characters or ~25 s since typing started, the next after 70 / 20 s, then 45 / 15 s, with a floor of 20 characters / 10 s (whichever comes first); plus an immediate save when the page is hidden (app switch, screen lock) and the button «ذخیرهٔ پیش‌نویس».
+- **Opening the page decides between the two copies**: nothing → empty form; server draft only (another device) → restored automatically (nothing to lose); local only → restored with a banner; both and the local copy is built on the current server version → the local one (it is newer, e.g. edits made offline); both and the server moved on (or the local copy never reached the server) → **the author chooses** (times shown) and the other version is kept for «بازگرداندن» (undo) until the next server draft version or the submit. A local copy built on a draft that no longer exists (submitted/deleted elsewhere) is restored but cannot be re-submitted by accident (see below).
+- **Sign-out** (explicit) deletes the author's server draft(s) and the local copies; when this device holds unsaved report work it asks first («خروج و حذف پیش‌نویس»). It is best-effort with ONE ~4 s deadline for the whole clean-up (listing and deleting; in-flight requests are cancelled when it passes): offline or stalled, signing out still works.
+- **One submission = one report.** Every attempt of a submission carries the same `client_request_id` (a retry after a lost response returns the same report: `already_created`); a second tab/device holding the same draft gets `draft_not_found`, which BLOCKS the plain button — only «ثبت به‌عنوان گزارش جدید» (new key) or «شروع فرم جدید» continue. Re-entry is guarded (Enter twice / double tap = one request).
+- A `409` conflict (changed or created elsewhere) halts autosave and offers «بارگذاری نسخهٔ ذخیره‌شده»; a `404` on save never recreates the draft. Submit halts autosave, waits at most 8 s for an in-flight save, and creates a draft first when none exists.
+- **No request hangs the UI**: every API call times out after 30 s (uploads/downloads 120 s) and fails with «ارتباط با سرور برقرار نشد»; a heartbeat (`POST /reports/heartbeat`, 60 s) warns when the server is unreachable.
+- Reloading never renders the previous load's data (loads are stamped with an epoch): a discarded draft cannot reappear.
+- **Report types page** (management/auditor only: no menu entry, route guarded; users meet the types through the picker and its guide) edits `labor_mode`, `equipment_mode` and the guide text.
+- **Landing page** (`lib/access.ts: landingPath`): USER and EXPERT start at `/reports/new`; MANAGEMENT/AUDITOR keep the dashboard until the Phase 7 reports list exists (two marked lines to switch).
+- Not done (later): offline-lite on phones, idle-timeout UI countdown, UX batch (shorter menus, «اکنون» rounding, day buttons, apply-to-all), quick-add people, teams.
+
 ## Forgotten password (current process)
 There is no email/SMS service in the MVP, so there is no self-service reset. The user tells a manager; the manager opens
 **Users -> actions -> "تعیین رمز موقت"**, enters a temporary password (the user must change it at next login, all their sessions
@@ -49,4 +68,4 @@ are ended). The login page says so. A later "request a reset" page would only re
 (username-only form, identical response for existing/unknown names, rate-limited) — needs a new table and its own decision.
 
 ## Not yet covered
-Real-browser run (only jsdom tests so far); bundle splitting (single ~600 kB chunk); report pages (Phase 6+); Audit-log viewer.
+Real-browser run (only jsdom tests so far); bundle splitting (single ~600 kB chunk); report detail/history pages (Phase 7+); Audit-log viewer.

@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Dashboard, Equipment, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Candidate, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -42,6 +42,7 @@ export const groupsApi = {
 export const equipmentApi = {
   list: (q: Paging & { q?: string; group_id?: number; is_active?: boolean }) =>
     request<Page<Equipment>>("/equipment", { query: q }),
+  get: (id: number) => request<Equipment>(`/equipment/${id}`),
   create: (body: { equipment_code: string; group_id: number; description: string | null }) =>
     request<Equipment>("/equipment", { method: "POST", body }),
   update: (id: number, body: { description: string | null }) =>
@@ -54,9 +55,9 @@ export const equipmentApi = {
 
 export const reportTypesApi = {
   list: (include_inactive: boolean) => request<ReportType[]>("/report-types", { query: { include_inactive } }),
-  create: (body: { code: string; name_fa: string; is_failure: boolean }) =>
+  create: (body: { code: string; name_fa: string; is_failure: boolean; labor_mode: Mode; equipment_mode: Mode; help_fa: string | null }) =>
     request<ReportType>("/report-types", { method: "POST", body }),
-  update: (id: number, body: { name_fa?: string; is_failure?: boolean }) =>
+  update: (id: number, body: { name_fa?: string; is_failure?: boolean; labor_mode?: Mode; equipment_mode?: Mode; help_fa?: string | null }) =>
     request<ReportType>(`/report-types/${id}`, { method: "PATCH", body }),
   setActive: (id: number, active: boolean) =>
     request<ReportType>(`/report-types/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" }),
@@ -85,4 +86,18 @@ export const importApi = {
   template: (format: "xlsx" | "csv") => request<Blob>("/equipment/import/template", { query: { format }, blob: true }),
   batches: (q: Paging) => request<Page<ImportBatch>>("/equipment/import/batches", { query: q }),
   undo: (id: number) => request<{ batch_id: number; deleted_count: number }>(`/equipment/import/batches/${id}/undo`, { method: "POST" }),
+};
+
+export const reportsApi = {
+  entryConfig: () => request<EntryConfig>("/reports/entry-config"),
+  candidates: (q: { equipment_id?: number; group_id?: number; q?: string; limit?: number }) =>
+    request<Candidate[]>("/reports/participant-candidates", { query: q }),
+  quickPick: () => request<QuickPick>("/reports/equipment-quick-pick"),
+  heartbeat: () => request<{ ok: boolean; server_time: string }>("/reports/heartbeat", { method: "POST" }),
+  create: (body: ReportCreateBody) => request<ReportCreated>("/reports", { method: "POST", body }),
+  drafts: (signal?: AbortSignal) => request<Draft[]>("/reports/drafts", { signal }),
+  createDraft: (payload: DraftPayload) => request<Draft>("/reports/drafts", { method: "POST", body: { payload } }),
+  updateDraft: (id: number, payload: DraftPayload, version: number) =>
+    request<Draft>(`/reports/drafts/${id}`, { method: "PUT", body: { payload, version } }),
+  deleteDraft: (id: number, signal?: AbortSignal) => request<void>(`/reports/drafts/${id}`, { method: "DELETE", signal }),
 };

@@ -15,8 +15,16 @@ from app.services.audit import add_audit
 _UNSET = object()
 
 
+def _clean_help(value: str | None) -> str | None:
+    """Blank or null clears the guide text."""
+    if value is None or not value.strip():
+        return None
+    return clean_text(value, max_length=300, code="invalid_help")
+
+
 def _view(t: ReportType) -> dict:
-    return {"id": t.id, "code": t.code, "name_fa": t.name_fa, "is_failure": t.is_failure, "is_active": t.is_active,
+    return {"id": t.id, "code": t.code, "name_fa": t.name_fa, "is_failure": t.is_failure,
+            "labor_mode": t.labor_mode, "equipment_mode": t.equipment_mode, "help_fa": t.help_fa, "is_active": t.is_active,
             "created_at": t.created_at, "updated_at": t.updated_at}
 
 
@@ -35,12 +43,15 @@ async def _type(db: AsyncSession, type_id: int) -> ReportType:
     return t
 
 
-async def create_report_type(db: AsyncSession, *, actor_id: int, code: str, name_fa: str, is_failure: bool) -> dict:
+async def create_report_type(db: AsyncSession, *, actor_id: int, code: str, name_fa: str, is_failure: bool,
+                             labor_mode: str = "REQUIRED", equipment_mode: str = "REQUIRED",
+                             help_fa: str | None = None) -> dict:
     code = canonical_report_type_code(code)
     name = clean_text(name_fa, max_length=128, code="invalid_name")
     if (await db.execute(select(ReportType.id).where(ReportType.code == code))).first():
         raise DomainError("report_type_code_taken", 409)
-    t = ReportType(code=code, name_fa=name, is_failure=is_failure)
+    t = ReportType(code=code, name_fa=name, is_failure=is_failure, labor_mode=labor_mode,
+                   equipment_mode=equipment_mode, help_fa=_clean_help(help_fa))
     db.add(t)
     try:
         await db.flush()
@@ -48,13 +59,15 @@ async def create_report_type(db: AsyncSession, *, actor_id: int, code: str, name
         await db.rollback()
         raise DomainError("report_type_code_taken", 409)
     add_audit(db, actor_id=actor_id, action="report_type.create", entity_type="report_type", entity_id=t.id,
-              metadata={"code": code, "is_failure": is_failure})
+              metadata={"code": code, "is_failure": is_failure, "labor_mode": labor_mode,
+                        "equipment_mode": equipment_mode})
     await db.commit()
     await db.refresh(t)
     return _view(t)
 
 
-async def update_report_type(db: AsyncSession, *, actor_id: int, type_id: int, name_fa=_UNSET, is_failure=_UNSET) -> dict:
+async def update_report_type(db: AsyncSession, *, actor_id: int, type_id: int, name_fa=_UNSET, is_failure=_UNSET,
+                             labor_mode=_UNSET, equipment_mode=_UNSET, help_fa=_UNSET) -> dict:
     t = await _type(db, type_id)
     changes: dict[str, list] = {}
     if name_fa is not _UNSET:
@@ -71,6 +84,21 @@ async def update_report_type(db: AsyncSession, *, actor_id: int, type_id: int, n
             raise DomainError("report_type_in_use", 409)
         changes["is_failure"] = [t.is_failure, is_failure]
         t.is_failure = is_failure
+    # labor_mode / equipment_mode only steer the entry form and validation of NEW reports; old reports stay valid
+    # (reports.is_general is a snapshot), so unlike is_failure they may change even when the type is in use.
+    if help_fa is not _UNSET:
+        new_help = _clean_help(help_fa)
+        if new_help != t.help_fa:
+            changes["help_fa"] = [t.help_fa, new_help]
+            t.help_fa = new_help
+    for field, value in (("labor_mode", labor_mode), ("equipment_mode", equipment_mode)):
+        if value is _UNSET:
+            continue
+        if value is None:
+            raise DomainError(f"invalid_{field}", 422)
+        if value != getattr(t, field):
+            changes[field] = [getattr(t, field), value]
+            setattr(t, field, value)
     if changes:
         add_audit(db, actor_id=actor_id, action="report_type.update", entity_type="report_type", entity_id=t.id,
                   metadata={"changes": changes})
