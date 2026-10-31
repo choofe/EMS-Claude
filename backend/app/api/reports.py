@@ -11,6 +11,7 @@ from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
 from app.schemas.reports import (
     CandidateOut, DraftCreate, DraftOut, DraftUpdate, EntryConfigOut, HeartbeatOut, QuickPickOut, ReportCreate, ReportCreated,
+    SuggestionsOut,
 )
 from app.services import report_creation, report_drafts
 
@@ -37,6 +38,12 @@ async def participant_candidates(equipment_id: int | None = None, group_id: int 
                                  limit: int = Query(30, ge=1, le=100), principal: Principal = Depends(_create),
                                  db: AsyncSession = Depends(get_db)) -> list[dict]:
     return await report_creation.participant_candidates(db, principal, equipment_id, group_id, q, limit)
+
+
+@router.get("/participant-suggestions", response_model=SuggestionsOut)
+async def participant_suggestions(equipment_id: int | None = None, group_id: int | None = None,
+                                  principal: Principal = Depends(_create), db: AsyncSession = Depends(get_db)) -> dict:
+    return await report_creation.participant_suggestions(db, principal, equipment_id, group_id)
 
 
 @router.get("/equipment-quick-pick", response_model=QuickPickOut)

@@ -461,7 +461,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
           )}
           {laborVisible(type, form) && (
             <LaborSection mode={laborMode(type)} rows={form.labor} context={context} author={author} authorRemoved={form.authorRemoved} maxMinutes={cfg.max_participant_minutes}
-              defaultMinutes={cfg.default_labor_minutes} error={laborIssues || undefined}
+              defaultMinutes={cfg.default_labor_minutes} maxParticipants={cfg.max_participants} error={laborIssues || undefined}
               onChange={(rows, removed) => patch({ labor: rows, authorRemoved: removed ? form.authorRemoved || removed.userId === author.id : form.authorRemoved && !rows.some((r) => r.userId === author.id) })} />
           )}
 

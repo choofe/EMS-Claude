@@ -890,6 +890,104 @@ describe("type first, three modes", () => {
   });
 });
 
+describe("quick-add people (Phase 6c)", () => {
+  const sug = { previous: [{ id: 3, full_name: "سعید احمدی" }, { id: 4, full_name: "رضا کریمی" }], frequent: [{ id: 5, full_name: "مریم نوری" }] };
+  const withSug = (over: Record<string, (c: never) => Response | Promise<Response>> = {}) =>
+    mockFetch(routes({ "GET /reports/participant-suggestions": () => json(200, sug), ...over }));
+
+  it("asks for suggestions only once equipment is chosen, and shows both groups", async () => {
+    const m = withSug();
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await screen.findByRole("group", { name: "ردیف 1" });
+    expect(m.calls.filter((c) => c.path === "/reports/participant-suggestions")).toHaveLength(0);
+    await chooseEquipment();
+    const box = await screen.findByRole("group", { name: "افزودن سریع افراد" });
+    const asked = m.calls.filter((c) => c.path === "/reports/participant-suggestions");
+    expect(asked).toHaveLength(1);
+    expect(asked[0].query.get("equipment_id")).toBe("9");
+    for (const n of ["سعید احمدی", "رضا کریمی", "مریم نوری"]) expect(within(box).getByRole("button", { name: n })).toBeInTheDocument();
+  });
+
+  it("a chip adds that person with the DEFAULT minutes and disappears from the suggestions", async () => {
+    withSug();
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await userEvent.click(await screen.findByRole("button", { name: "سعید احمدی" }));
+    const row = await screen.findByRole("group", { name: "ردیف 2" });
+    expect(within(row).getByRole("combobox", { name: "نام فرد" })).toHaveValue("سعید احمدی");
+    expect(within(row).getByLabelText(/^دقیقه/)).toHaveValue("30");
+    expect(screen.queryByRole("button", { name: "سعید احمدی" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "رضا کریمی" })).toBeInTheDocument();
+  });
+
+  it("«افزودن همه» adds every remaining person of the previous report, not the frequent ones", async () => {
+    withSug();
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await userEvent.click(await screen.findByRole("button", { name: "افزودن همه" }));
+    await waitFor(() => expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(3));
+    expect(screen.getByRole("button", { name: "مریم نوری" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "افزودن همه" })).not.toBeInTheDocument();
+  });
+
+  it("the chosen people are what the report submits (ids and the default minutes)", async () => {
+    const m = withSug({ "POST /reports": () => json(201, created) });
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await userEvent.click(await screen.findByRole("button", { name: "مریم نوری" }));
+    await describeIt();
+    await userEvent.click(screen.getByRole("button", { name: /ثبت گزارش/ }));
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    expect((posts(m, "/reports")[0].body as { participants: unknown }).participants).toEqual([{ user_id: 2, minutes: 30 }, { user_id: 5, minutes: 30 }]);
+  });
+
+  it("no chips when there are no suggestions, and a failing suggestions call does not break the form", async () => {
+    mockFetch(routes({ "GET /reports/participant-suggestions": () => json(500, { detail: "x" }) }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await screen.findByRole("group", { name: "ردیف 1" });
+    await waitFor(() => expect(screen.queryByRole("group", { name: "افزودن سریع افراد" })).not.toBeInTheDocument());
+    await describeIt();
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("تعویض بلبرینگ");
+  });
+
+  it("a chip fills a blank row instead of adding one more", async () => {
+    withSug();
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await userEvent.click(await screen.findByRole("button", { name: "افزودن نفر" }));
+    expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "رضا کریمی" }));
+    await waitFor(() => expect(within(screen.getByRole("group", { name: "ردیف 2" })).getByRole("combobox", { name: "نام فرد" })).toHaveValue("رضا کریمی"));
+    expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(2);
+  });
+
+  it("never goes past the participant limit: chips are disabled when the list is full", async () => {
+    mockFetch(routes({ "GET /reports/participant-suggestions": () => json(200, sug) }, { cfgOver: { max_participants: 2 } }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await userEvent.click(await screen.findByRole("button", { name: "افزودن همه" }));
+    await waitFor(() => expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(2)); // the author + ONE of two
+    expect(screen.getByRole("button", { name: "مریم نوری" })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("people already in the list are never offered", async () => {
+    withSug({ "GET /reports/participant-suggestions": () => json(200, { previous: [{ id: 2, full_name: "علی رضایی" }], frequent: [] }) });
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await screen.findByRole("group", { name: "ردیف 1" }); // the author is pre-filled
+    await waitFor(() => expect(screen.queryByRole("group", { name: "افزودن سریع افراد" })).not.toBeInTheDocument());
+  });
+});
+
 describe("access", () => {
   it("AUDITOR has no entry in the menu and is sent away from /reports/new", async () => {
     const aud = makeUser({ id: 9, username: "aud", role_code: "AUDITOR", role_label_fa: "بازرس ارشد" });
