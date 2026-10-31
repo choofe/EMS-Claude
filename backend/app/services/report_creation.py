@@ -48,9 +48,9 @@ from app.services.runtime_settings import ReportEntryPolicy, get_report_entry_po
 FUTURE_TOLERANCE = timedelta(minutes=5)  # approved 2026-10-16: clock skew between phone and server
 
 # Phase 6c quick-add (approved 2026-10-31; fixed in code on purpose, not settings).
-FREQUENT_WINDOW = timedelta(days=30)  # applies to "frequent colleagues" only; "previous report" has no age limit
-FREQUENT_MIN_REPORTS = 2              # a colleague must appear in >= 2 of the author's own reports in the window
-FREQUENT_MAX = 5
+FREQUENT_WINDOW = timedelta(days=30)  # a colleague counts only through the author's own reports of the last 30 days
+FREQUENT_MIN_REPORTS = 2              # ... and only when he/she appears in at least 2 of them
+FREQUENT_POOL = 15                    # candidates returned, best first; the form shows 5 at a time and refills as people are picked
 
 
 def participant_filter(principal: Principal, policy: ReportEntryPolicy, group_id: int):
@@ -118,14 +118,12 @@ async def participant_candidates(db: AsyncSession, principal: Principal, equipme
 
 async def participant_suggestions(db: AsyncSession, principal: Principal, equipment_id: int | None,
                                   group_id: int | None) -> dict:
-    """Quick-add people (Phase 6c) drawn ONLY from reports the caller CREATED (active ones): never from reports where
-    the caller was merely a participant, so no colleague's labor/report rows can leak through this endpoint.
-    Returns ids and names only (no minutes). Every person is re-checked with `participant_filter` for the report's
-    group (the same single eligibility rule as the candidate list and the create check); the author and inactive
-    users are never suggested.
-      previous: people of the caller's most recent own report (any age);
-      frequent: people in >= FREQUENT_MIN_REPORTS own reports of the last FREQUENT_WINDOW, at most FREQUENT_MAX,
-                excluding those already in `previous`."""
+    """Quick-add people (Phase 6c): colleagues who appear in at least FREQUENT_MIN_REPORTS of the caller's OWN-CREATED
+    active reports of the last FREQUENT_WINDOW, most reports first (then most recent), at most FREQUENT_POOL.
+    Reports where the caller was merely a participant are never used, so no colleague's report/labor rows can leak;
+    the response has ids and names only (no minutes). Every person is re-checked with `participant_filter` for the
+    report's group (the same single eligibility rule as the candidate list and the create check); the author and
+    inactive users are never suggested."""
     if (equipment_id is None) == (group_id is None):
         raise DomainError("equipment_or_group_required", 422)
     if equipment_id is not None:
@@ -135,33 +133,17 @@ async def participant_suggestions(db: AsyncSession, principal: Principal, equipm
     policy = await get_report_entry_policy(db)
     eligible = and_(participant_filter(principal, policy, group.id), User.id != principal.user_id)
     own = and_(Report.created_by == principal.user_id, Report.is_active.is_(True))
-
-    last_id = (await db.execute(
-        select(Report.id).where(own).order_by(Report.created_at.desc(), Report.id.desc()).limit(1))).scalar_one_or_none()
-    previous: list[dict] = []
-    if last_id is not None:
-        rows = (await db.execute(
-            select(User.id, User.full_name)
-            .join(ReportParticipant, ReportParticipant.user_id == User.id)
-            .where(ReportParticipant.report_id == last_id, eligible)
-            .order_by(User.full_name, User.id))).all()
-        previous = [{"id": i, "full_name": n} for i, n in rows]
-
     since = datetime.now(timezone.utc) - FREQUENT_WINDOW
     reports_n = func.count(func.distinct(Report.id))
-    stmt = (
+    rows = (await db.execute(
         select(User.id, User.full_name)
         .join(ReportParticipant, ReportParticipant.user_id == User.id)
         .join(Report, Report.id == ReportParticipant.report_id)
         .where(own, Report.created_at >= since, eligible)
-    )
-    if previous:
-        stmt = stmt.where(User.id.notin_([p["id"] for p in previous]))
-    rows = (await db.execute(
-        stmt.group_by(User.id, User.full_name).having(reports_n >= FREQUENT_MIN_REPORTS)
+        .group_by(User.id, User.full_name).having(reports_n >= FREQUENT_MIN_REPORTS)
         .order_by(reports_n.desc(), func.max(Report.created_at).desc(), User.full_name, User.id)
-        .limit(FREQUENT_MAX))).all()
-    return {"previous": previous, "frequent": [{"id": i, "full_name": n} for i, n in rows]}
+        .limit(FREQUENT_POOL))).all()
+    return {"frequent": [{"id": i, "full_name": n} for i, n in rows]}
 
 
 async def entry_config(db: AsyncSession, principal: Principal) -> dict:

@@ -6,7 +6,7 @@ import { equipmentApi, reportTypesApi, reportsApi } from "../../api/resources";
 import type { Draft, EntryConfig, ReportCreated, ReportType } from "../../api/types";
 import { useAuth } from "../../auth/AuthProvider";
 import { ErrorAlert, Loading, PageHeader } from "../../components/common";
-import { formatJalaliDateTime, toPersianDigits } from "../../lib/dates";
+import { formatJalaliDateTime, parseServerDate, toPersianDigits } from "../../lib/dates";
 import { clearAllFor, clearLocal, clearUndo, loadLocal, loadUndo, makeSnapshot, saveLocal, saveUndo, type LocalSnapshot } from "../../lib/localDraft";
 import { dueForSave } from "../../lib/saveSchedule";
 import { useLoad } from "../../lib/useLoad";
@@ -376,13 +376,22 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   }
 
   if (choice) {
+    // Device and server clocks can differ a little: "newer" is only claimed when the gap is at least a minute.
+    const gap = parseServerDate(choice.local.savedAt).getTime() - parseServerDate(choice.server.draft.updated_at).getTime();
+    const newer = Math.abs(gap) < 60_000 ? null : gap > 0 ? "local" : "server";
     return (
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>از این گزارش دو نسخه دارید. کدام را ادامه می‌دهید؟</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>نسخه‌ی دیگر نگه داشته می‌شود و با «بازگرداندن» می‌توانید به آن برگردید.</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          نسخه‌ی سرور ممکن است از همین دستگاه یا از دستگاه دیگری ذخیره شده باشد. نسخه‌ای که انتخاب نکنید نگه داشته می‌شود و با «بازگرداندن» به آن برمی‌گردید.
+        </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} gap={1.5}>
-          <Button variant="contained" onClick={() => pick("local")}>نسخه‌ی این دستگاه (ذخیره‌نشده، ساعت {timeOf(choice.local.savedAt)})</Button>
-          <Button variant="outlined" onClick={() => pick("server")}>نسخه‌ی سرور (ساعت {timeOf(choice.server.draft.updated_at)})</Button>
+          <Button variant={newer === "server" ? "outlined" : "contained"} onClick={() => pick("local")}>
+            نسخه‌ی این دستگاه ({formatJalaliDateTime(choice.local.savedAt)}){newer === "local" ? " — جدیدتر" : ""}
+          </Button>
+          <Button variant={newer === "server" ? "contained" : "outlined"} onClick={() => pick("server")}>
+            نسخه‌ی سرور ({formatJalaliDateTime(choice.server.draft.updated_at)}){newer === "server" ? " — جدیدتر" : ""}
+          </Button>
         </Stack>
       </Paper>
     );

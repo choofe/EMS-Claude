@@ -12,6 +12,8 @@ const PRESETS: { label: string; minutes: number }[] = [
   { label: "۳۰ دقیقه", minutes: 30 }, { label: "۱ ساعت", minutes: 60 }, { label: "۱ ساعت و ۳۰ دقیقه", minutes: 90 }, { label: "۲ ساعت", minutes: 120 },
 ];
 
+const SHOWN_SUGGESTIONS = 5;
+
 export function LaborSection(p: {
   mode: Mode; rows: LaborRow[]; onChange: (rows: LaborRow[], removed?: LaborRow) => void;
   context: { equipment_id?: number; group_id?: number } | null; author: { id: number; full_name: string };
@@ -36,17 +38,15 @@ export function LaborSection(p: {
   const room = (p.maxParticipants ?? 30) - p.rows.length + p.rows.filter((r) => r.userId === null && r.hours === "" && r.minutes === "").length;
   const free = (list: Candidate[]) => list.filter((c) => !taken.includes(c.id));
   // Quick-add always uses the default minutes (never the previous report's) and fills a blank row before adding a new one.
-  const addPeople = (people: Candidate[]) => {
+  const addPerson = (c: Candidate) => {
     const rows = [...p.rows];
-    for (const c of people.slice(0, Math.max(room, 0))) {
-      const fresh = { key: newRowKey(), userId: c.id, name: c.full_name, ...splitMinutes(p.defaultMinutes) };
-      const blank = rows.findIndex((r) => r.userId === null && r.hours === "" && r.minutes === "");
-      if (blank >= 0) rows[blank] = { ...fresh, key: rows[blank].key }; else rows.push(fresh);
-    }
+    const fresh = { key: newRowKey(), userId: c.id, name: c.full_name, ...splitMinutes(p.defaultMinutes) };
+    const blank = rows.findIndex((r) => r.userId === null && r.hours === "" && r.minutes === "");
+    if (blank >= 0) rows[blank] = { ...fresh, key: rows[blank].key }; else rows.push(fresh);
     p.onChange(rows);
   };
-  const prev = suggestions ? free(suggestions.previous) : [];
-  const freq = suggestions ? free(suggestions.frequent) : [];
+  // The server returns a ranked pool; only the first SHOWN not-yet-listed people are offered, so picking one brings the next in.
+  const offered = suggestions ? free(suggestions.frequent).slice(0, SHOWN_SUGGESTIONS) : [];
   const total = p.rows.reduce((sum, r) => sum + (rowMinutes(r) ?? 0), 0);
 
   return (
@@ -62,21 +62,10 @@ export function LaborSection(p: {
       )}
       {p.error && <Alert severity="error" sx={{ mt: 1 }}>{p.error}</Alert>}
 
-      {(prev.length > 0 || freq.length > 0) && (
-        <Stack gap={0.75} sx={{ mt: 1.5 }} role="group" aria-label="افزودن سریع افراد">
-          {prev.length > 0 && (
-            <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center">
-              <Typography variant="body2" color="text.secondary">افراد گزارش قبلی:</Typography>
-              {prev.map((c) => <Chip key={c.id} size="small" variant="outlined" icon={<AddIcon />} label={c.full_name} disabled={room <= 0} onClick={() => addPeople([c])} />)}
-              {prev.length > 1 && <Button size="small" disabled={room <= 0} onClick={() => addPeople(prev)}>افزودن همه</Button>}
-            </Stack>
-          )}
-          {freq.length > 0 && (
-            <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center">
-              <Typography variant="body2" color="text.secondary">همکاران پرتکرار:</Typography>
-              {freq.map((c) => <Chip key={c.id} size="small" variant="outlined" icon={<AddIcon />} label={c.full_name} disabled={room <= 0} onClick={() => addPeople([c])} />)}
-            </Stack>
-          )}
+      {offered.length > 0 && (
+        <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center" sx={{ mt: 1.5 }} role="group" aria-label="افزودن سریع افراد">
+          <Typography variant="body2" color="text.secondary">بر اساس گزارشات قبلی:</Typography>
+          {offered.map((c) => <Chip key={c.id} size="small" variant="outlined" icon={<AddIcon />} label={c.full_name} disabled={room <= 0} onClick={() => addPerson(c)} />)}
         </Stack>
       )}
 
