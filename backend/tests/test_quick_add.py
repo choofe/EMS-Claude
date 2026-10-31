@@ -1,5 +1,5 @@
-"""Phase 6c — quick-add people (participant-suggestions): colleagues frequent in the author's OWN reports (30 days, >= 2).
-Same eligibility rule as the candidate list."""
+"""Phase 6c — quick-add people (participant-suggestions): colleagues frequent in the author's OWN reports (30 days, >= 2),
+then the people of the latest own report (any age). Same eligibility rule as the candidate list."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -44,41 +44,42 @@ async def crew(db, world):
 
 
 async def two(db, world, creator, people, days_ago=2, **kw):
-    """Two own reports containing `people`: the minimum that makes someone "frequent"."""
+    """Two own reports containing `people`: the minimum that makes someone "suggestions"."""
     await mk(db, world, creator, people, days_ago=days_ago, **kw)
     await mk(db, world, creator, people, days_ago=days_ago + 1, **kw)
 
 
-async def test_frequent_needs_two_own_reports_in_30_days(api, db, world, crew):
+async def test_frequent_needs_two_own_reports_in_30_days_otherwise_only_the_latest_reports_people_fill_in(api, db, world, crew):
     await mk(db, world, world.ali, [crew[0], crew[1]], days_ago=2)
     await mk(db, world, world.ali, [crew[0]], days_ago=10)
     await mk(db, world, world.ali, [crew[1]], days_ago=40)  # outside the window: does not count
     await mk(db, world, world.ali, [crew[2]], days_ago=1)   # a single report: not frequent
     r = await api.get(url(world), "ali")
     assert r.status_code == 200
-    assert r.json() == {"frequent": [{"id": crew[0].id, "full_name": crew[0].full_name}]}  # ids+names only, no minutes
+    # crew[0] is frequent; crew[2] only fills from the latest report; crew[1] (1 report in the window) is neither
+    assert r.json() == {"suggestions": [{"id": crew[0].id, "full_name": crew[0].full_name}, {"id": crew[2].id, "full_name": crew[2].full_name}]}  # ids+names only, no minutes
 
 
 async def test_reports_where_caller_was_only_a_participant_are_never_used(api, db, world, crew):
     await two(db, world, world.exp, [world.ali, crew[0]])
-    assert (await api.get(url(world), "ali")).json() == {"frequent": []}
+    assert (await api.get(url(world), "ali")).json() == {"suggestions": []}
 
 
 async def test_other_users_reports_do_not_leak(api, db, world, crew):
     await two(db, world, world.exp, [crew[0], crew[1]])
     await two(db, world, world.ali, [crew[2]])
-    assert ids((await api.get(url(world), "ali")).json()["frequent"]) == [crew[2].id]
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[2].id]
 
 
 async def test_soft_deleted_reports_are_ignored(api, db, world, crew):
     await two(db, world, world.ali, [crew[0]])
     await two(db, world, world.ali, [crew[1]], active=False)
-    assert ids((await api.get(url(world), "ali")).json()["frequent"]) == [crew[0].id]
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id]
 
 
 async def test_author_is_never_suggested(api, db, world, crew):
     await two(db, world, world.ali, [world.ali, crew[0]])
-    assert ids((await api.get(url(world), "ali")).json()["frequent"]) == [crew[0].id]
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id]
 
 
 async def test_ordered_by_report_count_then_recency_and_capped_at_the_pool(api, db, world, crew, monkeypatch):
@@ -91,24 +92,24 @@ async def test_ordered_by_report_count_then_recency_and_capped_at_the_pool(api, 
         await mk(db, world, world.ali, [crew[i]], days_ago={1: 4, 2: 2}[i])  # 2 reports each; crew[2] is the more recent
     for i in (3, 4):
         await two(db, world, world.ali, [crew[i]], days_ago=20)    # 2 reports each, older
-    assert ids((await api.get(url(world), "ali")).json()["frequent"]) == [crew[0].id, crew[2].id, crew[1].id]
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id, crew[2].id, crew[1].id]
 
 
 async def test_suggestions_are_revalidated_for_the_forms_group(api, db, world, crew):
     far = await f.user(db, "far", "USER", [world.door])
     await db.commit()
     await two(db, world, world.ali, [crew[0], far])
-    assert ids((await api.get(url(world), "ali")).json()["frequent"]) == [crew[0].id]  # a DOOR member is not eligible in ELV for a USER
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id]  # a DOOR member is not eligible in ELV for a USER
     db.add(m.SystemSetting(key="REPORT_USER_PARTICIPANTS_ALL_USERS", value="1"))
     await db.commit()
-    assert set(ids((await api.get(url(world), "ali")).json()["frequent"])) == {crew[0].id, far.id}
+    assert set(ids((await api.get(url(world), "ali")).json()["suggestions"])) == {crew[0].id, far.id}
 
 
 async def test_inactive_people_are_not_suggested(api, db, world, crew):
     await two(db, world, world.ali, [crew[0], crew[1]])
     crew[1].is_active = False
     await db.commit()
-    assert ids((await api.get(url(world), "ali")).json()["frequent"]) == [crew[0].id]
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id]
 
 
 async def test_scope_and_params_and_roles(api, db, world):
@@ -124,6 +125,47 @@ async def test_expert_and_management_follow_their_own_eligibility(api, db, world
     far = await f.user(db, "far", "USER", [world.door])
     await db.commit()
     await two(db, world, world.exp, [crew[0], far])
-    assert set(ids((await api.get(url(world), "exp")).json()["frequent"])) == {crew[0].id, far.id}  # EXPERT: any user (default 1)
+    assert set(ids((await api.get(url(world), "exp")).json()["suggestions"])) == {crew[0].id, far.id}  # EXPERT: any user (default 1)
     await two(db, world, world.boss, [far])
-    assert ids((await api.get(url(world), "boss")).json()["frequent"]) == [far.id]
+    assert ids((await api.get(url(world), "boss")).json()["suggestions"]) == [far.id]
+
+
+async def test_rare_filer_gets_the_people_of_the_latest_report_however_old(api, db, world, crew):
+    await mk(db, world, world.ali, [crew[4]], days_ago=200)
+    await mk(db, world, world.ali, [crew[5], crew[3], world.ali], days_ago=90)  # the latest own report; the author is skipped
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[3].id, crew[5].id]  # by name; the older report is not used
+
+
+async def test_fill_comes_after_the_frequent_people_without_duplicates(api, db, world, crew):
+    await two(db, world, world.ali, [crew[0]], days_ago=5)
+    await mk(db, world, world.ali, [crew[0], crew[3]], days_ago=1)  # latest report
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id, crew[3].id]
+
+
+async def test_fill_never_uses_reports_the_caller_only_took_part_in(api, db, world, crew):
+    await mk(db, world, world.ali, [crew[0]], days_ago=30)
+    await mk(db, world, world.exp, [world.ali, crew[1]], days_ago=1)  # newer, but created by someone else
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id]
+
+
+async def test_fill_is_revalidated_and_skips_inactive_people(api, db, world, crew):
+    far = await f.user(db, "far", "USER", [world.door])
+    await db.commit()
+    await mk(db, world, world.ali, [crew[0], crew[1], far], days_ago=60)
+    crew[1].is_active = False
+    await db.commit()
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id]  # `far` is not eligible for a USER in ELV
+
+
+async def test_fill_ignores_soft_deleted_latest_report(api, db, world, crew):
+    await mk(db, world, world.ali, [crew[0]], days_ago=40)
+    await mk(db, world, world.ali, [crew[1]], days_ago=1, active=False)
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[0].id]
+
+
+async def test_the_whole_list_never_exceeds_the_pool_even_when_filled(api, db, world, crew, monkeypatch):
+    import app.services.report_creation as rc
+    monkeypatch.setattr(rc, "FREQUENT_POOL", 3)
+    await two(db, world, world.ali, [crew[6]])                       # 1 frequent person
+    await mk(db, world, world.ali, [crew[0], crew[1], crew[2], crew[3]], days_ago=0)  # latest report with 4 more
+    assert ids((await api.get(url(world), "ali")).json()["suggestions"]) == [crew[6].id, crew[0].id, crew[1].id]

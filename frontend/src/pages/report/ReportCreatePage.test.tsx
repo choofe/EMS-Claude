@@ -650,6 +650,12 @@ describe("device-local working copy, restore decisions, undo", () => {
       await open("2026-03-20T10:05:30Z");
       expect(mark(/نسخه‌ی سرور/)).toBe(false);
       expect(mark(/نسخه‌ی این دستگاه/)).toBe(false);
+      for (const re of [/نسخه‌ی سرور/, /نسخه‌ی این دستگاه/]) expect(screen.getByRole("button", { name: re })).toHaveClass("MuiButton-outlined"); // no emphasis either
+    });
+    it("only the newer copy is emphasised", async () => {
+      await open("2026-03-20T10:09:00Z");
+      expect(screen.getByRole("button", { name: /نسخه‌ی این دستگاه/ })).toHaveClass("MuiButton-contained");
+      expect(screen.getByRole("button", { name: /نسخه‌ی سرور/ })).toHaveClass("MuiButton-outlined");
     });
   });
 
@@ -918,7 +924,7 @@ describe("type first, three modes", () => {
 
 describe("quick-add people (Phase 6c)", () => {
   const people = ["سعید احمدی", "رضا کریمی", "مریم نوری", "نگار صالحی", "حسن رضوی", "کیان فرهادی", "سارا تقوی"];
-  const sug = { frequent: people.map((full_name, i) => ({ id: 3 + i, full_name })) }; // a pool of 7 (the server sends up to 15)
+  const sug = { suggestions: people.map((full_name, i) => ({ id: 3 + i, full_name })) }; // a pool of 7 (the server sends up to 15)
   const withSug = (over: Record<string, (c: never) => Response | Promise<Response>> = {}, cfgOver: Record<string, unknown> = {}) =>
     mockFetch(routes({ "GET /reports/participant-suggestions": () => json(200, sug), ...over }, cfgOver ? { cfgOver } : {}));
   const box = () => screen.findByRole("group", { name: "افزودن سریع افراد" });
@@ -981,7 +987,7 @@ describe("quick-add people (Phase 6c)", () => {
   });
 
   it("people already in the list are never offered", async () => {
-    withSug({ "GET /reports/participant-suggestions": () => json(200, { frequent: [{ id: 2, full_name: "علی رضایی" }] }) });
+    withSug({ "GET /reports/participant-suggestions": () => json(200, { suggestions: [{ id: 2, full_name: "علی رضایی" }] }) });
     await open();
     await screen.findByRole("group", { name: "ردیف 1" }); // the author is pre-filled
     await waitFor(() => expect(screen.queryByRole("group", { name: "افزودن سریع افراد" })).not.toBeInTheDocument());

@@ -97,7 +97,7 @@ class CandidateOut(BaseModel):
 
 class SuggestionsOut(BaseModel):
     """Quick-add people (Phase 6c): ids and names only, never minutes."""
-    frequent: list[CandidateOut]
+    suggestions: list[CandidateOut]
 
 
 class QuickEquipmentOut(BaseModel):

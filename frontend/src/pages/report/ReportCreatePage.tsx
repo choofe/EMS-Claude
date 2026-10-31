@@ -386,7 +386,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
           نسخه‌ی سرور ممکن است از همین دستگاه یا از دستگاه دیگری ذخیره شده باشد. نسخه‌ای که انتخاب نکنید نگه داشته می‌شود و با «بازگرداندن» به آن برمی‌گردید.
         </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} gap={1.5}>
-          <Button variant={newer === "server" ? "outlined" : "contained"} onClick={() => pick("local")}>
+          <Button variant={newer === "local" ? "contained" : "outlined"} onClick={() => pick("local")}>
             نسخه‌ی این دستگاه ({formatJalaliDateTime(choice.local.savedAt)}){newer === "local" ? " — جدیدتر" : ""}
           </Button>
           <Button variant={newer === "server" ? "contained" : "outlined"} onClick={() => pick("server")}>

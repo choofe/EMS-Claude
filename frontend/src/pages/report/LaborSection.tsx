@@ -46,7 +46,7 @@ export function LaborSection(p: {
     p.onChange(rows);
   };
   // The server returns a ranked pool; only the first SHOWN not-yet-listed people are offered, so picking one brings the next in.
-  const offered = suggestions ? free(suggestions.frequent).slice(0, SHOWN_SUGGESTIONS) : [];
+  const offered = suggestions ? free(suggestions.suggestions).slice(0, SHOWN_SUGGESTIONS) : [];
   const total = p.rows.reduce((sum, r) => sum + (rowMinutes(r) ?? 0), 0);
 
   return (
