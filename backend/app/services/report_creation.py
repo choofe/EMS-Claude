@@ -47,6 +47,13 @@ from app.services.runtime_settings import ReportEntryPolicy, get_report_entry_po
 
 FUTURE_TOLERANCE = timedelta(minutes=5)  # approved 2026-10-16: clock skew between phone and server
 
+# Phase 6c quick-add (approved 2026-10-31; fixed in code on purpose, not settings).
+FREQUENT_WINDOW = timedelta(days=30)  # a colleague counts only through the author's own reports of the last 30 days
+FREQUENT_MIN_REPORTS = 2              # ... and only when he/she appears in at least 2 of them
+FREQUENT_POOL = 15                    # candidates returned, best first; the form shows 5 at a time and refills as people are picked
+# After the frequent people, the people of the author's latest own report (any age) fill the pool: someone who files
+# rarely (every few months) has nobody frequent in 30 days but still benefits from the people of the last report.
+
 
 def participant_filter(principal: Principal, policy: ReportEntryPolicy, group_id: int):
     """WHERE-clause of users that `principal` may list as participants of a report in `group_id`."""
@@ -109,6 +116,51 @@ async def participant_candidates(db: AsyncSession, principal: Principal, equipme
         stmt = stmt.where(User.full_name.ilike(contains_pattern(q), escape=LIKE_ESCAPE))
     rows = (await db.execute(stmt.order_by(User.full_name, User.id).limit(limit))).all()
     return [{"id": i, "full_name": n} for i, n in rows]
+
+
+async def participant_suggestions(db: AsyncSession, principal: Principal, equipment_id: int | None,
+                                  group_id: int | None) -> dict:
+    """Quick-add people (Phase 6c), ranked best first:
+      1. colleagues in at least FREQUENT_MIN_REPORTS of the caller's OWN-CREATED active reports of the last
+         FREQUENT_WINDOW (most reports first, then most recent, then name);
+      2. then the people of the caller's most recent own report (any age), for authors who file rarely.
+    Capped at FREQUENT_POOL. Reports where the caller was merely a participant are never used, so no colleague's
+    report/labor rows can leak; ids and names only (no minutes). Every person is re-checked with
+    `participant_filter` for the report's group (the same single eligibility rule as the candidate list and the
+    create check); the author and inactive users are never suggested."""
+    if (equipment_id is None) == (group_id is None):
+        raise DomainError("equipment_or_group_required", 422)
+    if equipment_id is not None:
+        _, group = await _equipment_for_report(db, principal, equipment_id, lock=False)
+    else:
+        group = await _group_for_report(db, principal, group_id, lock=False)
+    policy = await get_report_entry_policy(db)
+    eligible = and_(participant_filter(principal, policy, group.id), User.id != principal.user_id)
+    own = and_(Report.created_by == principal.user_id, Report.is_active.is_(True))
+    since = datetime.now(timezone.utc) - FREQUENT_WINDOW
+    reports_n = func.count(func.distinct(Report.id))
+    rows = (await db.execute(
+        select(User.id, User.full_name)
+        .join(ReportParticipant, ReportParticipant.user_id == User.id)
+        .join(Report, Report.id == ReportParticipant.report_id)
+        .where(own, Report.created_at >= since, eligible)
+        .group_by(User.id, User.full_name).having(reports_n >= FREQUENT_MIN_REPORTS)
+        .order_by(reports_n.desc(), func.max(Report.created_at).desc(), User.full_name, User.id)
+        .limit(FREQUENT_POOL))).all()
+    ranked = [(i, n) for i, n in rows]
+
+    if len(ranked) < FREQUENT_POOL:
+        last_id = (await db.execute(
+            select(Report.id).where(own).order_by(Report.created_at.desc(), Report.id.desc()).limit(1))).scalar_one_or_none()
+        if last_id is not None:
+            stmt = (select(User.id, User.full_name)
+                    .join(ReportParticipant, ReportParticipant.user_id == User.id)
+                    .where(ReportParticipant.report_id == last_id, eligible))
+            if ranked:
+                stmt = stmt.where(User.id.notin_([i for i, _ in ranked]))
+            ranked += [(i, n) for i, n in (await db.execute(
+                stmt.order_by(User.full_name, User.id).limit(FREQUENT_POOL - len(ranked)))).all()]
+    return {"suggestions": [{"id": i, "full_name": n} for i, n in ranked]}
 
 
 async def entry_config(db: AsyncSession, principal: Principal) -> dict:

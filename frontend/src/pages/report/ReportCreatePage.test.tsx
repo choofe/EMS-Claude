@@ -627,6 +627,38 @@ describe("device-local working copy, restore decisions, undo", () => {
     expect(screen.getByLabelText("شرح گزارش")).toHaveValue("نسخه‌ی سرور");
   });
 
+  describe("conflict chooser says which version is newer", () => {
+    const open = async (localAt: string) => {
+      putLocal(snap("نسخه‌ی این دستگاه", { draftId: 1, version: 1 }, localAt));
+      mockFetch(routes({}, { drafts: [view({ version: 3, description: "نسخه‌ی تازه‌ی سرور" })] })); // the server copy is stamped 10:05
+      renderApp("/reports/new");
+      await screen.findByText(/از این گزارش دو نسخه دارید/);
+    };
+    const mark = (re: RegExp) => /جدیدتر/.test(screen.getByRole("button", { name: re }).textContent ?? "");
+
+    it("the device copy is newer", async () => {
+      await open("2026-03-20T10:09:00Z");
+      expect(mark(/نسخه‌ی این دستگاه/)).toBe(true);
+      expect(mark(/نسخه‌ی سرور/)).toBe(false);
+    });
+    it("the server copy is newer", async () => {
+      await open("2026-03-20T09:00:00Z");
+      expect(mark(/نسخه‌ی سرور/)).toBe(true);
+      expect(mark(/نسخه‌ی این دستگاه/)).toBe(false);
+    });
+    it("within a minute (clock skew) neither is called newer", async () => {
+      await open("2026-03-20T10:05:30Z");
+      expect(mark(/نسخه‌ی سرور/)).toBe(false);
+      expect(mark(/نسخه‌ی این دستگاه/)).toBe(false);
+      for (const re of [/نسخه‌ی سرور/, /نسخه‌ی این دستگاه/]) expect(screen.getByRole("button", { name: re })).toHaveClass("MuiButton-outlined"); // no emphasis either
+    });
+    it("only the newer copy is emphasised", async () => {
+      await open("2026-03-20T10:09:00Z");
+      expect(screen.getByRole("button", { name: /نسخه‌ی این دستگاه/ })).toHaveClass("MuiButton-contained");
+      expect(screen.getByRole("button", { name: /نسخه‌ی سرور/ })).toHaveClass("MuiButton-outlined");
+    });
+  });
+
   it("both exist and the server moved on (another device saved): the author chooses; the other version is kept and can be brought back", async () => {
     putLocal(snap("نسخه‌ی این دستگاه", { draftId: 1, version: 1 }));
     mockFetch(routes({}, { drafts: [view({ version: 3, description: "نسخه‌ی تازه‌ی سرور" })] }));
@@ -887,6 +919,96 @@ describe("type first, three modes", () => {
     const row = await screen.findByRole("group", { name: "ردیف 1" });
     expect(within(row).getByRole("combobox", { name: "نام فرد" })).toHaveValue("علی رضایی");
     expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(1); // not duplicated
+  });
+});
+
+describe("quick-add people (Phase 6c)", () => {
+  const people = ["سعید احمدی", "رضا کریمی", "مریم نوری", "نگار صالحی", "حسن رضوی", "کیان فرهادی", "سارا تقوی"];
+  const sug = { suggestions: people.map((full_name, i) => ({ id: 3 + i, full_name })) }; // a pool of 7 (the server sends up to 15)
+  const withSug = (over: Record<string, (c: never) => Response | Promise<Response>> = {}, cfgOver: Record<string, unknown> = {}) =>
+    mockFetch(routes({ "GET /reports/participant-suggestions": () => json(200, sug), ...over }, cfgOver ? { cfgOver } : {}));
+  const box = () => screen.findByRole("group", { name: "افزودن سریع افراد" });
+  const open = async () => { renderApp("/reports/new"); await chooseType("تعمیر خرابی جزئی"); await chooseEquipment(); };
+
+  it("asks for suggestions only once equipment is chosen and labels the row «بر اساس گزارشات قبلی:»", async () => {
+    const m = withSug();
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await screen.findByRole("group", { name: "ردیف 1" });
+    expect(m.calls.filter((c) => c.path === "/reports/participant-suggestions")).toHaveLength(0);
+    await chooseEquipment();
+    const b = await box();
+    const asked = m.calls.filter((c) => c.path === "/reports/participant-suggestions");
+    expect(asked).toHaveLength(1);
+    expect(asked[0].query.get("equipment_id")).toBe("9");
+    expect(within(b).getByText("بر اساس گزارشات قبلی:")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "افزودن همه" })).not.toBeInTheDocument();
+  });
+
+  it("shows only 5 at a time; picking one brings the next person in", async () => {
+    withSug();
+    await open();
+    const b = await box();
+    expect(within(b).getAllByRole("button")).toHaveLength(5);
+    expect(within(b).queryByRole("button", { name: people[5] })).not.toBeInTheDocument();
+    await userEvent.click(within(b).getByRole("button", { name: people[1] }));
+    await waitFor(() => expect(within(b).getByRole("button", { name: people[5] })).toBeInTheDocument()); // the 6th replaces the picked one
+    expect(within(b).queryByRole("button", { name: people[1] })).not.toBeInTheDocument();
+    expect(within(b).getAllByRole("button")).toHaveLength(5);
+  });
+
+  it("a chip adds that person with the DEFAULT minutes", async () => {
+    withSug();
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: people[0] }));
+    const row = await screen.findByRole("group", { name: "ردیف 2" });
+    expect(within(row).getByRole("combobox", { name: "نام فرد" })).toHaveValue(people[0]);
+    expect(within(row).getByLabelText(/^دقیقه/)).toHaveValue("30");
+    expect(screen.queryByRole("button", { name: people[0] })).not.toBeInTheDocument();
+  });
+
+  it("the chosen people are what the report submits (ids and the default minutes)", async () => {
+    const m = withSug({ "POST /reports": () => json(201, created) });
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: people[2] }));
+    await describeIt();
+    await userEvent.click(screen.getByRole("button", { name: /ثبت گزارش/ }));
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    expect((posts(m, "/reports")[0].body as { participants: unknown }).participants).toEqual([{ user_id: 2, minutes: 30 }, { user_id: 5, minutes: 30 }]);
+  });
+
+  it("a failing suggestions call does not break the form", async () => {
+    mockFetch(routes({ "GET /reports/participant-suggestions": () => json(500, { detail: "x" }) }));
+    await open();
+    await screen.findByRole("group", { name: "ردیف 1" });
+    await waitFor(() => expect(screen.queryByRole("group", { name: "افزودن سریع افراد" })).not.toBeInTheDocument());
+    await describeIt();
+    expect(screen.getByLabelText("شرح گزارش")).toHaveValue("تعویض بلبرینگ");
+  });
+
+  it("people already in the list are never offered", async () => {
+    withSug({ "GET /reports/participant-suggestions": () => json(200, { suggestions: [{ id: 2, full_name: "علی رضایی" }] }) });
+    await open();
+    await screen.findByRole("group", { name: "ردیف 1" }); // the author is pre-filled
+    await waitFor(() => expect(screen.queryByRole("group", { name: "افزودن سریع افراد" })).not.toBeInTheDocument());
+  });
+
+  it("a chip fills a blank row instead of adding one more", async () => {
+    withSug();
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "افزودن نفر" }));
+    expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: people[1] }));
+    await waitFor(() => expect(within(screen.getByRole("group", { name: "ردیف 2" })).getByRole("combobox", { name: "نام فرد" })).toHaveValue(people[1]));
+    expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(2);
+  });
+
+  it("never goes past the participant limit: chips are disabled when the list is full", async () => {
+    withSug({}, { max_participants: 2 });
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: people[0] })); // author + 1 = full
+    await waitFor(() => expect(screen.getAllByRole("group", { name: /^ردیف/ })).toHaveLength(2));
+    expect(screen.getByRole("button", { name: people[1] })).toHaveAttribute("aria-disabled", "true");
   });
 });
 

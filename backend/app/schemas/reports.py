@@ -95,6 +95,11 @@ class CandidateOut(BaseModel):
     full_name: str
 
 
+class SuggestionsOut(BaseModel):
+    """Quick-add people (Phase 6c): ids and names only, never minutes."""
+    suggestions: list[CandidateOut]
+
+
 class QuickEquipmentOut(BaseModel):
     id: int
     equipment_code: str

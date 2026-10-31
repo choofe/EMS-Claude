@@ -87,6 +87,7 @@ export interface EntryConfig {
   groups: { id: number; code: string; name: string }[];
 }
 export interface Candidate { id: number; full_name: string }
+export interface Suggestions { suggestions: Candidate[] }
 export interface QuickEquipment { id: number; equipment_code: string; group_id: number; group_code: string; description: string | null }
 export interface QuickPick { recent: QuickEquipment[]; frequent: QuickEquipment[] }
 export interface DraftPayload {
