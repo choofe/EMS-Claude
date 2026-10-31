@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { useEffect, useState } from "react";
+import { Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
-import type { Mode } from "../../api/types";
+import { reportsApi } from "../../api/resources";
+import type { Candidate, Mode, Suggestions } from "../../api/types";
 import { formatMinutes, splitMinutes } from "../../lib/labor";
 import { newRowKey, rowMinutes, type LaborRow } from "./reportForm";
 import { PersonPicker } from "./pickers";
@@ -14,13 +15,38 @@ const PRESETS: { label: string; minutes: number }[] = [
 export function LaborSection(p: {
   mode: Mode; rows: LaborRow[]; onChange: (rows: LaborRow[], removed?: LaborRow) => void;
   context: { equipment_id?: number; group_id?: number } | null; author: { id: number; full_name: string };
-  authorRemoved: boolean; maxMinutes: number; defaultMinutes: number; error?: string;
+  authorRemoved: boolean; maxMinutes: number; defaultMinutes: number; maxParticipants?: number; error?: string;
 }) {
   const [confirming, setConfirming] = useState<LaborRow | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
+  const eqId = p.context?.equipment_id;
+  const grId = p.context?.group_id;
+  useEffect(() => {
+    setSuggestions(null);
+    if (eqId === undefined && grId === undefined) return;
+    let stale = false;
+    reportsApi.suggestions(eqId !== undefined ? { equipment_id: eqId } : { group_id: grId })
+      .then((s) => { if (!stale) setSuggestions(s); }).catch(() => undefined); // a helper only: the form works without it
+    return () => { stale = true; };
+  }, [eqId, grId]);
   const remove = (r: LaborRow) => p.onChange(p.rows.filter((x) => x.key !== r.key), r);
   const set = (key: string, patch: Partial<LaborRow>) => p.onChange(p.rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const taken = p.rows.map((r) => r.userId).filter((x): x is number => x !== null);
   const authorMissing = p.authorRemoved && !taken.includes(p.author.id);
+  const room = (p.maxParticipants ?? 30) - p.rows.length + p.rows.filter((r) => r.userId === null && r.hours === "" && r.minutes === "").length;
+  const free = (list: Candidate[]) => list.filter((c) => !taken.includes(c.id));
+  // Quick-add always uses the default minutes (never the previous report's) and fills a blank row before adding a new one.
+  const addPeople = (people: Candidate[]) => {
+    const rows = [...p.rows];
+    for (const c of people.slice(0, Math.max(room, 0))) {
+      const fresh = { key: newRowKey(), userId: c.id, name: c.full_name, ...splitMinutes(p.defaultMinutes) };
+      const blank = rows.findIndex((r) => r.userId === null && r.hours === "" && r.minutes === "");
+      if (blank >= 0) rows[blank] = { ...fresh, key: rows[blank].key }; else rows.push(fresh);
+    }
+    p.onChange(rows);
+  };
+  const prev = suggestions ? free(suggestions.previous) : [];
+  const freq = suggestions ? free(suggestions.frequent) : [];
   const total = p.rows.reduce((sum, r) => sum + (rowMinutes(r) ?? 0), 0);
 
   return (
@@ -35,6 +61,24 @@ export function LaborSection(p: {
         </Alert>
       )}
       {p.error && <Alert severity="error" sx={{ mt: 1 }}>{p.error}</Alert>}
+
+      {(prev.length > 0 || freq.length > 0) && (
+        <Stack gap={0.75} sx={{ mt: 1.5 }} role="group" aria-label="افزودن سریع افراد">
+          {prev.length > 0 && (
+            <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center">
+              <Typography variant="body2" color="text.secondary">افراد گزارش قبلی:</Typography>
+              {prev.map((c) => <Chip key={c.id} size="small" variant="outlined" icon={<AddIcon />} label={c.full_name} disabled={room <= 0} onClick={() => addPeople([c])} />)}
+              {prev.length > 1 && <Button size="small" disabled={room <= 0} onClick={() => addPeople(prev)}>افزودن همه</Button>}
+            </Stack>
+          )}
+          {freq.length > 0 && (
+            <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center">
+              <Typography variant="body2" color="text.secondary">همکاران پرتکرار:</Typography>
+              {freq.map((c) => <Chip key={c.id} size="small" variant="outlined" icon={<AddIcon />} label={c.full_name} disabled={room <= 0} onClick={() => addPeople([c])} />)}
+            </Stack>
+          )}
+        </Stack>
+      )}
 
       <Stack gap={1.5} sx={{ mt: 1.5 }}>
         {p.rows.map((r, i) => {

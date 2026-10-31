@@ -9,6 +9,7 @@ MANAGEMENT everywhere, **AUDITOR none (403)**. Report detail/history/editing = P
 | `POST /reports` | Create. Body: `report_type_id`, `event_datetime` (ISO **with offset**; naive = 422), `description`, `participants[{user_id, minutes}]` (rules by the type's `labor_mode`), `equipment_id` and/or `group_id` (see *General reports*), optional `draft_id`, optional `client_request_id` (idempotency key, below). `201` returns the report (`report_number`, snapshot `group_id`/`group_code`, participants). Unknown body fields (e.g. `created_by`, `group_id`) → 422: they can never be client-supplied. |
 | `GET /reports/entry-config` | Form constants: `default_labor_minutes` (setting `DEFAULT_LABOR_MINUTES`, default 30), limits, and the groups the caller may file general reports in. |
 | `GET /reports/participant-candidates?equipment_id=` **or** `?group_id=` (exactly one) `&q=&limit=` | Users the caller may list as participants for that equipment's group. Returns only `{id, full_name}`. |
+| `GET /reports/participant-suggestions?equipment_id=` **or** `?group_id=` (exactly one) | Quick-add people (Phase 6c): `{previous: [{id, full_name}], frequent: [{id, full_name}]}`, see *Quick-add people*. Ids and names only. |
 | `GET /reports/equipment-quick-pick?limit=` | The caller's **own** recent / most-used equipment (active, still in scope). |
 | `POST /reports/heartbeat` | Session liveness ping (401/403 if the session is gone) + server time. Writes nothing. Idle timeout = Phase 9b. |
 | `GET/POST /reports/drafts`, `GET/PUT/DELETE /reports/drafts/{id}` | Private drafts (below). |
@@ -50,6 +51,14 @@ The form makes one random `client_request_id` (8-64 chars `[A-Za-z0-9_-]`) per s
 - Two attempts racing on one key: the loser's transaction (including its sequence increment) is rolled back and it receives the winner's report. A failed attempt (validation, scope, ...) does not use the key up. Keys are per author.
 - Separately, the draft still protects against a SECOND device/tab that holds the same draft: its submit gets `404 draft_not_found`, and the web form then refuses a plain retry — it asks the author to confirm explicitly («ثبت به‌عنوان گزارش جدید», which uses a new key).
 
+## Quick-add people (Phase 6c, approved 2026-10-31)
+`GET /reports/participant-suggestions` helps the author fill the labor list. **Source = reports the caller CREATED (active only)**: reports where the caller was merely a participant are never used (that would expose colleagues' report/labor rows to a USER). The response has ids and names only, never minutes.
+- `previous`: the people of the caller's **most recent** own report, whatever its age (an author who files rarely still benefits).
+- `frequent`: people appearing in **at least 2** of the caller's own reports in the **last 30 days**, at most **5**, most reports first, excluding anyone already in `previous`.
+- The three numbers are constants in `services/report_creation.py` (`FREQUENT_WINDOW`, `FREQUENT_MIN_REPORTS`, `FREQUENT_MAX`), deliberately not settings.
+- Every person is re-checked with `participant_filter` for the group of the chosen equipment/group (the same single eligibility function as the candidate list and the create check); the author and inactive users are never suggested. Equipment/group outside the caller's scope answers `404`, AUDITOR `403`, both or neither id `422`. No table or migration.
+- The form (`LaborSection`) shows two chip rows («افراد گزارش قبلی» with «افزودن همه», «همکاران پرتکرار») once equipment/group is known. A chip adds the person with `DEFAULT_LABOR_MINUTES` (never the previous report's minutes), fills a blank row first, never exceeds `max_participants`, and hides people already listed. A failed request just means no chips.
+
 ## Drafts (one per user)
 Server-side table `report_drafts` (`user_id`, JSON `payload`, `version`). A draft is **not** a report: no number, never in analytics/export, visible to its owner only (another user's id → 404, same as missing).
 - **One draft per user** (decided 2026-10-22; fixed in code, no setting — lifting it later needs no migration). Creating a second one → `409 draft_limit_reached`: the client treats it as "another tab/device already has a draft". Creation locks the user row (`FOR NO KEY UPDATE`) so parallel creates cannot exceed it.
@@ -59,7 +68,7 @@ Server-side table `report_drafts` (`user_id`, JSON `payload`, `version`). A draf
 - Not done (future): stale-draft cleanup job, offline queue beyond the device-local copy (Phase 11).
 
 ## Tests
-`tests/test_report_creation.py` (SQLite) and `tests/postgres/test_report_creation_pg.py` (10, real concurrency: 40 parallel creates → numbers 1..40 exactly; failures burn no number; 8 parallel submits of one draft → 1 report; parallel draft creates respect the limit; stale saves never overwrite; creation waits for an in-flight equipment move). Mutation-checked: removing equipment scope, participant filter, draft ownership (read and submit), future check, duplicate check, draft consumption, limit, version check, sequence row lock, equipment `FOR SHARE`, draft row lock, user-row lock, and the labor-mode / equipment-required / group-scope / group-mismatch / inactive-group / `is_general` rules each makes a test fail.
+`tests/test_report_creation.py` and `tests/test_quick_add.py` (SQLite) and `tests/postgres/test_report_creation_pg.py` (10, real concurrency: 40 parallel creates → numbers 1..40 exactly; failures burn no number; 8 parallel submits of one draft → 1 report; parallel draft creates respect the limit; stale saves never overwrite; creation waits for an in-flight equipment move). Mutation-checked: removing equipment scope, participant filter, draft ownership (read and submit), future check, duplicate check, draft consumption, limit, version check, sequence row lock, equipment `FOR SHARE`, draft row lock, user-row lock, and the labor-mode / equipment-required / group-scope / group-mismatch / inactive-group / `is_general` rules each makes a test fail.
 
 ## Future (not built)
 - Report types restricted per group (needs a `report_type_groups` mapping + admin UI); today all active types are offered to everyone.

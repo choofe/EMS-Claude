@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Candidate, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -92,6 +92,8 @@ export const reportsApi = {
   entryConfig: () => request<EntryConfig>("/reports/entry-config"),
   candidates: (q: { equipment_id?: number; group_id?: number; q?: string; limit?: number }) =>
     request<Candidate[]>("/reports/participant-candidates", { query: q }),
+  suggestions: (q: { equipment_id?: number; group_id?: number }) =>
+    request<Suggestions>("/reports/participant-suggestions", { query: q }),
   quickPick: () => request<QuickPick>("/reports/equipment-quick-pick"),
   heartbeat: () => request<{ ok: boolean; server_time: string }>("/reports/heartbeat", { method: "POST" }),
   create: (body: ReportCreateBody) => request<ReportCreated>("/reports", { method: "POST", body }),
