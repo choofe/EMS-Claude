@@ -26,16 +26,23 @@ export function useFavorites(initialFavoritesOnly: boolean): FavoritesController
   const [version, setVersion] = useState(0);
   const [toast, setToast] = useState<Toast | null>(null);
   const busy = useRef(new Set<number>()); // one request per person at a time: a double tap cannot send two
+  const filterSave = useRef<Promise<void>>(Promise.resolve()); // filter writes run in call order: the last choice is the last write
+  const filterRequest = useRef(0);                              // id of the newest choice; only it may roll the switch back
+  const confirmed = useRef(initialFavoritesOnly);               // the value the server last accepted (what a failed save falls back to)
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
   const setFavoritesOnly = useCallback((value: boolean) => {
+    const request = ++filterRequest.current;
     setOnly(value);
     bump();
-    reportsApi.setFavoritesFilter(value).catch((e) => { // the choice is a convenience: on failure fall back to what the server has
-      setOnly(!value);
-      bump();
-      setToast({ text: `ذخیرهٔ این انتخاب انجام نشد: ${errorMessage(e)}`, severity: "error" });
-    });
+    filterSave.current = filterSave.current
+      .then(() => reportsApi.setFavoritesFilter(value))
+      .then(() => { confirmed.current = value; }, (e) => { // the choice is a convenience: a failed save never blocks the later ones
+        if (request !== filterRequest.current) return;       // a newer choice supersedes this failure: leave the screen alone
+        setOnly(confirmed.current);
+        bump();
+        setToast({ text: `ذخیرهٔ این انتخاب انجام نشد: ${errorMessage(e)}`, severity: "error" });
+      });
   }, [bump]);
 
   const toggle = useCallback(async (c: Candidate, star: boolean) => {

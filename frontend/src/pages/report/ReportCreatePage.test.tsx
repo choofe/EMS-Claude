@@ -1036,7 +1036,7 @@ describe("access", () => {
 describe("favorite people in the person picker (Phase 6d)", () => {
   const everyone = [{ id: 2, full_name: "علی رضایی" }, { id: 3, full_name: "سعید احمدی" }, { id: 4, full_name: "رضا کریمی" }];
   // A tiny stateful server: the stars live in `stars`, candidates honour favorites_only like the real endpoint.
-  function server(o: { stars?: number[]; favoritesOnly?: boolean; putStatus?: Record<number, Response> } = {}) {
+  function server(o: { stars?: number[]; favoritesOnly?: boolean; putStatus?: Record<number, Response>; filter?: (c: { body: { favorites_only: boolean } }) => Response | Promise<Response> } = {}) {
     const stars = new Set(o.stars ?? [3]);
     const star = (id: number) => ({
       [`PUT /reports/favorite-people/${id}`]: () => o.putStatus?.[id] ?? (stars.add(id), new Response(null, { status: 204 })),
@@ -1047,7 +1047,7 @@ describe("favorite people in the person picker (Phase 6d)", () => {
         everyone.filter((p) => c.query.get("favorites_only") !== "true" || stars.has(p.id))
           .filter((p) => !c.query.get("q") || p.full_name.includes(c.query.get("q")!))
           .map((p) => ({ ...p, is_favorite: stars.has(p.id) }))),
-      "PUT /reports/favorites-filter": (c: { body: { favorites_only: boolean } }) => json(200, { favorites_only: c.body.favorites_only }),
+      "PUT /reports/favorites-filter": o.filter ?? ((c: { body: { favorites_only: boolean } }) => json(200, { favorites_only: c.body.favorites_only })),
       ...star(3), ...star(4),
     } as never, { cfgOver: { favorites_only: o.favoritesOnly ?? false } }));
     return { m, stars };
@@ -1137,5 +1137,56 @@ describe("favorite people in the person picker (Phase 6d)", () => {
     server({ favoritesOnly: true, stars: [] });
     await openPicker();
     expect(await screen.findByText(/هنوز کسی را ستاره‌دار نکرده‌اید/)).toBeInTheDocument();
+  });
+
+  // CodeRabbit round 1 on PR #12: the switch is saved on the server, and quick toggles must neither reorder nor roll back wrongly.
+  const filterPuts = (m: ReturnType<typeof mockFetch>) => m.calls.filter((c) => c.method === "PUT" && c.path === "/reports/favorites-filter");
+  const pressed = () => screen.getByRole("button", { name: "فقط ستاره‌دارها" }).getAttribute("aria-pressed");
+
+  it("quick toggles are saved one after another, in order: the last choice is the last write", async () => {
+    let release: () => void = () => undefined;
+    let n = 0;
+    const { m } = server({ filter: (c) => (++n === 1 ? new Promise<Response>((r) => { release = () => r(json(200, { favorites_only: c.body.favorites_only })); }) : json(200, { favorites_only: c.body.favorites_only })) });
+    await openPicker();
+    await userEvent.click(await screen.findByRole("button", { name: "فقط ستاره‌دارها" }));
+    await userEvent.click(screen.getByRole("button", { name: "فقط ستاره‌دارها" }));
+    expect(pressed()).toBe("false"); // the screen follows the user at once
+    expect(filterPuts(m)).toHaveLength(1); // the second save waits for the first
+    release();
+    await waitFor(() => expect(filterPuts(m)).toHaveLength(2));
+    expect(filterPuts(m).map((c) => (c.body as { favorites_only: boolean }).favorites_only)).toEqual([true, false]);
+  });
+
+  it("an older save that fails does not roll back a newer choice and shows no error", async () => {
+    let fail: () => void = () => undefined;
+    let n = 0;
+    const { m } = server({ filter: (c) => (++n === 1 ? new Promise<Response>((r) => { fail = () => r(json(500, { detail: "boom" })); }) : json(200, { favorites_only: c.body.favorites_only })) });
+    await openPicker();
+    for (let i = 0; i < 3; i++) await userEvent.click(await screen.findByRole("button", { name: "فقط ستاره‌دارها" })); // on, off, on — the first save is still pending
+    expect(pressed()).toBe("true");
+    fail(); // now the FIRST save fails, after two newer choices were made
+    await waitFor(() => expect(filterPuts(m)).toHaveLength(3)); // a failed save does not stop the queued ones
+    expect(filterPuts(m).map((c) => (c.body as { favorites_only: boolean }).favorites_only)).toEqual([true, false, true]);
+    expect(pressed()).toBe("true"); // the newest choice stands
+    expect(screen.queryByText(/ذخیرهٔ این انتخاب انجام نشد/)).not.toBeInTheDocument();
+  });
+
+  it("when every save fails the switch ends on the last value the server accepted, not on the opposite of the last click", async () => {
+    let fail: () => void = () => undefined;
+    let n = 0;
+    server({ filter: () => (++n === 1 ? new Promise<Response>((r) => { fail = () => r(json(500, { detail: "boom" })); }) : json(500, { detail: "boom" })) });
+    await openPicker();
+    for (let i = 0; i < 2; i++) await userEvent.click(await screen.findByRole("button", { name: "فقط ستاره‌دارها" })); // on, off — both will fail
+    fail();
+    expect(await screen.findByText(/ذخیرهٔ این انتخاب انجام نشد/)).toBeInTheDocument();
+    expect(pressed()).toBe("false"); // the server still has the original (off); "opposite of the last click" would wrongly show on
+  });
+
+  it("when the newest save fails the switch returns to what the server last accepted and says so", async () => {
+    server({ filter: () => json(500, { detail: "boom" }) });
+    await openPicker();
+    await userEvent.click(await screen.findByRole("button", { name: "فقط ستاره‌دارها" }));
+    expect(await screen.findByText(/ذخیرهٔ این انتخاب انجام نشد/)).toBeInTheDocument();
+    expect(pressed()).toBe("false");
   });
 });
