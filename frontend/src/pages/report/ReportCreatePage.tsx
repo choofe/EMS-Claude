@@ -14,6 +14,7 @@ import { errorMessage } from "../../i18n/messages";
 import { DateTimeField } from "./DateTimeField";
 import { LaborSection } from "./LaborSection";
 import { EquipmentPicker } from "./pickers";
+import { FavoritesToast, useFavorites } from "./favorites";
 import { TypePicker, typeSummary } from "./TypePicker";
 import {
   buildCreateBody, effectiveEquipment, emptyState, equipmentMode, equipmentVisible, fromDraftPayload, hiddenByTypeChange, isBlank,
@@ -116,6 +117,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   const [changingType, setChangingType] = useState(false);
   const [lastType, setLastType] = useState<number | null>(() => readLastType(uid));
   const [undo, setUndo] = useState<LocalSnapshot | null>(() => loadUndo(uid));
+  const favorites = useFavorites(cfg.favorites_only);
 
   const type = types.find((t) => t.id === form.typeId);
   const formRef = useRef(form);
@@ -469,7 +471,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
             <Box><Button variant="outlined" onClick={openLabor}>اضافه کردن ساعات افراد - اختیاری</Button></Box>
           )}
           {laborVisible(type, form) && (
-            <LaborSection mode={laborMode(type)} rows={form.labor} context={context} author={author} authorRemoved={form.authorRemoved} maxMinutes={cfg.max_participant_minutes}
+            <LaborSection mode={laborMode(type)} rows={form.labor} context={context} author={author} authorRemoved={form.authorRemoved} favorites={favorites} maxMinutes={cfg.max_participant_minutes}
               defaultMinutes={cfg.default_labor_minutes} maxParticipants={cfg.max_participants} error={laborIssues || undefined}
               onChange={(rows, removed) => patch({ labor: rows, authorRemoved: removed ? form.authorRemoved || removed.userId === author.id : form.authorRemoved && !rows.some((r) => r.userId === author.id) })} />
           )}
@@ -485,6 +487,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
       )}
       {showChooser && form.typeId === "" && <Typography variant="body2" color="text.secondary">بعد از انتخاب نوع، فرم مناسب همان نوع نمایش داده می‌شود.</Typography>}
       </Box>
+      <FavoritesToast ctrl={favorites} />
     </Stack>
   );
 }

@@ -289,7 +289,7 @@ async def test_participant_candidates_follow_same_rules(api, db, world):
     names = lambda r: sorted(x["full_name"] for x in r.json())  # noqa: E731
     r = await api.get(f"/reports/participant-candidates?equipment_id={world.e1.id}", "ali")
     assert names(r) == ["Ali", "Exp"]  # members of ELV only; no Omid, no managers
-    assert set(r.json()[0]) == {"id", "full_name"}  # nothing else about people is exposed
+    assert set(r.json()[0]) == {"id", "full_name", "is_favorite"}  # nothing else about people is exposed (is_favorite = caller's own star)
     r = await api.get(f"/reports/participant-candidates?equipment_id={world.e1.id}&q=ex", "ali")
     assert names(r) == ["Exp"]
     assert (await api.get(f"/reports/participant-candidates?equipment_id={world.d1.id}", "ali")).status_code == 404

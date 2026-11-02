@@ -64,6 +64,11 @@ REPORT_EXPERT_PARTICIPANTS_ALL_USERS = IntSettingSpec(
     "1: an EXPERT may list any active user as a report participant. 0: only members of the report's group. "
     "MANAGEMENT may always list any active user; USER only members of the report's group.",
 )
+FAVORITE_PEOPLE_MAX = IntSettingSpec(
+    "FAVORITE_PEOPLE_MAX", 25, 1, 100, "حداکثر تعداد افراد ستاره‌دار هر کاربر",
+    "Most colleagues one user may star in the report-entry person picker (counts only people still eligible for the user). "
+    "Lowering it never deletes existing stars; it only blocks new ones.",
+)
 
 REGISTRY: dict[str, IntSettingSpec] = {
     s.key: s
@@ -76,6 +81,7 @@ REGISTRY: dict[str, IntSettingSpec] = {
         DEFAULT_LABOR_MINUTES,
         REPORT_USER_PARTICIPANTS_ALL_USERS,
         REPORT_EXPERT_PARTICIPANTS_ALL_USERS,
+        FAVORITE_PEOPLE_MAX,
     )
 }
 
@@ -152,3 +158,8 @@ async def get_report_entry_policy(db: AsyncSession) -> ReportEntryPolicy:
             resolve(REPORT_EXPERT_PARTICIPANTS_ALL_USERS, raw.get(REPORT_EXPERT_PARTICIPANTS_ALL_USERS.key))
         ),
     )
+
+
+async def get_favorite_people_max(db: AsyncSession) -> int:
+    raw = (await _raw_values(db, [FAVORITE_PEOPLE_MAX.key])).get(FAVORITE_PEOPLE_MAX.key)
+    return resolve(FAVORITE_PEOPLE_MAX, raw)

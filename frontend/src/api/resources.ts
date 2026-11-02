@@ -90,10 +90,14 @@ export const importApi = {
 
 export const reportsApi = {
   entryConfig: () => request<EntryConfig>("/reports/entry-config"),
-  candidates: (q: { equipment_id?: number; group_id?: number; q?: string; limit?: number }) =>
+  candidates: (q: { equipment_id?: number; group_id?: number; q?: string; limit?: number; favorites_only?: boolean }) =>
     request<Candidate[]>("/reports/participant-candidates", { query: q }),
   suggestions: (q: { equipment_id?: number; group_id?: number }) =>
     request<Suggestions>("/reports/participant-suggestions", { query: q }),
+  addFavorite: (userId: number) => request<void>(`/reports/favorite-people/${userId}`, { method: "PUT" }),
+  removeFavorite: (userId: number) => request<void>(`/reports/favorite-people/${userId}`, { method: "DELETE" }),
+  setFavoritesFilter: (favoritesOnly: boolean) =>
+    request<{ favorites_only: boolean }>("/reports/favorites-filter", { method: "PUT", body: { favorites_only: favoritesOnly } }),
   quickPick: () => request<QuickPick>("/reports/equipment-quick-pick"),
   heartbeat: () => request<{ ok: boolean; server_time: string }>("/reports/heartbeat", { method: "POST" }),
   create: (body: ReportCreateBody) => request<ReportCreated>("/reports", { method: "POST", body }),

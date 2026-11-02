@@ -6,7 +6,7 @@ import {
   laborVisible, needsGroup, participantContext, toDraftPayload, validate, withDefaultLabor, type FormState,
 } from "./reportForm";
 
-const cfg: EntryConfig = { default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5, groups: [{ id: 1, code: "ELV", name: "آسانسور" }] };
+const cfg: EntryConfig = { favorites_only: false, max_favorite_people: 25, default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5, groups: [{ id: 1, code: "ELV", name: "آسانسور" }] };
 const type = (o: Partial<ReportType> = {}): ReportType => ({ id: 5, code: "T", name_fa: "نوع", is_failure: false, labor_mode: "REQUIRED", equipment_mode: "REQUIRED", help_fa: null, is_active: true, created_at: "", updated_at: "", ...o });
 const author = { id: 7, full_name: "علی" };
 const NOW = jalaliToDate({ year: 1405, month: 7, day: 25, hour: 12, minute: 0 })!;

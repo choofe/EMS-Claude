@@ -11,9 +11,9 @@ from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
 from app.schemas.reports import (
     CandidateOut, DraftCreate, DraftOut, DraftUpdate, EntryConfigOut, HeartbeatOut, QuickPickOut, ReportCreate, ReportCreated,
-    SuggestionsOut,
+    FavoritesFilterIn, FavoritesFilterOut, SuggestionsOut,
 )
-from app.services import report_creation, report_drafts
+from app.services import favorite_people, report_creation, report_drafts
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 _create = require_capability(C.REPORT_CREATE)
@@ -35,9 +35,27 @@ async def entry_config(principal: Principal = Depends(_create), db: AsyncSession
 
 @router.get("/participant-candidates", response_model=list[CandidateOut])
 async def participant_candidates(equipment_id: int | None = None, group_id: int | None = None, q: str | None = Query(None, max_length=64),
-                                 limit: int = Query(30, ge=1, le=100), principal: Principal = Depends(_create),
-                                 db: AsyncSession = Depends(get_db)) -> list[dict]:
-    return await report_creation.participant_candidates(db, principal, equipment_id, group_id, q, limit)
+                                 limit: int = Query(30, ge=1, le=100), favorites_only: bool = False,
+                                 principal: Principal = Depends(_create), db: AsyncSession = Depends(get_db)) -> list[dict]:
+    return await report_creation.participant_candidates(db, principal, equipment_id, group_id, q, limit, favorites_only)
+
+
+@router.put("/favorite-people/{user_id}", status_code=204)
+async def add_favorite_person(user_id: int, principal: Principal = Depends(_create), db: AsyncSession = Depends(get_db)) -> None:
+    """Star a colleague (idempotent). Private to the caller; unknown / ineligible target == 404."""
+    await favorite_people.add_favorite(db, principal, user_id)
+
+
+@router.delete("/favorite-people/{user_id}", status_code=204)
+async def remove_favorite_person(user_id: int, principal: Principal = Depends(_create), db: AsyncSession = Depends(get_db)) -> None:
+    await favorite_people.remove_favorite(db, principal, user_id)
+
+
+@router.put("/favorites-filter", response_model=FavoritesFilterOut)
+async def set_favorites_filter(body: FavoritesFilterIn, principal: Principal = Depends(_create),
+                               db: AsyncSession = Depends(get_db)) -> dict:
+    """Remember the picker's "starred only" switch for this user, on every device."""
+    return await favorite_people.set_favorites_only(db, principal, body.favorites_only)
 
 
 @router.get("/participant-suggestions", response_model=SuggestionsOut)

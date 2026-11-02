@@ -7,6 +7,7 @@ import type { Candidate, Mode, Suggestions } from "../../api/types";
 import { formatMinutes, splitMinutes } from "../../lib/labor";
 import { newRowKey, rowMinutes, type LaborRow } from "./reportForm";
 import { PersonPicker } from "./pickers";
+import type { FavoritesController } from "./favorites";
 
 const PRESETS: { label: string; minutes: number }[] = [
   { label: "۳۰ دقیقه", minutes: 30 }, { label: "۱ ساعت", minutes: 60 }, { label: "۱ ساعت و ۳۰ دقیقه", minutes: 90 }, { label: "۲ ساعت", minutes: 120 },
@@ -17,7 +18,7 @@ const SHOWN_SUGGESTIONS = 5;
 export function LaborSection(p: {
   mode: Mode; rows: LaborRow[]; onChange: (rows: LaborRow[], removed?: LaborRow) => void;
   context: { equipment_id?: number; group_id?: number } | null; author: { id: number; full_name: string };
-  authorRemoved: boolean; maxMinutes: number; defaultMinutes: number; maxParticipants?: number; error?: string;
+  authorRemoved: boolean; favorites: FavoritesController; maxMinutes: number; defaultMinutes: number; maxParticipants?: number; error?: string;
 }) {
   const [confirming, setConfirming] = useState<LaborRow | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
@@ -75,7 +76,7 @@ export function LaborSection(p: {
           return (
             <Stack key={r.key} gap={0.75} role="group" aria-label={`ردیف ${i + 1}`}>
               <Stack direction={{ xs: "column", sm: "row" }} gap={1} alignItems={{ sm: "flex-start" }}>
-                <PersonPicker label="نام فرد" value={r.userId !== null ? { id: r.userId, name: r.name } : null} context={p.context} exclude={taken}
+                <PersonPicker label="نام فرد" value={r.userId !== null ? { id: r.userId, name: r.name } : null} context={p.context} exclude={taken} favorites={p.favorites} selfId={p.author.id}
                   onChange={(c) => set(r.key, { userId: c.id, name: c.full_name })} />
                 <TextField size="small" label="ساعت" value={r.hours} onChange={(e) => set(r.key, { hours: e.target.value })} sx={{ width: 90 }}
                   slotProps={{ htmlInput: { inputMode: "numeric", dir: "ltr", "aria-label": `ساعت ${r.name || i + 1}` } }} />

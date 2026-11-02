@@ -90,14 +90,27 @@ class DraftOut(BaseModel):
     updated_at: datetime
 
 
-class CandidateOut(BaseModel):
+class PersonOut(BaseModel):
     id: int
     full_name: str
 
 
+class CandidateOut(PersonOut):
+    """A person the caller may list in this report. `is_favorite` is the caller's own private star (Phase 6d)."""
+    is_favorite: bool = False
+
+
 class SuggestionsOut(BaseModel):
     """Quick-add people (Phase 6c): ids and names only, never minutes."""
-    suggestions: list[CandidateOut]
+    suggestions: list[PersonOut]
+
+
+class FavoritesFilterIn(_Request):
+    favorites_only: bool
+
+
+class FavoritesFilterOut(BaseModel):
+    favorites_only: bool
 
 
 class QuickEquipmentOut(BaseModel):
@@ -122,6 +135,8 @@ class EntryGroupOut(BaseModel):
 class EntryConfigOut(BaseModel):
     """Everything the entry form needs besides the lists it searches: limits, the author's default labor, and the
     groups the caller may file general (equipment-less) reports in."""
+    favorites_only: bool = False  # the picker's "starred only" switch (stored per user on the server, Phase 6d)
+    max_favorite_people: int = 25
     default_labor_minutes: int
     max_participant_minutes: int
     max_participants: int

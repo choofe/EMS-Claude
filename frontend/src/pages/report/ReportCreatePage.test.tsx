@@ -11,6 +11,7 @@ afterEach(() => { vi.useRealTimers(); resetClientState(); });
 
 const ts = "2026-03-20T20:30:00";
 const cfg = (o: Partial<EntryConfig> = {}): EntryConfig => ({
+  favorites_only: false, max_favorite_people: 25,
   default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5,
   groups: [{ id: 1, code: "ELV", name: "آسانسور" }], ...o,
 });
@@ -1029,5 +1030,112 @@ describe("access", () => {
     mockFetch(routes());
     renderApp("/reports/new");
     expect(await screen.findByRole("link", { name: "ثبت گزارش" })).toBeInTheDocument();
+  });
+});
+
+describe("favorite people in the person picker (Phase 6d)", () => {
+  const everyone = [{ id: 2, full_name: "علی رضایی" }, { id: 3, full_name: "سعید احمدی" }, { id: 4, full_name: "رضا کریمی" }];
+  // A tiny stateful server: the stars live in `stars`, candidates honour favorites_only like the real endpoint.
+  function server(o: { stars?: number[]; favoritesOnly?: boolean; putStatus?: Record<number, Response> } = {}) {
+    const stars = new Set(o.stars ?? [3]);
+    const star = (id: number) => ({
+      [`PUT /reports/favorite-people/${id}`]: () => o.putStatus?.[id] ?? (stars.add(id), new Response(null, { status: 204 })),
+      [`DELETE /reports/favorite-people/${id}`]: () => (stars.delete(id), new Response(null, { status: 204 })),
+    });
+    const m = mockFetch(routes({
+      "GET /reports/participant-candidates": (c: { query: URLSearchParams }) => json(200,
+        everyone.filter((p) => c.query.get("favorites_only") !== "true" || stars.has(p.id))
+          .filter((p) => !c.query.get("q") || p.full_name.includes(c.query.get("q")!))
+          .map((p) => ({ ...p, is_favorite: stars.has(p.id) }))),
+      "PUT /reports/favorites-filter": (c: { body: { favorites_only: boolean } }) => json(200, { favorites_only: c.body.favorites_only }),
+      ...star(3), ...star(4),
+    } as never, { cfgOver: { favorites_only: o.favoritesOnly ?? false } }));
+    return { m, stars };
+  }
+  const openPicker = async () => {
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    const row = await screen.findByRole("group", { name: "ردیف 1" });
+    const box = within(row).getByRole("combobox", { name: "نام فرد" });
+    await userEvent.click(box);
+    return { row, box };
+  };
+  const asked = (m: ReturnType<typeof mockFetch>) => m.calls.filter((c) => c.path === "/reports/participant-candidates");
+
+  it("a star beside the search box switches to starred-only, asks the server for it and remembers the choice", async () => {
+    const { m } = server();
+    await openPicker();
+    expect(await screen.findByRole("option", { name: /رضا کریمی/ })).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "فقط ستاره‌دارها" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(toggle);
+    await waitFor(() => expect(screen.queryByRole("option", { name: /رضا کریمی/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("option", { name: /سعید احمدی/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "فقط ستاره‌دارها" })).toHaveAttribute("aria-pressed", "true");
+    expect(asked(m).at(-1)!.query.get("favorites_only")).toBe("true");
+    const saved = m.calls.filter((c) => c.method === "PUT" && c.path === "/reports/favorites-filter");
+    expect(saved.map((c) => c.body)).toEqual([{ favorites_only: true }]); // stored on the server, not just in the page
+  });
+
+  it("starts in starred-only when the server says the user left it on; search still works inside the stars", async () => {
+    const { m } = server({ favoritesOnly: true, stars: [3, 4] });
+    await openPicker();
+    expect(await screen.findByRole("option", { name: /سعید احمدی/ })).toBeInTheDocument();
+    expect(asked(m)[0].query.get("favorites_only")).toBe("true");
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("button", { name: "افزودن نفر" })); // a blank row: its text box is a real search box
+    const box = (await screen.findAllByRole("combobox", { name: "نام فرد" }))[1];
+    await userEvent.type(box, "کریمی");
+    await waitFor(() => expect(screen.queryByRole("option", { name: /سعید احمدی/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("option", { name: /رضا کریمی/ })).toBeInTheDocument();
+    expect(asked(m).at(-1)!.query.get("q")).toBe("کریمی");
+    expect(asked(m).at(-1)!.query.get("favorites_only")).toBe("true");
+  });
+
+  it("tapping a star stars the person but does NOT pick them", async () => {
+    const { m, stars } = server();
+    const { box } = await openPicker();
+    await userEvent.click(await screen.findByRole("button", { name: "ستاره‌دار کردن رضا کریمی" }));
+    await waitFor(() => expect(stars.has(4)).toBe(true));
+    expect(m.calls.filter((c) => c.method === "PUT" && c.path === "/reports/favorite-people/4")).toHaveLength(1);
+    expect(await screen.findByRole("button", { name: "برداشتن ستارهٔ رضا کریمی" })).toHaveAttribute("aria-pressed", "true");
+    expect(box).toHaveValue("علی رضایی"); // the row still holds the author: nobody was selected by the star tap
+    expect(screen.getByRole("listbox")).toBeInTheDocument(); // and the list stayed open
+  });
+
+  it("the author's own entry has no star", async () => {
+    server();
+    await openPicker();
+    await screen.findByRole("option", { name: /رضا کریمی/ });
+    expect(screen.queryByRole("button", { name: /علی رضایی/ })).not.toBeInTheDocument();
+  });
+
+  it("un-starring in starred-only leaves the list at once and offers an undo that stars again", async () => {
+    const { m, stars } = server({ favoritesOnly: true });
+    await openPicker();
+    await userEvent.click(await screen.findByRole("button", { name: "برداشتن ستارهٔ سعید احمدی" }));
+    await waitFor(() => expect(screen.queryByRole("option", { name: /سعید احمدی/ })).not.toBeInTheDocument());
+    expect(stars.has(3)).toBe(false);
+    expect(await screen.findByText(/«سعید احمدی» از ستاره‌دارها برداشته شد/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "بازگردانی" }));
+    await waitFor(() => expect(stars.has(3)).toBe(true));
+    expect(m.calls.filter((c) => c.method === "PUT" && c.path === "/reports/favorite-people/3")).toHaveLength(1);
+    await userEvent.click(screen.getByRole("combobox", { name: "نام فرد" })); // the tap on «بازگردانی» closed the list: open it again
+    expect(await screen.findByRole("option", { name: /سعید احمدی/ })).toBeInTheDocument(); // back in the list
+  });
+
+  it("a refused star (limit) explains why and leaves the person un-starred", async () => {
+    server({ putStatus: { 4: json(409, { detail: { code: "favorites_limit_reached", limit: 25 } }) } });
+    await openPicker();
+    await userEvent.click(await screen.findByRole("button", { name: "ستاره‌دار کردن رضا کریمی" }));
+    expect(await screen.findByText(/حداکثر ۲۵ نفر را می‌توان ستاره‌دار کرد/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "ستاره‌دار کردن رضا کریمی" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("an empty starred list explains how to add stars instead of showing nothing", async () => {
+    server({ favoritesOnly: true, stars: [] });
+    await openPicker();
+    expect(await screen.findByText(/هنوز کسی را ستاره‌دار نکرده‌اید/)).toBeInTheDocument();
   });
 });
