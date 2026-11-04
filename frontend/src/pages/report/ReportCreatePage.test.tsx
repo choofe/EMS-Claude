@@ -1139,6 +1139,27 @@ describe("favorite people in the person picker (Phase 6d)", () => {
     expect(await screen.findByText(/هنوز کسی را ستاره‌دار نکرده‌اید/)).toBeInTheDocument();
   });
 
+
+  it("several quick un-stars keep ALL their messages (newest on top) and each undo restores its own person", async () => {
+    const { m, stars } = server({ favoritesOnly: true, stars: [3, 4] });
+    await openPicker();
+    await userEvent.click(await screen.findByRole("button", { name: "برداشتن ستارهٔ سعید احمدی" }));
+    await userEvent.click(await screen.findByRole("button", { name: "برداشتن ستارهٔ رضا کریمی" }));
+    const region = await screen.findByRole("region", { name: "پیام‌های ستاره‌دارها" });
+    await waitFor(() => expect(within(region).getAllByRole("alert")).toHaveLength(2));
+    const [newest, older] = within(region).getAllByRole("alert");
+    expect(newest).toHaveTextContent("رضا کریمی");
+    expect(older).toHaveTextContent("سعید احمدی"); // the older message was pushed down, not replaced
+    await userEvent.click(within(older).getByRole("button", { name: "بازگردانی" }));
+    await waitFor(() => expect(stars.has(3)).toBe(true));
+    expect(m.calls.filter((c) => c.method === "PUT" && c.path === "/reports/favorite-people/3")).toHaveLength(1);
+    expect(stars.has(4)).toBe(false); // the newer one was NOT restored
+    expect(within(region).getAllByRole("alert")).toHaveLength(1); // only the undone message went away
+    expect(within(region).getByRole("alert")).toHaveTextContent("رضا کریمی");
+    await userEvent.click(within(region).getByRole("button", { name: "بستن پیام" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "پیام‌های ستاره‌دارها" })).not.toBeInTheDocument());
+  });
+
   // CodeRabbit round 1 on PR #12: the switch is saved on the server, and quick toggles must neither reorder nor roll back wrongly.
   const filterPuts = (m: ReturnType<typeof mockFetch>) => m.calls.filter((c) => c.method === "PUT" && c.path === "/reports/favorites-filter");
   const pressed = () => screen.getByRole("button", { name: "فقط ستاره‌دارها" }).getAttribute("aria-pressed");
