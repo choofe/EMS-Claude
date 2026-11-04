@@ -105,6 +105,10 @@ class SuggestionsOut(BaseModel):
     suggestions: list[PersonOut]
 
 
+class FavoriteRemovedOut(BaseModel):
+    can_restore: bool  # starring the same person again would be accepted right now (he is usable and the list is below the quota)
+
+
 class FavoritesFilterIn(_Request):
     favorites_only: bool
 

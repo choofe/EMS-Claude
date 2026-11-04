@@ -1036,11 +1036,11 @@ describe("access", () => {
 describe("favorite people in the person picker (Phase 6d)", () => {
   const everyone = [{ id: 2, full_name: "علی رضایی" }, { id: 3, full_name: "سعید احمدی" }, { id: 4, full_name: "رضا کریمی" }];
   // A tiny stateful server: the stars live in `stars`, candidates honour favorites_only like the real endpoint.
-  function server(o: { stars?: number[]; favoritesOnly?: boolean; putStatus?: Record<number, Response>; filter?: (c: { body: { favorites_only: boolean } }) => Response | Promise<Response> } = {}) {
+  function server(o: { stars?: number[]; favoritesOnly?: boolean; canRestore?: boolean; putStatus?: Record<number, Response>; filter?: (c: { body: { favorites_only: boolean } }) => Response | Promise<Response> } = {}) {
     const stars = new Set(o.stars ?? [3]);
     const star = (id: number) => ({
       [`PUT /reports/favorite-people/${id}`]: () => o.putStatus?.[id] ?? (stars.add(id), new Response(null, { status: 204 })),
-      [`DELETE /reports/favorite-people/${id}`]: () => (stars.delete(id), new Response(null, { status: 204 })),
+      [`DELETE /reports/favorite-people/${id}`]: () => (stars.delete(id), json(200, { can_restore: o.canRestore ?? true })),
     });
     const m = mockFetch(routes({
       "GET /reports/participant-candidates": (c: { query: URLSearchParams }) => json(200,
@@ -1158,6 +1158,29 @@ describe("favorite people in the person picker (Phase 6d)", () => {
     expect(within(region).getByRole("alert")).toHaveTextContent("رضا کریمی");
     await userEvent.click(within(region).getByRole("button", { name: "بستن پیام" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "پیام‌های ستاره‌دارها" })).not.toBeInTheDocument());
+  });
+
+
+  it("over the quota the un-star message says undo is impossible instead of offering it", async () => {
+    server({ favoritesOnly: true, canRestore: false });
+    await openPicker();
+    await userEvent.click(await screen.findByRole("button", { name: "برداشتن ستارهٔ سعید احمدی" }));
+    const region = await screen.findByRole("region", { name: "پیام‌های ستاره‌دارها" });
+    expect(within(region).getByRole("alert")).toHaveTextContent(/از سقف بیشتر است؛ بازگردانی ممکن نیست/);
+    expect(within(region).queryByRole("button", { name: "بازگردانی" })).not.toBeInTheDocument();
+    expect(within(region).getByRole("button", { name: "بستن پیام" })).toBeInTheDocument(); // still closable
+  });
+
+  it("a row that already holds a person can be searched: typing is not reset to the name", async () => {
+    const { m } = server();
+    const { box } = await openPicker(); // the first row holds the author's name
+    expect(box).toHaveValue("علی رضایی");
+    await userEvent.clear(box);
+    await userEvent.type(box, "کریمی");
+    expect(box).toHaveValue("کریمی");
+    await waitFor(() => expect(asked(m).at(-1)!.query.get("q")).toBe("کریمی"));
+    await waitFor(() => expect(screen.queryByRole("option", { name: /سعید احمدی/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("option", { name: /رضا کریمی/ })).toBeInTheDocument();
   });
 
   // CodeRabbit round 1 on PR #12: the switch is saved on the server, and quick toggles must neither reorder nor roll back wrongly.

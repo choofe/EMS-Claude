@@ -32,9 +32,7 @@ async def add_favorite(db: AsyncSession, principal: Principal, user_id: int) -> 
         return
     limit = await get_favorite_people_max(db)
     # Only people the caller can still use count: a deactivated colleague must not silently fill the quota.
-    count = (await db.execute(
-        select(func.count()).select_from(FavoritePerson).join(User, User.id == FavoritePerson.favorite_user_id)
-        .where(FavoritePerson.owner_id == principal.user_id, eligible))).scalar_one()
+    count = await _usable(db, principal, eligible)
     if count >= limit:
         await db.rollback()
         raise DomainError("favorites_limit_reached", 409, limit=limit)
@@ -45,11 +43,28 @@ async def add_favorite(db: AsyncSession, principal: Principal, user_id: int) -> 
         await db.rollback()
 
 
-async def remove_favorite(db: AsyncSession, principal: Principal, user_id: int) -> None:
-    """Idempotent and silent about whether the star existed."""
+async def _usable(db: AsyncSession, principal: Principal, eligible, only: int | None = None) -> int:
+    """How many of the caller's stars he can still use (active and eligible now); `only` restricts to one person."""
+    stmt = (select(func.count()).select_from(FavoritePerson).join(User, User.id == FavoritePerson.favorite_user_id)
+            .where(FavoritePerson.owner_id == principal.user_id, eligible))
+    if only is not None:
+        stmt = stmt.where(FavoritePerson.favorite_user_id == only)
+    return (await db.execute(stmt)).scalar_one()
+
+
+async def remove_favorite(db: AsyncSession, principal: Principal, user_id: int) -> dict:
+    """Idempotent. Answers only about the caller's own list: `can_restore` is true exactly when starring this person again
+    would be accepted right now (he is still usable and the list is below the quota), so the screen offers «بازگردانی» only
+    when it can work. Anybody else's data is never involved."""
+    await db.execute(select(User.id).where(User.id == principal.user_id).with_for_update(key_share=True))
+    eligible = participant_filter_any_group(principal, await get_report_entry_policy(db))
+    usable = await _usable(db, principal, eligible)
+    was_usable = await _usable(db, principal, eligible, only=user_id) > 0
     await db.execute(delete(FavoritePerson).where(FavoritePerson.owner_id == principal.user_id,
                                                   FavoritePerson.favorite_user_id == user_id))
     await db.commit()
+    limit = await get_favorite_people_max(db)
+    return {"can_restore": was_usable and usable - 1 < limit}
 
 
 async def set_favorites_only(db: AsyncSession, principal: Principal, value: bool) -> dict:

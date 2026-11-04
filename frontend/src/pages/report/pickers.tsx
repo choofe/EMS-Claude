@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Autocomplete, Chip, CircularProgress, IconButton, Stack, TextField, Typography } from "@mui/material";
 import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
@@ -70,6 +70,9 @@ export function PersonPicker(p: {
   const [open, setOpen] = useState(false);
   const enabled = p.context !== null;
   const { favoritesOnly, version } = p.favorites;
+  // One object per selected person: a NEW object on every render made MUI think the value had changed and put the person's name
+  // back into the text box after every keystroke, so a row that already held a person could not be searched.
+  const selected = useMemo(() => (p.value ? { id: p.value.id, full_name: p.value.name } : null), [p.value?.id, p.value?.name]);
   const searching = p.value && input === p.value.name ? "" : input; // the selected person's own name is not a search
   const { options, setOptions, loading } = useDebouncedOptions<Candidate>(
     searching,
@@ -91,7 +94,7 @@ export function PersonPicker(p: {
     <Autocomplete<Candidate>
       size="small" disabled={!enabled}
       open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)}
-      value={p.value ? { id: p.value.id, full_name: p.value.name } : null}
+      value={selected}
       options={options.filter((o) => !p.exclude.includes(o.id) || o.id === p.value?.id)} loading={loading} filterOptions={(o) => o}
       isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => o.full_name}
       inputValue={input} onInputChange={(_, v) => setInput(v)}

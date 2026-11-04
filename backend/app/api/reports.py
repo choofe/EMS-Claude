@@ -11,7 +11,7 @@ from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
 from app.schemas.reports import (
     CandidateOut, DraftCreate, DraftOut, DraftUpdate, EntryConfigOut, HeartbeatOut, QuickPickOut, ReportCreate, ReportCreated,
-    FavoritesFilterIn, FavoritesFilterOut, SuggestionsOut,
+    FavoriteRemovedOut, FavoritesFilterIn, FavoritesFilterOut, SuggestionsOut,
 )
 from app.services import favorite_people, report_creation, report_drafts
 
@@ -46,9 +46,10 @@ async def add_favorite_person(user_id: int, principal: Principal = Depends(_crea
     await favorite_people.add_favorite(db, principal, user_id)
 
 
-@router.delete("/favorite-people/{user_id}", status_code=204)
-async def remove_favorite_person(user_id: int, principal: Principal = Depends(_create), db: AsyncSession = Depends(get_db)) -> None:
-    await favorite_people.remove_favorite(db, principal, user_id)
+@router.delete("/favorite-people/{user_id}", response_model=FavoriteRemovedOut)
+async def remove_favorite_person(user_id: int, principal: Principal = Depends(_create), db: AsyncSession = Depends(get_db)) -> dict:
+    """Un-star (idempotent). `can_restore` tells the screen whether an undo would be accepted."""
+    return await favorite_people.remove_favorite(db, principal, user_id)
 
 
 @router.put("/favorites-filter", response_model=FavoritesFilterOut)

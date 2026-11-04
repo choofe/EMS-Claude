@@ -95,7 +95,7 @@ export const reportsApi = {
   suggestions: (q: { equipment_id?: number; group_id?: number }) =>
     request<Suggestions>("/reports/participant-suggestions", { query: q }),
   addFavorite: (userId: number) => request<void>(`/reports/favorite-people/${userId}`, { method: "PUT" }),
-  removeFavorite: (userId: number) => request<void>(`/reports/favorite-people/${userId}`, { method: "DELETE" }),
+  removeFavorite: (userId: number) => request<{ can_restore: boolean }>(`/reports/favorite-people/${userId}`, { method: "DELETE" }),
   setFavoritesFilter: (favoritesOnly: boolean) =>
     request<{ favorites_only: boolean }>("/reports/favorites-filter", { method: "PUT", body: { favorites_only: favoritesOnly } }),
   quickPick: () => request<QuickPick>("/reports/equipment-quick-pick"),

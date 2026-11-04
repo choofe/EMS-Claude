@@ -51,7 +51,7 @@ async def test_star_unstar_flag_and_favorites_only_filter(api, db, world, mates)
     only = await api.get(cand(world, favorites_only="true"), "ali")
     assert names(only) == ["Exp", "Mate0"]  # same eligibility filter, alphabetical
     assert names(await api.get(cand(world, favorites_only="true", q="mat"), "ali")) == ["Mate0"]  # search works inside the stars
-    assert (await api.delete(f"/reports/favorite-people/{mates[0].id}", "ali")).status_code == 204
+    assert (await api.delete(f"/reports/favorite-people/{mates[0].id}", "ali")).status_code == 200
     assert names(await api.get(cand(world, favorites_only="true"), "ali")) == ["Exp"]
     assert await stars(db, world.ali) == [world.exp.id]
 
@@ -61,8 +61,8 @@ async def test_star_and_unstar_are_idempotent(api, db, world, mates):
         assert (await star(api, "ali", mates[0])).status_code == 204
     assert await stars(db, world.ali) == [mates[0].id]
     for _ in range(2):
-        assert (await api.delete(f"/reports/favorite-people/{mates[0].id}", "ali")).status_code == 204
-    assert (await api.delete("/reports/favorite-people/999999", "ali")).status_code == 204  # silent about existence
+        assert (await api.delete(f"/reports/favorite-people/{mates[0].id}", "ali")).status_code == 200
+    assert (await api.delete("/reports/favorite-people/999999", "ali")).json() == {"can_restore": False}  # silent about existence
     assert await stars(db, world.ali) == []
 
 
@@ -124,7 +124,7 @@ async def test_a_star_for_someone_no_longer_eligible_is_hidden_but_removable(api
     assert names(await api.get(cand(world, favorites_only="true"), "exp")) == ["Omid"]
     await set_setting(db, "REPORT_EXPERT_PARTICIPANTS_ALL_USERS", 0)  # now only members of the report's group
     assert names(await api.get(cand(world, favorites_only="true"), "exp")) == []
-    assert (await api.delete(f"/reports/favorite-people/{world.omid.id}", "exp")).status_code == 204  # removal needs no eligibility
+    assert (await api.delete(f"/reports/favorite-people/{world.omid.id}", "exp")).json() == {"can_restore": False}  # removal needs no eligibility; no longer usable, so no undo
     assert await stars(db, world.exp) == []
 
 
@@ -173,6 +173,20 @@ async def test_people_no_longer_eligible_do_not_fill_the_quota_either(api, db, w
     assert (await star(api, "exp", mates[0])).status_code == 409    # quota is full
     await set_setting(db, "REPORT_EXPERT_PARTICIPANTS_ALL_USERS", 0)  # omid is now unusable for exp: his star is invisible
     assert (await star(api, "exp", mates[0])).status_code == 204      # ... so it must not block a visible one
+
+
+async def test_un_star_says_whether_an_undo_would_work(api, db, world, mates):
+    """`can_restore` is exactly "starring him again would be accepted now": false while the list is still over the quota."""
+    await set_setting(db, "FAVORITE_PEOPLE_MAX", 2)
+    db.add_all([m.FavoritePerson(owner_id=world.ali.id, favorite_user_id=u.id) for u in (*mates, world.exp)])  # 5 stars, quota lowered to 2
+    await db.commit()
+    ids = [u.id for u in (*mates, world.exp)]
+    answers = []
+    for uid in ids[:4]:
+        answers.append((await api.delete(f"/reports/favorite-people/{uid}", "ali")).json()["can_restore"])
+    assert answers == [False, False, False, True]  # 5->4, 4->3, 3->2: still not below 2; 2->1: an undo fits again
+    assert (await star(api, "ali", mates[0])).status_code == 204  # and then it really is accepted
+    assert (await api.delete(f"/reports/favorite-people/{ids[4]}", "ali")).json() == {"can_restore": True}
 
 
 async def test_default_cap_is_25_and_setting_is_bounded(api, db, world):

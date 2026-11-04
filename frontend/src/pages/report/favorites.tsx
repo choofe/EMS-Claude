@@ -58,8 +58,13 @@ export function useFavorites(initialFavoritesOnly: boolean): FavoritesController
     if (busy.current.has(c.id)) return false;
     busy.current.add(c.id);
     try {
-      await (star ? reportsApi.addFavorite(c.id) : reportsApi.removeFavorite(c.id));
-      if (!star) push({ text: `«${c.full_name}» از ستاره‌دارها برداشته شد.`, severity: "info", undo: c });
+      if (star) await reportsApi.addFavorite(c.id);
+      else {
+        const res = await reportsApi.removeFavorite(c.id);
+        // Over the quota an undo would be refused, so no «بازگردانی» is offered; the message says why instead (Amin, 2026-11-02).
+        if (res?.can_restore === false) push({ text: `«${c.full_name}» از ستاره‌دارها برداشته شد. تعداد ستاره‌دارهای شما از سقف بیشتر است؛ بازگردانی ممکن نیست.`, severity: "info" });
+        else push({ text: `«${c.full_name}» از ستاره‌دارها برداشته شد.`, severity: "info", undo: c });
+      }
       return true;
     } catch (e) {
       push({ text: errorMessage(e), severity: "error" });
