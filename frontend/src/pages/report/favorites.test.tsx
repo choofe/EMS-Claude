@@ -19,6 +19,27 @@ describe("favorites messages", () => {
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
+  it("is rendered directly in <body>, so no page ancestor can turn «fixed» into «scrolls with the page»", () => {
+    setup([{ id: 1, text: "پیام", severity: "info" }]);
+    expect(screen.getByRole("region", { name: "پیام‌های ستاره‌دارها" }).parentElement).toBe(document.body);
+  });
+
+  it("follows the visible area on phones: shifted by the visual viewport offset, and back when it returns", () => {
+    const listeners: Record<string, () => void> = {};
+    const vv = { offsetTop: 120, addEventListener: (n: string, f: () => void) => { listeners[n] = f; }, removeEventListener: vi.fn() };
+    Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+    try {
+      setup([{ id: 1, text: "پیام", severity: "info" }]);
+      const region = screen.getByRole("region", { name: "پیام‌های ستاره‌دارها" });
+      expect(region.style.getPropertyValue("--vv-top")).toBe("120px");
+      vv.offsetTop = 0;
+      act(() => { listeners.scroll(); });
+      expect(region.style.getPropertyValue("--vv-top")).toBe("0px");
+    } finally {
+      Object.defineProperty(window, "visualViewport", { value: undefined, configurable: true });
+    }
+  });
+
   it("shows the messages in the given order (newest first), each with its own close button", () => {
     setup([{ id: 2, text: "دوم", severity: "info" }, { id: 1, text: "اول", severity: "error" }]);
     const alerts = within(screen.getByRole("region", { name: "پیام‌های ستاره‌دارها" })).getAllByRole("alert");

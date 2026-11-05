@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Button, IconButton, Stack } from "@mui/material";
+import { Alert, Button, IconButton, Portal, Stack } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { reportsApi } from "../../api/resources";
 import type { Candidate } from "../../api/types";
@@ -103,13 +103,34 @@ function ToastItem({ t, ctrl }: { t: Toast; ctrl: FavoritesController }) {
   );
 }
 
+/** Phones: while the keyboard is open or the page is zoomed/panned, the visible area (visual viewport) can sit below the top of
+ *  the layout viewport that `position: fixed` is measured against, so a fixed message may end up above what the user sees
+ *  (found by Amin on his phone, 2026-11-04). This is how far the visible area is shifted; 0 on desktop. */
+function useVisualViewportOffset(): number {
+  const [top, setTop] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setTop(Math.max(0, Math.round(vv.offsetTop)));
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => { vv.removeEventListener("resize", update); vv.removeEventListener("scroll", update); };
+  }, []);
+  return top;
+}
+
 export function FavoritesToast({ ctrl }: { ctrl: FavoritesController }) {
+  const shift = useVisualViewportOffset();
   if (ctrl.toasts.length === 0) return null;
+  // Rendered in <body> (Portal): inside the page, an ancestor with a transform would turn "fixed" into "scrolls with the page".
   return (
-    <Stack component="section" aria-label="پیام‌های ستاره‌دارها" spacing={1}
-      sx={{ position: "fixed", top: { xs: 64, sm: 72 }, left: "50%", transform: "translateX(-50%)", width: "min(92vw, 440px)",
-        zIndex: (th) => th.zIndex.snackbar, pointerEvents: "none" }}>
-      {ctrl.toasts.map((t) => <ToastItem key={t.id} t={t} ctrl={ctrl} />)}
-    </Stack>
+    <Portal>
+      <Stack component="section" aria-label="پیام‌های ستاره‌دارها" spacing={1} style={{ "--vv-top": `${shift}px` } as React.CSSProperties}
+        sx={{ position: "fixed", top: { xs: "calc(64px + var(--vv-top))", sm: "calc(72px + var(--vv-top))" }, left: "50%", transform: "translateX(-50%)",
+          width: "min(92vw, 440px)", zIndex: (th) => th.zIndex.snackbar, pointerEvents: "none" }}>
+        {ctrl.toasts.map((t) => <ToastItem key={t.id} t={t} ctrl={ctrl} />)}
+      </Stack>
+    </Portal>
   );
 }
