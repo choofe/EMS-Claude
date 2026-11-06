@@ -32,7 +32,10 @@ export function useFavorites(initialFavoritesOnly: boolean): FavoritesController
   const [version, setVersion] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const seq = useRef(0);
-  const push = useCallback((t: Omit<Toast, "id">) => setToasts((l) => [{ ...t, id: ++seq.current }, ...l].slice(0, TOAST_MAX)), []);
+  const push = useCallback((t: Omit<Toast, "id">) => {
+    const id = ++seq.current; // outside the updater: React may call an updater twice (StrictMode), which must not advance the counter
+    setToasts((l) => [{ ...t, id }, ...l].slice(0, TOAST_MAX));
+  }, []);
   const dismissToast = useCallback((id: number) => setToasts((l) => l.filter((t) => t.id !== id)), []);
   const busy = useRef(new Set<number>()); // one request per person at a time: a double tap cannot send two
   const filterSave = useRef<Promise<void>>(Promise.resolve()); // filter writes run in call order: the last choice is the last write
