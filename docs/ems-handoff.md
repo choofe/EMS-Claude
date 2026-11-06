@@ -1,172 +1,156 @@
-# Equipment Maintenance Reporting System — Handoff / Continuation Prompt
 
-Paste this whole file into the **Project knowledge** (or the first message)
-of the new Claude Project. It captures everything agreed so far so no
-work is redone and no decision is lost.
+# EMS — Handoff (updated 2026-11-06; REPLACES all earlier versions)
+Last change: 2026-11-06. Phase 6 CLOSED: 6a + 6c + 6d accepted by Amin and merged into `main` (tag `phase6-accepted`). On 2026-11-06 Amin hand-tested the last 6d items (Section 1) and the project documents were synced into `docs/` (Section 8). Phase 7 plan and open questions recorded (Section 6); no Phase 7 code exists. Next: Phase 7 in a NEW chat.
 
----
+Equipment Maintenance Reporting System. Governing document: the Master Prompt (project file; always the current version kept next to this Handoff). This Handoff is the newer authority for project progress, implementation status, and later approved decisions.
+This file = current state + working agreements. Repo: https://github.com/choofe/EMS-Claude (public).
+You are the AI software team (architect, backend/frontend dev, DB, security, QA, reviewer, UX); Amin is the Supervisor with final authority.
 
-## 0. How to use this file
+## 1. Status
+- **Verified in Git on 2026-11-05** (public repo; `git ls-remote` + comparing trees): `main` = `e4c109a` (merge commit of PR #13 `phase6` → `main`; annotated tag `phase6-accepted` → `e4c109a`); `phase6` HEAD = `90040ce` (merge commit of PR #12; tag `phase6d-accepted` → `90040ce`; the trees of `main` and `phase6` are IDENTICAL); tag `phase6c-accepted` → `baa080c`; tag `phase6a-accepted` → `4786f4a`; `phase5-accepted` → `c1a24f1`. Branches `phase6a…`/`phase6c-quick-add` are gone; `phase6d-favorite-people` (head `a8bb02d`) is to be deleted by Amin; keeping or deleting the `phase6` branch is his choice. Re-verify in Git before relying on any SHA.
+- Phases 0, 1, 2, 3, 4a, 4b, 5 ACCEPTED (tags `phase2-accepted` … `phase5-accepted`). **Phase 6 is ACCEPTED and CLOSED (2026-11-05)** and is part of `main`: it consists of ONLY the sub-phases **6a, 6c, 6d**. **6b and 6e were never part of the closed Phase 6** (decision by Amin, 2026-11-02/04): ALL of 6b (UX batch + dev-tooling list) was moved to the Phase 11 list (Section 7) and 6e (Jalali date picker) to the future-development list (Section 8). Phase 6 therefore closed WITHOUT 6b on purpose; nobody should look for 6b inside Phase 6 or reopen it.
+- **6a** (PR #10, tag `phase6a-accepted` → `4786f4a`): core report creation, drafts, labor/equipment modes, general reports, settings; independent AI review done.
+- **6c** (PR #11, merge `baa080c`, tag `phase6c-accepted`, 2026-10-31): quick-add people from the author's own reports. No migration.
+- **6d** (PR #12, merge commit `90040ce`, tag `phase6d-accepted`, accepted by Amin 2026-11-05): favorite people (Section 3). PR head was `a8bb02d` (commits `5b943c0` feature, `fba1f83` CodeRabbit round 1, `287bf34` stacked messages, `62963a9` no undo over quota + filled-row search fix, `30643f5` messages kept inside the visible area on phones, `a8bb02d` pure state updater). Review: CodeRabbit (3 rounds; findings fixed, docstring-coverage warning deliberately ignored; round 3 on `30643f5` only had one trivial finding, applied in `a8bb02d`); no independent AI review (Amin's decision). Tests: Amin's backend run 426 passed (with PostgreSQL) after he stopped the clock service (see Section 9); Claude's runs: backend 426 passed incl. PostgreSQL, frontend 202 passed, `tsc`/`npm run build` OK, mutation tests on the new rules killed all mutants. **Last 6d checks, hand-tested by Amin on 2026-11-06 (after acceptance):** the filled-row search fix = PASS (Amin: fixed); the over-quota message = PASS (shown correctly; Claude's reading of Amin's wording «پیام بالای سقف»); the stacked top messages on a phone: the placement issue (banner at the top of the PAGE rather than of the visible screen) still exists but is NOT severe; Amin will revisit it later (Phase 11 list, Section 7); do not represent `30643f5` as verified on a phone. No action needed now.
+- **Phase 6 merge into `main`:** PR #13 `phase6` → `main`, merge commit `e4c109a`, pinned to the head sha, tag `phase6-accepted`. No review of the whole phase PR (70 files, ~6,300 added lines): each sub-PR was reviewed and tested on its own and a phase-level review of that size would add little (Claude's judgment, Amin agreed to either way).
+- **Next: Phase 7** (reports list/detail/editing/priority). Plan, structure and OPEN questions: Section 6. No Phase 7 code exists. Amin starts it in a NEW chat; create the `phase7` branch from `main` (`e4c109a`) and flat sub-phase branches from `phase7`.
+- Stack: FastAPI + async SQLAlchemy 2 + Alembic + PostgreSQL 16 (tests also on SQLite), Argon2id, PyJWT; React 18 + TypeScript + Vite + MUI (RTL, Vazirmatn local), vitest.
+- Migration head (now on `main`): `d0b8c4f1a539`. Phase 6 chain: `e5b8a1c3f702` (Phase 5 head) → `f6c3d9a7b104` (report_drafts + labor integrity) → `a7d4e1b8c215` (labor_mode, equipment_required, general reports) → `b8e5f2a9c326` (three modes for labor AND equipment, `help_fa`) → `c9f6a3b0d437` (`reports.client_request_id`, UNIQUE per author) → `d0b8c4f1a539` (6d: `favorite_people`, `user_report_preferences`). Amin must run `alembic upgrade head`.
+- Test commands: backend always from `backend/` with `TEST_DATABASE_URL=postgresql+asyncpg://ems_user:ems_password@localhost:5432/ems_test` (without it the Postgres tests are skipped); frontend `npm test`, `npm run build`. Expected totals at `main` = `e4c109a`: backend 426, frontend 202 (a different number = stale checkout).
+- Docs: `docs/auth.md`, `docs/management-api.md`, `docs/frontend.md`, `docs/equipment-import.md`, `docs/report-creation.md` (updated for 6d), `README.md`.
+- **Dry Run (not a numbered phase):** a temporary trial deployment on a free host, driven by ANOTHER AI with Amin, from the branch `deploy-dry-run` (exists on the repo since 2026-11-06; at last check its head equals `main` = `e4c109a`). **Claude must not touch that branch or work on it** (Amin, 2026-11-06); it is independent of the project phases; if it succeeds it MAY be merged into the project later, only at Amin's discretion and after consulting Claude. Claude focuses on Phase 7 only. Original prompt delivered on 2026-11-05 (kept outside the repo). Rules in it: that AI must NOT change code (it reports bugs/conflicts to Amin, who routes them to Claude); new deployment-only files only with Amin's permission, in a separate branch (suggested `deploy-dry-run`, never inside a phase branch); free first; synthetic test data; reachability from Iran and from the mall WiFi is the first thing to check. Phase 12 remains the real deployment. Claude's reservations: no Dockerfile/CI exists yet; same-site frontend/API (cookie) needs a single origin with `VITE_API_BASE_URL=/api` and a proxy that strips `/api`, or sibling subdomains of one domain; until Phase 7a there is no screen to view created reports.
 
-You are continuing an ongoing multi-phase software project as the same
-AI software team (Architect, Backend/Frontend Dev, DB Architect,
-Security Engineer, DevOps, QA, Reviewer, UX/UI, Reporting Engineer)
-described in the original master prompt (attached separately as
-`00-original-spec.md` in this Project's knowledge — re-attach it,
-it is the governing document for scope, phases, and rules).
+### Reminders for specific moments (do not forget)
+1. **Fine-tune time (Phase 11 / final review):** if Amin has not raised it himself, remind him about the 6c «افزودن همه» button (Amin, 2026-11-04: he did not deliberately remove it and did not see it; the code, a 6c test and `docs/report-creation.md` say it is absent on purpose; he moved the topic to the fine-tune list and does not want small details to delay the MVP).
+2. Remind Amin to revoke the GitHub token after each session.
+3. At the start of the Phase 7 chat (Amin has told Claude to begin Phase 7 after the docs sync): ask Amin to answer the OPEN questions of Section 6 (especially the four marked ★) BEFORE any code.
+4. **End of every phase** (before the next phase starts): sync the Handoff and the Master Prompt into `docs/ems-handoff.md` and `docs/ems-master-prompt.md` (Section 8) and update `README.md` if it is stale.
 
-**Current status: Phase 0 is complete and approved. Phase 1 is
-in progress (skeleton built and passing tests, not yet formally
-signed off). Do not redo Phase 0. Do not regenerate Phase 1 files
-from scratch — the 20 files below already exist and pass tests;
-continue from them.**
+## 2. How we work (follow these)
+- Language: Persian replies, concise, no compliments/filler; English words/commands/file names in `backticks`; point out errors in Amin's reasoning; honest critical opinions, not agreement-seeking.
+- **Answer style (Amin, 2026-11-02, permanent, he should not have to repeat it):** frank, critical and professional, as fits the context; impartial: do not try to please him and do not try to tear him down either; how he may feel about the feedback must not influence the answer. Distinguish confirmed facts, assumptions, recommendations and open questions; attribute opinions as Claude's.
+- **Formatting (Amin, 2026-10-31):** write EVERY English word/expression in `backticks`, inline, without exception; never start a paragraph or a list item with English (start with a Persian word, or put one before it) — otherwise the line renders left-to-right. Ordinary markdown lists are fine when this holds. Mirror this in quotes of tool/reviewer output.
+- **Testing split (Amin, 2026-10-31, option «الف»):** Claude runs only the new/changed tests relevant to a change, plus `tsc`/`npm run build` and targeted mutation tests; Amin runs the FULL backend and frontend suites (and PostgreSQL) and reports the results; Claude debugs from his reports. Anything Claude did not run is NOT TESTED. Reason: cumulative full runs cost too much time/tokens. Compare Amin's reported totals with the expected ones (stale-checkout check).
+- Phase gate (spec s.37): implementation + tests + docs + review + Amin's acceptance. Ask Amin only for business/security/permission/architecture decisions (spec s.38); sensible defaults otherwise.
+- Every result is classified PASS / FAIL / NOT TESTED / ASSUMED. Mutation-test security/integrity rules (break the rule on purpose; a test must fail; note equivalent mutants honestly).
+- For the main project phases, use a phase branch → PR → Amin merges (or authorises) → acceptance tag on `main`. Phase 6 sub-PRs follow the dedicated integration-branch workflow below. Security-sensitive phases get an independent review by another AI (Amin pastes findings); TRIAGE findings against the code (reviewers are sometimes wrong, sometimes right).
+- **Branch/PR workflow (Amin's rules, 2026-10-20/21; reaffirmed 2026-11-02):** one step at a time. Structure: `main` → ONE integration branch per phase (`phase6`, `phase7`, …) → FLAT sub-phases named with letters (`6a`, `7a`, `7b`, …). **Never a level below a sub-phase** (no `7a-1`/`7a-2`; sub-parts are only commits/checklist items inside one PR). If a sub-phase turns out heavy, ADD A NEW LETTER instead of deepening; Claude must propose such splits proactively, before the work grows (6a was ~4,800 changed lines and too heavy; 6c ~420; 6d ~940 incl. tests/docs). Rule of thumb: ~300–1,000 total changed lines per sub-phase (tests and docs included); above ~1,500 split. Sub-PRs always target the integration branch, are branched from the CURRENT head of it (serial; never stacked on another sub-PR). Merge commits, not squash. `main` may lag behind the integration branch (only phase merges go into `main`; with two developers and no deployment this is fine); merge each phase into `main` right after its acceptance and branch the next phase from `main`. Each sub-PR: his manual tests + our approval → review → merge into the phase branch → next. Tags `phase6a-accepted`… on the phase branch; `phaseN-accepted` on `main` at the end. Git details otherwise at Claude's discretion; ask before pushing to new places (new branch/PR) or merging; follow-up commits to an already-agreed PR branch are fine.
+- **Reviews:** CodeRabbit skips non-default bases: trigger with a PR comment `@coderabbitai review`; on Amin's plan it allows about one review per hour (it said so itself). Codex review is unavailable (usage limit). Independent AI review (Amin pastes findings; TRIAGE them against the code) is used where valuable: not for 6c/6d (Amin's decision); proposed for the editing sub-phase (7b) and the priority data/actions sub-phase (7d).
+- GitHub token (2026-10-31: Amin pastes a classic `ghp_` token, accepts the risk, revokes/renews it periodically and also uses it for PR comments and answering CodeRabbit; merges are done through the API with the `sha` pin): Amin gives a fresh token per session; never store it; use a one-off `http.extraHeader`; ask/confirm before pushing to new places or merging; pin the exact head sha when merging. Remind him to revoke the token after the session.
+- Amin runs manual tests himself and reports; give him numbered checklists.
+- Dev/phone testing: backend/frontend run bound to 0.0.0.0 on his PC and the phone opens `http://<PC-IP>:5173`; origin allow-list via `backend/.env` `CORS_ALLOW_ORIGINS` and `frontend/.env` `VITE_API_BASE_URL` (never edit config.py defaults; never `git add -A`). With the API base fixed to the IP, a tab opened via `localhost` loses its session on reload (cross-site SameSite=Lax cookie): use the IP origin (two sessions = normal + private window). His dev scripts/.bat stay local; clean versions (DEV_HOST default 127.0.0.1, `.gitattributes`, doc section) come in 6b.
+- Sandbox notes: PostgreSQL is NOT preinstalled but could be installed in the 2026-11-04 session (`apt-get update` then `apt-get install -y postgresql`; start it INSIDE every command with `service postgresql start`; create role `ems_user` (password `ems_password`, superuser) and database `ems_test`), so Claude could run the Postgres tests itself (earlier session: it could not). A venv at `/home/claude/venv` and `npm ci` for the frontend are needed. A single command is killed after 300 s: run long suites in separate calls (<300 s each; the full backend with Postgres takes ~170 s, the frontend ~100 s); never leave a mutant in a file (restore in the same command and check `git status`).
 
----
+- **Amin's dev environment (found 2026-11-05):** his WSL clock jumps BACK about 1.9 s every ~30 s (`systemd-timesyncd` correcting a Hyper-V clock source that runs fast; his Windows time service was not running either). A token whose `iat` is then in the future is rejected, so backend tests fail RANDOMLY with `401` right after a successful login (different tests each run; once `pytest` even reported a negative duration). Workaround that fixed his runs: `sudo systemctl stop systemd-timesyncd` before testing (undo: `sudo systemctl start systemd-timesyncd`). If random `401` failures appear in his runs, check the clock first; they are NOT application bugs. Pending proposal (needs Amin's explicit OK, auth-code change): a small `leeway` (about 30 s) in JWT decoding, as a separate small PR or the first item of Phase 7. A clock probe script is in the chat history; `time.time()` vs `time.monotonic()` drift above ~0.05 s means trouble.
 
-## 1. Phase 0 — Decisions Made (all approved by Supervisor)
+## 3. Business decisions (all approved)
+- Equipment code: globally unique, case-insensitive (stored UPPER-case; Latin letters, digits, `- . _ /`). Usernames case-insensitive (lower-case). Group/report-type codes UPPER-case.
+- Report number `YY-GROUPCODE-NNN`; YY = Jalali year of `created_at` in `Asia/Tehran`; sequence per `(group_id, jalali_year)`; gap-free (failed creation rolls the counter back). Storage UTC, display Jalali.
+- Roles: USER, EXPERT, MANAGEMENT, AUDITOR ("بازرس ارشد": MANAGEMENT's read/report/export scope, zero writes, no settings; cannot create reports). Matrix in code (`app/core/permissions.py`).
+- USER sees `report_participants` rows only of reports THEY created; analytics/export only own. EXPERT: own groups. MANAGEMENT/AUDITOR: all. Group scoping always uses `reports.group_id` (frozen snapshot), never `equipment.group_id`.
+- Editing: USER own reports within `REPORT_EDIT_WINDOW_HOURS`; EXPERT own groups unlimited; delete = Management-only soft delete; locking/unlock (audited) in Phase 7. Equipment may move between groups (Management, audited). Never hard-delete history (except import-undo and drafts).
+- Passwords: Argon2id, min 8, common-password list; admin-set passwords force change; forgotten password = manager sets a temporary one.
+- Hosting deferred to Phase 12 (frontend and API must be SAME-SITE for the refresh cookie).
+- Approved 2026-10-14: installable PWA + "offline-lite" (~10% overhead budget); Phase 9b server-side idle timeout / enrolled devices / PIN; session defaults 1 h idle browser, 7 days app.
 
-1. **Equipment code uniqueness:** Globally unique across the whole
-   organization (not just per-group). Codes are pre-existing and are
-   entered primarily via Excel import.
-2. **Report numbering:** Persian/Jalali year, two-digit prefix (e.g.
-   `05` for 1405), format `YY-GROUPCODE-NNN`. Sequence
-   (`report_sequences`) is keyed by `(group_id, jalali_year)`.
-3. **Dates/timezone:** Stored internally as UTC/Gregorian (standard
-   DB practice), but **displayed everywhere in the UI as Jalali**,
-   converted using timezone `Asia/Tehran`. Backend: `jdatetime`.
-   Frontend: `jalaali-js` (to be added when frontend work starts).
-4. **Labor-hour visibility (USER role) — precise rule:** A USER sees
-   `report_participants` rows only for reports **they personally
-   created** (`created_by = me`), regardless of which participant the
-   hours were logged for. They do NOT see labor hours logged by a
-   colleague, even for the same person. EXPERT and MANAGEMENT can
-   aggregate by `user_id` across the whole group/org (they see all
-   reports in scope), so they can see a person's total hours across
-   multiple creators — USER cannot.
-5. **Editing:** EXPERT has unlimited-time edit rights, but only within
-   their own group(s). Deletion is Management-only, and must be
-   **soft delete** (archive/inactive), never physical delete.
-6. **Report locking (new feature, approved):** Management can give a
-   report a final sign-off, which sets `is_locked = true` and freezes
-   it against all further edits (even by Management) unless an
-   explicit "unlock" action is performed, which is itself audited.
-   Schema columns (`is_locked`, `locked_at`, `locked_by`) are added
-   in Phase 2 now; the UI/workflow for it is implemented in Phase 7
-   as originally planned.
-7. **Hosting/free-tier:** Deferred to Phase 12 — the choice between
-   Railway/Render/Supabase/Neon does not materially affect the
-   architecture, so no need to decide early.
-8. **Three proposed extra features — all approved:**
-   - Report status flag (future).
-   - "Recently used / frequently used equipment" quick-pick for fast
-     report entry, scoped to the user's authorized groups (MVP).
-   - CSV/Excel import template download (MVP).
-9. **Multi-branch / multi-organization question (resolved):**
-   Supervisor may eventually run separate deployments per
-   branch/department. Chosen approach: **Option A — API-based
-   aggregation**, not a shared multi-tenant database. A new role,
-   `AUDITOR` (name TBD), is added: it has exactly the same
-   organization-wide **read/report/export** permissions as
-   MANAGEMENT, but zero write/delete/import/settings permissions.
-   This role's token (or a dedicated API key) is what an eventual
-   upstream aggregation dashboard would use to pull data from each
-   independent deployment. This is implemented as a *composition* of
-   existing permission primitives, not new logic. A future feature
-   (not yet in scope) is upstream-manager-to-branch-manager messaging.
+### Phase 6 decisions (2026-10-16 … 2026-11-02) — details in `docs/report-creation.md`
+- Drafts: server-side table `report_drafts`, private, versioned, **ONE per user** (fixed in code), any submit deletes the author's drafts in the same transaction. The server draft exists for LARGE texts only (Amin's rule, 2026-10-24): nothing is pushed until there is report text; first save after ~100 changed characters or ~25 s, then 70/20 s, 45/15 s, floor 20 chars/10 s (`lib/saveSchedule.ts`), plus save-when-hidden and the manual button; heartbeat every 60 s. A `404` on save = submitted/deleted elsewhere (stop, never recreate); `409` = changed elsewhere (stop, offer to load).
+- **Device-local working copy** (`lib/localDraft.ts`): written on every edit, per user id, time-stamped, remembers the server draft version it was based on; on open: server only → auto-restore; local only → restore; both and local based on the current server version → local; both and server newer → the author CHOOSES (the chooser shows both full Jalali date-times, says the server copy may come from this same device, and marks the newer copy «جدیدتر» only when the stamps differ by at least one minute; with no clear winner both buttons look equal), the replaced version is kept for «بازگرداندن»; removed on submit/discard/explicit sign-out; kept on session expiry; other users' copies purged when a different user signs in. Explicit sign-out also deletes the server draft (best effort; confirm dialog when unsaved local work exists).
+- **One submission = one report**: `client_request_id` (UNIQUE per author) — a retry returns the first report (`200`, `already_created`); `draft_not_found` on submit blocks the plain button (explicit «ثبت به‌عنوان گزارش جدید» with a new key).
+- The «انواع گزارش» page/menu are for MANAGEMENT/AUDITOR only (users meet types through the picker + guide).
+- Server re-validates everything (equipment in caller's scope → not-yours == 404; active type/equipment; group snapshot; participants). `event_datetime` ≤ now + 5 min. `minutes` integer 1–1440 per person, unique per (report, user) — DB constraints too. Labor input = hours + minutes boxes.
+- Report types carry `labor_mode` AND `equipment_mode`, each `REQUIRED` (default) / `OPTIONAL` (hidden behind a button «اضافه کردن ساعات افراد - اختیاری» / «افزودن تجهیز - اختیاری») / `NONE`, plus an optional `help_fa` guide behind a «؟». The entry form is TYPE FIRST: the type chooser shows rules + guide + last used; changing type keeps typed data in memory but the NEW type decides what is shown/sent, with a notice when something gets hidden. REQUIRED: form pre-fills the author with `DEFAULT_LABOR_MINUTES` (30, setting) — a pre-fill, never a silent server insert; removing the author asks for confirmation then shows a warning; empty list at submit = blocking error «ساعت کاری وارد نشده است».
+- "General" types (`equipment_mode` not REQUIRED): equipment optional or absent, explicit in-scope group required, snapshot flag `reports.is_general`, `CHECK (equipment_id IS NOT NULL OR is_general)`. No general type is seeded; Management creates them. Per-group report types = future.
+- Participant eligibility (one function used by both the candidate list and the create check): USER = report-group members (setting `REPORT_USER_PARTICIPANTS_ALL_USERS`, default 0), EXPERT = any user (`REPORT_EXPERT_PARTICIPANTS_ALL_USERS`, default 1), MANAGEMENT = any. Changing equipment/group in the form removes participants not eligible in the new group (with a notice).
+- **Quick-add people (6c, decided/approved 2026-10-31):** `GET /reports/participant-suggestions?equipment_id=|group_id=` → `{suggestions: [{id, full_name}]}`, ids and names only. Source = ONLY reports the caller CREATED (active); never reports where he was merely a participant. One ranked pool (max 15): first people in at least 2 of his own reports in the last 30 days (by count, then recency, then name), then the people of his most recent own report of ANY age (so someone who files every few months still gets suggestions). The form shows «بر اساس گزارشات قبلی:» with the first 5 not-yet-listed people; picking one brings the next in. A chip adds the person with `DEFAULT_LABOR_MINUTES`, fills a blank row first, respects `max_participants`. Every candidate is re-checked with `participant_filter` (single eligibility function); author/inactive users excluded. Window, threshold, pool size and shown count are constants in code (not settings). There is no «افزودن همه» and no separate «previous report» row in the current code (the earlier Handoff recorded this as removed after Amin's manual test; Amin says he did not remove «افزودن همه» deliberately: see Section 1, reminder 1).
+- **Favorite people (6d, decided 2026-11-01…02; replaces the earlier «personal teams» plan, which is postponed):** a private starred shortlist per user in the person picker. Tables `favorite_people` (composite key `(owner_id, favorite_user_id)`, `CHECK owner <> favorite`, hard delete, never audited, never in analytics/export, readable only by the owner) and `user_report_preferences` (`favorites_only`, one row per user, upserted: the picker's «فقط ستاره‌دارها» switch is stored on the SERVER, so it follows the user across devices). Stars are GLOBAL (no per-group lists; managers star like everybody else). Cap: setting `FAVORITE_PEOPLE_MAX` (default 25, 1–100) counting only stars the caller can still use (active and eligible now); past it `409 favorites_limit_reached` (+`limit`); lowering the setting deletes nothing; the check runs under a `FOR NO KEY UPDATE` lock on the owner's user row. Star-time eligibility: active and eligible in AT LEAST ONE group the caller may file in (`participant_filter_any_group`, sharing `_unrestricted` with `participant_filter`; a parity test guards drift); missing/inactive/ineligible all give the SAME `404 person_not_found` (no id probing); starring yourself `422`; AUDITOR `403`. Use-time: every candidate query applies `participant_filter` for the report's group first, so a star never adds anybody and a stale star is simply hidden (still removable). Un-star `DELETE` answers `200 {can_restore}`: true only when starring again would be accepted now; over the quota no undo is offered and the message says so (Amin: «بازگردانی» over the quota contradicts the quota). Endpoints: `PUT/DELETE /reports/favorite-people/{id}`, `PUT /reports/favorites-filter`, `favorites_only` + `is_favorite` on `participant-candidates`, `favorites_only` + `max_favorite_people` in `entry-config`. UI: when a person picker is open, a star beside the search box toggles «همه» / «فقط ستاره‌دارها» (search works in both); each listed person has a star at the far end of the row (large target; the author's own entry has none; tapping it never selects the person); un-starring in starred-only mode removes the person at once with no confirm; messages stack at the TOP under the app bar, newest first (max 4), each with its own close button, timer (5 s / 6 s with undo) and own «بازگردانی». Order: alphabetical. The 6c chip row is unchanged. Also fixed in 6d: `PersonPicker` gave MUI a NEW value object on every render, which reset the text box to the person's name on every keystroke (a row that already held a person, e.g. the pre-filled author, could not be searched; present since 6a). Details: `docs/report-creation.md`, `docs/frontend.md`.
+- Landing page: USER → `/reports/new`; EXPERT → report entry for now; MANAGEMENT/AUDITOR → dashboard for now (`lib/access.ts: landingPath`; switch two marked lines when the Phase 7 reports list exists: EXPERT → own-group list, MANAGEMENT/AUDITOR → list of all reports).
 
-## 2. Phase 1 — Status: IN PROGRESS (not yet formally signed off)
+## 4. Phase 6 sub-parts (final; Phase 6 CLOSED 2026-11-05)
+| Part | Content | Status |
+|---|---|---|
+| 6a | core: creation, drafts, labor modes, general reports, settings; independent review done | ACCEPTED, tag `phase6a-accepted` → `4786f4a` |
+| 6c | quick-add people from the author's OWN reports (frequent ≥2 in 30 days, then latest own report of any age; 5 shown/refilled, pool 15, re-validated per report group; no new table) + clearer draft-conflict chooser | ACCEPTED 2026-10-31, merge `baa080c`, tag `phase6c-accepted` |
+| 6d | favorite people (Section 3); CodeRabbit + Amin's tests, no independent review | ACCEPTED 2026-11-05, merge `90040ce`, tag `phase6d-accepted` |
+| ~~6b~~ | **MOVED to the Phase 11 list (Section 7). Never part of the closed Phase 6.** | n/a |
+| ~~6e~~ | **MOVED to the future-development list (Section 8).** | n/a |
+Phase 6 → `main`: PR #13, merge commit `e4c109a`, tag `phase6-accepted` (2026-11-05).
+**Current next action:** Phase 7 in a new chat (Section 6). Do not start 6b.
+Known NOT TESTED: real phone/desktop browser by Claude; the phone placement of the favorites messages (known minor issue, Amin will revisit); multi-process load; behaviour behind a reverse proxy.
 
-**Goal (per master spec Phase 1):** repository structure, backend
-skeleton, frontend skeleton, DB connection, env config, migrations,
-logging, test framework, health endpoint — all tested.
+## 5. Spec additions approved 2026-10-14 (unchanged)
+PWA + offline-lite (Phase 11), session/idle rules (Phase 9b), Phase 6 drafts/autosave/heartbeat (done).
 
-**Done:**
-- Backend skeleton built with FastAPI + async SQLAlchemy 2.x +
-  Alembic, structured logging, Pydantic-based settings from env vars.
-- `/health/live` (no DB dependency) and `/health/ready` (executes
-  `SELECT 1` against the DB) endpoints implemented.
-- Alembic wired to read `DATABASE_URL` from app settings (not
-  hard-coded), naming convention set for stable constraint names.
-- Test suite (pytest + pytest-asyncio + httpx ASGI transport) with an
-  in-memory SQLite override for `get_db`, so tests run without a real
-  Postgres instance.
-- **All 3 tests pass** (`test_liveness`, `test_readiness`,
-  `test_docs_available_in_non_production`).
-- Fixed a FastAPI deprecation warning by switching `@app.on_event` to
-  the modern `lifespan` context-manager pattern.
+## 6. Phase 7 — plan, decisions and OPEN questions (discussed 2026-11-02…04; NO code written; continue in a NEW chat)
+**Structure (DECIDED by Amin):** `main` → integration branch `phase7` (create it from `main`; Phase 6 is already merged: `e4c109a`) → FLAT sub-phases `7a`…`7f` (list below; no deeper level, add a new letter if one gets heavy; Claude proposes splits proactively; target ~300–1,000 changed lines each). Serial: each starts from the current `phase7` HEAD after the previous one is merged. Branch names e.g. `phase7a-reports-list`.
 
-**NOT yet done (remaining Phase 1 work):**
-- Frontend skeleton (React + TypeScript + Vite, RTL-first, MUI or
-  Tailwind+RTL — decision pending, see open items below).
-- `docker-compose.yml` for local Postgres (so contributors don't need
-  a manually installed DB).
-- Root `README.md` with setup instructions.
-- `.gitignore` (Python + Node + `.env`).
-- Formal Phase 1 QA pass + Supervisor sign-off per the Phase Gate
-  Rule (Section 37 of the master spec) — implementation exists and is
-  tested, but hasn't been presented for acceptance yet.
+| Sub-phase | Content | Review |
+|---|---|---|
+| `7a` | reports LIST (landing page for EXPERT/MANAGEMENT/AUDITOR), report DETAIL, EQUIPMENT HISTORY; read side, visibility rules, general-report marker (`equipment_id IS NULL`) | CodeRabbit + mutation tests |
+| `7b` | report EDITING: user window, EXPERT, MANAGEMENT; participants and minutes; optimistic concurrency; audit | independent AI review proposed |
+| `7c` | manual lock/unlock (audited) + soft delete / restore | CodeRabbit + mutation tests |
+| `7d` | priority system: data model, event history, actions, API, concurrency tests | independent AI review proposed |
+| `7e` | priority UI: tabs, pinned critical strip, badge | CodeRabbit |
+| `7f` | priority statistics / dashboard counter | CodeRabbit |
 
-**Open items for Phase 1 continuation:**
-- Confirm frontend UI library: MUI (native RTL support, faster for an
-  admin-heavy app) vs Tailwind + RTL plugin. Architect's earlier
-  recommendation was MUI — not yet confirmed by Supervisor.
-- Confirm final name for the new `AUDITOR` role (placeholder name,
-  not yet finalized).
-- Decide whether `docker-compose.yml` should be included in Phase 1
-  or deferred to Phase 12 deployment work — recommend including a
-  minimal one now since local Postgres is needed for Phase 2 anyway.
+- **Renaming warning:** earlier documents called the priority system «Phase 7b» and its parts «7b-1/2/3». They are now `7d`/`7e`/`7f`. Keep this consistent everywhere.
+- **Size warning (Claude's estimate, not measured):** `7a` is near the size threshold (two read APIs with visibility rules + cursor pagination + list/detail/history UI). If the backend of `7a` already exceeds ~1,200 changed lines, propose moving the equipment-history UI into its own letter. Equipment history should be the same list endpoint filtered by equipment, which keeps it small.
+- **Already decided earlier (keep):**
+  - Phase 7 must handle `reports.equipment_id IS NULL` (general reports) in detail/lists and show the general tag; list sorted/filterable.
+  - Editing a report: equipment may change ONLY within the same group (approved); for general reports only equipment of the report's group may be added. Wrong-group filing = Management soft-deletes and recreates (no "move report" operation; weakness: new `created_at`).
+  - Reports list = landing page for EXPERT (own groups) and MANAGEMENT/AUDITOR (all) (switch the two marked lines in `lib/access.ts: landingPath`).
+  - Existing code facts (checked 2026-11-04): `Report` already has `is_locked`/`locked_at`/`locked_by` and soft delete; `permissions.py` already has `report.view`, `report.edit` (USER: own + window, EXPERT: groups), `report.delete`, `report.lock`; there is NO list/detail read API yet.
+  - Group scoping always uses `reports.group_id`; USER sees participant rows only of reports THEY created (see open question 7a.2 for the one proposed refinement).
+- **OPEN questions — Amin has NOT answered (Claude's recommendation in brackets; do NOT treat as decided; ask Amin at the start of the Phase 7 chat; items marked ★ are expensive to change later):**
+  - `7a.1` list: sort by event time descending, `cursor` pagination (25/page), filters (date range, type, group, equipment code, creator, «general only», report number, description text search); soft-deleted reports hidden from everyone until `7c` adds the filter. [recommended]
+  - `7a.2` ★ participant rows: Ali is a participant in Saeed's report but cannot see his own labor anywhere. [Show Ali ONLY his own row in the detail, never others'; USER analytics stay «own created reports only» (documented inconsistency).]
+  - `7a.3` USER viewing someone else's report: no participant info at all (no names, no count, no total minutes). [yes]
+  - `7a.4` ★ equipment moved between groups: new-group users do not see reports of the old group (frozen `group_id`), so the history looks incomplete. [Show a notice without a number: «ممکن است گزارش‌هایی از گروه قبلی وجود داشته باشد»; MANAGEMENT sees all.]
+  - `7b.1` editable fields: description, event time, type, equipment (same group only), participants and minutes; fixed: report number, group, `created_at`; validate with the type's current modes; inactive type: editing allowed but cannot switch TO an inactive type; no conversion to «general». [yes]
+  - `7b.2` ★ change history: [for now `audit_logs` with before/after values + an «ویرایش‌شده» marker in the detail; an append-only revisions table later. Amin may want the revisions table now if colleagues' trust in report text matters.]
+  - `7b.3` concurrency: version column + `409` with a clear message (same pattern as drafts). [yes]
+  - `7c.1` ★ locking: manual only, by MANAGEMENT, with a reason and audit; nobody (not even EXPERT) edits a locked report; automatic lock after N days (computed in queries, no cron) maybe later. [yes]
+  - `7c.2` soft delete: mandatory reason, restore by MANAGEMENT only (audited), MANAGEMENT and AUDITOR see deleted reports with a marker. [yes]
+  - `7d.1` the three priority confirmations (a)(b)(c) below. [yes to all]
+  - review policy: independent AI review for `7b` and `7d`; others CodeRabbit + mutation tests. [proposed]
+- **Priority / follow-up system (now sub-phases 7d–7f; was called «Phase 7b» before 2026-11-02) — design CLOSED 2026-10-21 (3 small confirmations pending, see end):**
+  - Levels (4): عادی، مهم، حساس، بحرانی; per report type levels may be switched off (PM = always normal, no workflow). Level chosen at creation ≤ creator's raise ceiling.
+  - **Raise ceilings** (settings): USER ≤ مهم; EXPERT ≤ بحرانی (mandatory note for حساس/بحرانی); MANAGEMENT ≤ بحرانی. **Handle authority** (review / lower / close): USER 0, EXPERT مهم (own groups), MANAGEMENT بحرانی, plus one dashboard grant «رسیدگی به بحرانی» for chosen users (implies حساس; intended for EXPERTs, acts only within their visible groups). AUDITOR read-only (sees everything, acts on nothing).
+  - **Unreviewed rule:** a level ≥ 2 is "reviewed" only by someone whose authority ≥ that level (reading by other experts does not review a critical/sensitive report; for مهم any expert of the group or a manager counts, shared state, who/when recorded). Create/raise by someone with authority ≥ new level = reviewed (manager-raised critical = confirmed); create/raise by lower authority = UNREVIEWED at the new level; lowering to مهم/حساس = UNREVIEWED at the new level (hand-off; one click «بررسی شد» if the same manager owns it; no "needs follow-up" checkbox for now); lowering to عادی = no state. Explicit «بررسی شد» action only — never implicit on read.
+  - **Critical:** always pinned (compact strip ≤ ~5 one-line rows, «و N مورد دیگر», menu badge, age colouring, soft-cap alert), unreviewed criticals first with the flag "منتظر تأیید مدیر — بحرانی‌شده توسط X (since T)". Never overdue, never expires. Exit = ONE action «تغییر سطح از بحرانی» (target: حساس/مهم/عادی): without prior confirmation it is a "reject" and needs no comment; after a manager confirmed, any lowering needs a mandatory comment ("تعیین تکلیف"). Fully solved → عادی (history kept; afterwards it is an ordinary report in date order). Only MANAGEMENT / granted users may do this.
+  - **Windows (settings, computed in queries — no cron):** unreviewed مهم 4 days, حساس 7 days, then the item moves to the **«تأخیردار» tab** (easily reachable; a badge/bell with the count of items the viewer can ACT on shows next to the tab title and menu entry). عادی: no unread state at all. "Archive" = a filter of reviewed items, not storage.
+  - **History/stats:** append-only event table (from, to, kind RAISE/LOWER/REVIEW/CONFIRM/REJECT/DISPOSITION, actor, comment, time) + peak level on the report → stats: how many reached critical / confirmed / rejected / closed with action.
+  - **Concurrency:** every level/review/confirm action runs in one transaction with a row lock on the report (`FOR UPDATE`) and an expected-state/version check; a stale action gets a clear 409 («وضعیت گزارش در این فاصله تغییر کرده؛ صفحه را تازه کنید»). Same pattern as drafts and numbering; mutation- and concurrency-tested. Priority actions are NOT blocked by the edit-lock (`is_locked`) — they are workflow, not content edits; still audited (pending Amin's OK).
+  - **Build plan:** now the flat sub-phases `7d` (data model + history + actions + API + concurrency tests; independent review), `7e` (UI: tabs, pinned strip, badge), `7f` (stats/dashboard counter). The old names «7b-1/2/3» are retired.
+  - Pending confirmations (Amin has NOT confirmed; Claude proposes YES to all three): (a) the dashboard grant is assignable to EXPERT users only; (b) priority actions allowed on edit-locked reports (workflow, not content edit); (c) the menu badge shows a number (the actionable count).
+- Cross-group helpers are handled by the participant settings above (no extra work planned).
 
-## 3. File Inventory (20 files created so far — all under `backend/`)
+## 7. Final fine-tune list (do at the end)
+Session countdown timer; inactivity-based expiry; keep a long report draft when the session ends (warning + re-login restores work only for the SAME user); bigger "ویرایش" control or icon on settings tiles + visual polish in the management area; make "groups optional" obvious at user creation (Swagger example `[0]` for `group_ids` fails — fix the schema example); group code next to names in the participant picker.
 
-```
-backend/
-├── .env.example
-├── alembic.ini
-├── pytest.ini
-├── requirements.txt
-├── alembic/
-│   ├── env.py
-│   └── script.py.mako
-├── app/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── api/
-│   │   ├── __init__.py
-│   │   └── health.py
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── config.py
-│   │   └── logging.py
-│   ├── db/
-│   │   ├── __init__.py
-│   │   ├── base.py
-│   │   └── session.py
-│   └── models/
-│       └── __init__.py      (empty — models start in Phase 2)
-└── tests/
-    ├── __init__.py
-    ├── conftest.py
-    └── test_health.py
-```
+- Postponed by Amin to this final review (2026-10-31): suggesting colleagues from reports that OTHERS created and where the user was only named. Amin's proposed safeguards: only reports whose `reports.group_id` equals the chosen equipment's group, and only candidates eligible in that group. Open issue: it needs an explicit supervisor decision on co-participant name visibility (the rule «USER sees participant rows only of reports THEY created» would otherwise be bypassed; participation is asserted by the creator, not verified, and EXPERT/MANAGEMENT may add any user) — best decided together with Phase 7's report-detail visibility. Leak-free alternative for shift crews: 6d personal teams.
+- 6c constants (30 days, ≥2 reports, pool 15, 5 shown) are fixed in code; revisit after live feedback.
 
-All 20 files are included, exactly as last edited, in the accompanying
-`ems-backend-phase1.zip`. Unzip it directly into the new Project's
-working directory / repo root — no changes needed, it already passes
-`python -m pytest -v` (3 passed).
+- **Phase 11 list — everything from the former sub-phase 6b (MOVED here 2026-11-04; none of it is critical):**
+  - Form column max ~720 px, report text field full width; equipment/person pickers max ~360 px (~25 Persian chars), dropdown menus the same width and max height ~280; labor row = name + hours + minutes on one line (phone: name above); type card + «تغییر نوع» same width as the name field.
+  - The selected item must stay on the RIGHT in RTL (needs Amin's screenshot of the moment it jumps left; Claude's unverified guess: related to `dir="ltr"` on the equipment picker input).
+  - «اکنون» + default form time rounded DOWN to 15 min (step = a new setting, 1 = exact; «today» must follow `Asia/Tehran`, not the device clock); persistent «افزودن خودم» button; date buttons امروز/دیروز + day back / day forward (forward disabled at today); «اعمال یک مقدار به همه»; digits stay English for now.
+  - Dev tooling: `DEV_HOST` scripts (default 127.0.0.1, local `scripts/dev.local.env`), `.gitattributes`, phone-testing doc section, and in dev derive the API base from the page host so `localhost` and the LAN IP both keep their session.
+  - Claude's earlier estimate (2026-11-04): functional part ≈ half the size of 6d, no migration/security boundary; layout part is cheap to code but needs several rounds of Amin's phone feedback (Claude cannot see the screen); Phase 11 is the natural place because it covers RTL/Persian/mobile/form usability anyway.
+- **6d follow-ups (small):** the favorites messages on a phone still appear at the top of the page, not of the visible screen (Amin, 2026-11-06: not severe, to be revisited later with the Phase 11 UX list; `30643f5` did not fully solve it); the over-quota message and the filled-row search were hand-tested PASS on 2026-11-06; keyboard access to the «only starred» star is limited (it exists only while the list is open); CodeRabbit's docstring-coverage warning (24% vs 80%) was deliberately ignored (does not match the project style); stars are not sorted by use (user-defined order is a future item).
 
-**Not included (intentionally, regenerate locally, never commit):**
-`.env` (real secrets), `__pycache__/`, `.pytest_cache/`.
+## 8. Future, separate or later
+- Targeted messaging system for managers (separate project; PWA web push possible; server not reachable from the mall WiFi but reachable from the internet).
+- After Phase 6 acceptance (Amin's wish): bulk add/update of equipment `description` on EXISTING equipment from a file (Phase 5 import never updates existing codes; until then descriptions are edited one by one).
+- Single-equipment hard delete (zero reports) agreed in principle, not built. Independent security review of the Phase 5 upload path was recommended (partly covered by the Phase 5 review fixes).
+- **6e — Jalali date-picker popup** (moved here, NOT dropped; skipped for now only because of its cost; picking a date without it is hard). Amin has a Jalali date picker written in C# (WinForms, NuGet) on his GitHub; it is not directly usable in the React app (at most as a conversion-algorithm reference); he will give the repo address when needed.
+- **Personal teams («تیم من»)** — the former 6d plan, postponed until live feedback shows whether teams or the 6c suggestions are preferred (they overlap for USER). If built: user-named teams validated at creation AND at use (temporary mismatch = skip with a notice; permanent = offer to drop), limits as settings (earlier plan: USER 1 / EXPERT 3 / MANAGEMENT 5 teams, 10 members; Amin: managers may need more, ~10 teams is already plenty), managed inside the form. Per-group separation of favorites for managers belongs here too.
+- Favorites: user-customizable order (drag/up-down; basis would be a `position` column); optional «add all starred» button if live use shows crews of fixed people.
+- **Docs-in-repo (ENABLED by Amin, 2026-11-06; first sync done before Phase 7):** this Handoff and the Master Prompt are versioned in Git as `docs/ems-handoff.md` and `docs/ems-master-prompt.md`. Amin saw Claude's concern about the PUBLIC repo and told Claude to proceed (he did not choose a separate private repo); a private `EMS-docs` repo stays an option. Principles: the PROJECT files stay the source of truth (Amin updates them himself); at the END of each phase, before the next starts, Claude commits the project copies under stable names in a `docs/` area and any difference between project copy and repo copy must be announced and resolved; dated working copies are not committed; references inside the documents must not name dated files (otherwise the copies differ). Claude's concern (kept for reference): the repo is PUBLIC and the Handoff holds operational details; making it private would probably end CodeRabbit's free line-by-line reviews (private repos on the free plan reportedly get only summaries after the trial; verify on the CodeRabbit pricing page); safer alternative = a separate small PRIVATE repo (e.g. `EMS-docs`) for the two documents. Never put tokens or secrets in either document.
 
-## 4. Immediate Next Steps for the New Conversation
-
-1. Confirm this handoff was read correctly (ask me to summarize back
-   Phase 0 decisions and Phase 1 status before doing anything new).
-2. Resolve the three open items above (frontend UI library, AUDITOR
-   role name, docker-compose timing).
-3. Finish remaining Phase 1 work (frontend skeleton, docker-compose,
-   README, .gitignore).
-4. Present Phase 1 for formal Supervisor sign-off per the Phase Gate
-   Rule before starting Phase 2 (database schema).
-
----
-*End of handoff document.*
+## 9. Known caveats
+- Frontend bundle is one ~600 kB chunk (split in Phase 11). Phase 4b had no independent security review. Telemetry/audit-log viewer UI does not exist yet (the `audit_logs` table is written everywhere).
+- Refresh must be single-flight on the client (implemented).
+- Phase 5 details: `docs/equipment-import.md` (one import = one group, `.xlsx`/`.csv`, 2 MB / 1000 rows, preview then confirm, undo-whole-import while no equipment of the batch has reports/moves).
+- The phone placement of the favorites messages (visible area vs page top) is a known minor issue that Amin postponed (2026-11-06). `PersonPicker` row-search bug (stable `value` object) was found via a jsdom test and by reading the MUI 6.5.0 `useAutocomplete` effect; Amin confirmed the fix by hand on 2026-11-06 (PASS).
+- CodeRabbit's second review ran nothing; its «fixed» statements are code inspection only.
