@@ -24,7 +24,9 @@ async def list_report_types(include_inactive: bool = False,
 @router.post("", response_model=ReportTypeOut, status_code=201)
 async def create(body: ReportTypeCreate, actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
     return await report_type_admin.create_report_type(db, actor_id=actor.user_id, code=body.code,
-                                                      name_fa=body.name_fa, is_failure=body.is_failure)
+                                                      name_fa=body.name_fa, is_failure=body.is_failure,
+                                                      labor_mode=body.labor_mode, equipment_mode=body.equipment_mode,
+                                                      help_fa=body.help_fa)
 
 
 @router.patch("/{type_id}", response_model=ReportTypeOut)

@@ -12,5 +12,6 @@ export default defineConfig({
     globalSetup: ["./src/test/tz.ts"],
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    testTimeout: 20_000, // MUI + userEvent page tests take 3-5 s on a cold CI box; the 5 s default made them flaky
   },
 });

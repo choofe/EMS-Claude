@@ -17,6 +17,9 @@ const baseRoutes = (user = makeUser()) => ({
   "GET /report-types": () => json(200, []),
   "GET /users": () => json(200, emptyPage),
   "GET /roles": () => json(200, []),
+  "GET /reports/entry-config": () => json(200, { default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5, groups: [] }),
+  "GET /reports/drafts": () => json(200, []),
+  "GET /reports/equipment-quick-pick": () => json(200, { recent: [], frequent: [] }),
 });
 
 describe("session bootstrap and route guards", () => {
@@ -59,10 +62,11 @@ describe("session bootstrap and route guards", () => {
     expect(screen.queryByRole("button", { name: /کاربر جدید/ })).not.toBeInTheDocument();
   });
 
-  it("USER/EXPERT land on equipment and get no admin navigation", async () => {
+  it("USER lands on report entry and gets no admin navigation", async () => {
     mockFetch(baseRoutes(makeUser({ username: "ali", role_code: "USER", role_label_fa: "کاربر" })));
     renderApp("/");
-    expect(await screen.findByRole("heading", { name: "تجهیزات" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "ثبت گزارش" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "تجهیزات" })).toBeInTheDocument(); // equipment stays one click away
     expect(screen.queryByRole("link", { name: "کاربران" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "تنظیمات" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /تجهیز جدید/ })).not.toBeInTheDocument();

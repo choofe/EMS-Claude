@@ -13,14 +13,22 @@ reports in their scope.
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
 
+MAX_PARTICIPANT_MINUTES = 24 * 60  # one person cannot log more than a day on one report (catches 120-for-1.2 typos)
+
+
 class ReportParticipant(Base):
     __tablename__ = "report_participants"
+    __table_args__ = (
+        # one labor row per person per report: hours can never be counted twice (Phase 6)
+        UniqueConstraint("report_id", "user_id", name="uq_report_participants_report_user"),
+        CheckConstraint(f"minutes > 0 AND minutes <= {MAX_PARTICIPANT_MINUTES}", name="minutes_range"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     report_id: Mapped[int] = mapped_column(

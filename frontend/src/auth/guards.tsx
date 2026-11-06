@@ -2,7 +2,7 @@ import { CircularProgress, Box } from "@mui/material";
 import { Navigate, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "./AuthProvider";
-import { canViewAdmin, isManagement } from "../lib/access";
+import { canReport, canViewAdmin, isManagement } from "../lib/access";
 
 function Splash() {
   return (
@@ -31,8 +31,8 @@ export function RequireSession({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function RequireRole({ check, children }: { check: "admin-view" | "management"; children: ReactNode }) {
+export function RequireRole({ check, children }: { check: "admin-view" | "management" | "reporter"; children: ReactNode }) {
   const { user } = useAuth();
-  const ok = check === "management" ? isManagement(user) : canViewAdmin(user);
+  const ok = check === "management" ? isManagement(user) : check === "reporter" ? canReport(user) : canViewAdmin(user);
   return ok ? <>{children}</> : <Navigate to="/" replace />;
 }

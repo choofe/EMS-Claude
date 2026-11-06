@@ -150,9 +150,9 @@ describe("import page", () => {
   });
 
   it.each(["EXPERT", "AUDITOR", "USER"])("is not reachable for %s (never requests the import endpoints)", async (role) => {
-    const m = mockFetch({ ...session(makeUser({ role_code: role, username: "x" })), "GET /equipment": () => json(200, page([])), "GET /groups": () => json(200, page([])), "GET /dashboard/summary": () => json(200, { active_users: 0, inactive_users: 0, active_equipment: 0, inactive_equipment: 0, active_groups: 0, groups: [] }) });
+    const m = mockFetch({ ...session(makeUser({ role_code: role, username: "x" })), "GET /reports/entry-config": () => json(200, { default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5, groups: [] }), "GET /reports/drafts": () => json(200, []), "GET /reports/equipment-quick-pick": () => json(200, { recent: [], frequent: [] }), "GET /report-types": () => json(200, []), "GET /equipment": () => json(200, page([])), "GET /groups": () => json(200, page([])), "GET /dashboard/summary": () => json(200, { active_users: 0, inactive_users: 0, active_equipment: 0, inactive_equipment: 0, active_groups: 0, groups: [] }) });
     renderApp("/equipment/import");
-    await waitFor(() => expect(m.count("GET /groups") + m.count("GET /dashboard/summary") + m.count("GET /equipment")).toBeGreaterThan(0));
+    await waitFor(() => expect(m.count("GET /groups") + m.count("GET /dashboard/summary") + m.count("GET /equipment") + m.count("GET /reports/entry-config")).toBeGreaterThan(0)); // redirected away (USER/EXPERT land on report entry)
     expect(m.count("GET /equipment/import/batches")).toBe(0);
     expect(screen.queryByRole("link", { name: "ورود گروهی تجهیزات" })).not.toBeInTheDocument();
   });
