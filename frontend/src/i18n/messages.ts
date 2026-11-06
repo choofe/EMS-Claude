@@ -48,6 +48,9 @@ const MESSAGES: Record<string, string> = {
   labor_not_allowed: "این نوع گزارش ساعت کار ندارد.",
   participant_duplicate: "یک نفر فقط یک بار می‌تواند در فهرست ساعت‌ها باشد.",
   participant_not_allowed: "برخی از افراد فهرست اجازهٔ ثبت در این گزارش را ندارند.",
+  favorite_self: "نمی‌توانید خودتان را ستاره‌دار کنید.",
+  person_not_found: "این فرد برای شما قابل انتخاب نیست؛ ستاره‌دار نشد.",
+  favorites_limit_reached: "به سقف افراد ستاره‌دار رسیده‌اید؛ ابتدا ستارهٔ یکی را بردارید.",
   draft_not_found: "پیش‌نویس پیدا نشد؛ ممکن است قبلاً ثبت یا حذف شده باشد.",
   draft_limit_reached: "یک پیش‌نویس دیگر (در تب یا دستگاه دیگر) وجود دارد.",
   draft_version_conflict: "این پیش‌نویس در جای دیگری (تب یا دستگاه دیگر) تغییر کرده است.",
@@ -112,6 +115,8 @@ export function errorMessage(err: unknown): string {
       return d.max_length ? `توضیحات باید بین ۱ تا ${toPersianDigits(String(d.max_length))} نویسه باشد.` : MESSAGES.invalid_description;
     case "participant_not_allowed":
       return MESSAGES.participant_not_allowed;
+    case "favorites_limit_reached":
+      return d.limit ? `حداکثر ${toPersianDigits(String(d.limit))} نفر را می‌توان ستاره‌دار کرد؛ ابتدا ستارهٔ یکی را بردارید.` : MESSAGES.favorites_limit_reached;
     case "group_has_active_equipment":
       return `این گروه ${toPersianDigits(String(d.count))} تجهیز فعال دارد. ابتدا تجهیزات را منتقل یا غیرفعال کنید.`;
     case "setting_out_of_range": {

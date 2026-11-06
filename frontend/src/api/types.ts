@@ -79,6 +79,8 @@ export type Mode = "REQUIRED" | "OPTIONAL" | "NONE";
 
 /** Report entry (docs/report-creation.md). */
 export interface EntryConfig {
+  favorites_only: boolean;       // the person picker's "starred only" switch, remembered per user on the server (Phase 6d)
+  max_favorite_people: number;
   default_labor_minutes: number;
   max_participant_minutes: number;
   max_participants: number;
@@ -86,7 +88,7 @@ export interface EntryConfig {
   future_tolerance_minutes: number;
   groups: { id: number; code: string; name: string }[];
 }
-export interface Candidate { id: number; full_name: string }
+export interface Candidate { id: number; full_name: string; is_favorite?: boolean }
 export interface Suggestions { suggestions: Candidate[] }
 export interface QuickEquipment { id: number; equipment_code: string; group_id: number; group_code: string; description: string | null }
 export interface QuickPick { recent: QuickEquipment[]; frequent: QuickEquipment[] }

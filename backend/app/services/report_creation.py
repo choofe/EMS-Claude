@@ -31,6 +31,7 @@ from app.core.jalali import jalali_year, report_year_prefix
 from app.core.permissions import Capability, Principal, Scope
 from app.core.scoping import apply_equipment_scope, apply_group_scope
 from app.models.equipment import Equipment
+from app.models.favorite_person import FavoritePerson, UserReportPreference
 from app.models.group import Group
 from app.models.report import Report
 from app.models.report_draft import ReportDraft
@@ -43,7 +44,7 @@ from app.models.report_participant import MAX_PARTICIPANT_MINUTES
 from app.schemas.reports import MAX_DESCRIPTION_LENGTH, MAX_PARTICIPANTS, ReportCreate
 from app.services.audit import add_audit
 from app.services.queries import LIKE_ESCAPE, contains_pattern
-from app.services.runtime_settings import ReportEntryPolicy, get_report_entry_policy
+from app.services.runtime_settings import ReportEntryPolicy, get_favorite_people_max, get_report_entry_policy
 
 FUTURE_TOLERANCE = timedelta(minutes=5)  # approved 2026-10-16: clock skew between phone and server
 
@@ -55,17 +56,32 @@ FREQUENT_POOL = 15                    # candidates returned, best first; the for
 # rarely (every few months) has nobody frequent in 30 days but still benefits from the people of the last report.
 
 
-def participant_filter(principal: Principal, policy: ReportEntryPolicy, group_id: int):
-    """WHERE-clause of users that `principal` may list as participants of a report in `group_id`."""
-    active = User.is_active.is_(True)
-    unrestricted = (
+def _unrestricted(principal: Principal, policy: ReportEntryPolicy) -> bool:
+    """True when `principal` may list ANY active user as a participant, whatever the report's group."""
+    return (
         principal.scope(Capability.REPORT_CREATE) is Scope.ALL
         or (principal.role_code == "EXPERT" and policy.expert_participants_all_users)
         or (principal.role_code == "USER" and policy.user_participants_all_users)
     )
-    if unrestricted:
+
+
+def participant_filter(principal: Principal, policy: ReportEntryPolicy, group_id: int):
+    """WHERE-clause of users that `principal` may list as participants of a report in `group_id`."""
+    active = User.is_active.is_(True)
+    if _unrestricted(principal, policy):
         return active
     members = select(UserGroup.user_id).where(UserGroup.group_id == group_id)
+    return and_(active, User.id.in_(members))
+
+
+def participant_filter_any_group(principal: Principal, policy: ReportEntryPolicy):
+    """Users `principal` could list as participants in AT LEAST ONE group he may file in (Phase 6d: the check made when
+    a person is starred; the report's own group is re-checked with `participant_filter` whenever the star is used).
+    Shares `_unrestricted` with `participant_filter`, so the two rules cannot drift apart."""
+    active = User.is_active.is_(True)
+    if _unrestricted(principal, policy):
+        return active
+    members = select(UserGroup.user_id).where(UserGroup.group_id.in_(sorted(principal.group_ids)))
     return and_(active, User.id.in_(members))
 
 
@@ -103,7 +119,7 @@ async def _group_for_report(db: AsyncSession, principal: Principal, group_id: in
 
 
 async def participant_candidates(db: AsyncSession, principal: Principal, equipment_id: int | None,
-                                 group_id: int | None, q: str | None, limit: int) -> list[dict]:
+                                 group_id: int | None, q: str | None, limit: int, favorites_only: bool = False) -> list[dict]:
     if (equipment_id is None) == (group_id is None):
         raise DomainError("equipment_or_group_required", 422)
     if equipment_id is not None:
@@ -111,11 +127,16 @@ async def participant_candidates(db: AsyncSession, principal: Principal, equipme
     else:
         group = await _group_for_report(db, principal, group_id, lock=False)
     policy = await get_report_entry_policy(db)
-    stmt = select(User.id, User.full_name).where(participant_filter(principal, policy, group.id))
+    # Phase 6d: `is_favorite` is about the CALLER's own private shortlist; the eligibility filter is applied first and
+    # always, so a star can never add anybody to the list.
+    is_favorite = User.id.in_(select(FavoritePerson.favorite_user_id).where(FavoritePerson.owner_id == principal.user_id))
+    stmt = select(User.id, User.full_name, is_favorite.label("is_favorite")).where(participant_filter(principal, policy, group.id))
+    if favorites_only:
+        stmt = stmt.where(is_favorite)
     if q and q.strip():
         stmt = stmt.where(User.full_name.ilike(contains_pattern(q), escape=LIKE_ESCAPE))
     rows = (await db.execute(stmt.order_by(User.full_name, User.id).limit(limit))).all()
-    return [{"id": i, "full_name": n} for i, n in rows]
+    return [{"id": i, "full_name": n, "is_favorite": bool(f)} for i, n, f in rows]
 
 
 async def participant_suggestions(db: AsyncSession, principal: Principal, equipment_id: int | None,
@@ -167,7 +188,10 @@ async def entry_config(db: AsyncSession, principal: Principal) -> dict:
     policy = await get_report_entry_policy(db)
     groups = (await db.execute(apply_group_scope(select(Group).where(Group.is_active.is_(True)), principal,
                                                  Capability.REPORT_CREATE).order_by(Group.code))).scalars()
+    favorites_only = (await db.execute(select(UserReportPreference.favorites_only)
+                                       .where(UserReportPreference.user_id == principal.user_id))).scalar_one_or_none()
     return {
+        "favorites_only": bool(favorites_only), "max_favorite_people": await get_favorite_people_max(db),
         "default_labor_minutes": policy.default_labor_minutes, "max_participant_minutes": MAX_PARTICIPANT_MINUTES,
         "max_participants": MAX_PARTICIPANTS, "max_description_length": MAX_DESCRIPTION_LENGTH,
         "future_tolerance_minutes": int(FUTURE_TOLERANCE.total_seconds() // 60),
