@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     access_token_expire_minutes: int = 15
+    jwt_leeway_seconds: int = Field(
+        default=20,
+        ge=0,
+        le=120,
+        description=(
+            "Clock-skew tolerance (seconds) applied by PyJWT to exp/iat/nbf when "
+            "validating access tokens. 0 disables it. Tokens therefore also stay "
+            "valid up to this much longer."
+        ),
+    )
     refresh_token_expire_days: int = 7
 
     # Refresh token cookie (HttpOnly). The access token is never a cookie.
