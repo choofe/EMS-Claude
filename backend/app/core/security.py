@@ -104,6 +104,7 @@ def decode_access_token(token: str) -> int | None:
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],  # pinned: never trust the token's own "alg"
             options={"require": ["exp", "iat", "sub"]},
+            leeway=settings.jwt_leeway_seconds,  # tolerate small clock jumps (exp/iat/nbf)
         )
         if payload.get("typ") != ACCESS_TOKEN_TYPE:
             return None
