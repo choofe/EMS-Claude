@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, ReportColumn, ReportDetail, ReportListPage, ReportListQuery, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -89,6 +89,9 @@ export const importApi = {
 };
 
 export const reportsApi = {
+  list: (q: ReportListQuery, signal?: AbortSignal) => request<ReportListPage>("/reports", { query: q as Record<string, string | number | boolean | undefined>, signal }),
+  columns: () => request<ReportColumn[]>("/reports/columns"),
+  detail: (id: number) => request<ReportDetail>(`/reports/${id}`),
   entryConfig: () => request<EntryConfig>("/reports/entry-config"),
   candidates: (q: { equipment_id?: number; group_id?: number; q?: string; limit?: number; favorites_only?: boolean }) =>
     request<Candidate[]>("/reports/participant-candidates", { query: q }),

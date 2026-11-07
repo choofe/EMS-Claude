@@ -20,6 +20,8 @@ const baseRoutes = (user = makeUser()) => ({
   "GET /reports/entry-config": () => json(200, { default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5, groups: [] }),
   "GET /reports/drafts": () => json(200, []),
   "GET /reports/equipment-quick-pick": () => json(200, { recent: [], frequent: [] }),
+  "GET /reports": () => json(200, { items: [], next_cursor: null, other_group_reports_may_exist: false }),
+  "GET /reports/columns": () => json(200, []),
 });
 
 describe("session bootstrap and route guards", () => {
@@ -32,7 +34,7 @@ describe("session bootstrap and route guards", () => {
 
   it("restores the session from the refresh cookie and shows the dashboard (MANAGEMENT)", async () => {
     mockFetch(baseRoutes());
-    renderApp("/");
+    renderApp("/dashboard");
     expect(await screen.findByText("کاربران فعال")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "تنظیمات" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "کاربران" })).toBeInTheDocument();
@@ -40,7 +42,7 @@ describe("session bootstrap and route guards", () => {
 
   it("React StrictMode double-mount performs only ONE refresh (rotation would otherwise log the user out)", async () => {
     const m = mockFetch(baseRoutes());
-    renderApp("/", { strict: true });
+    renderApp("/dashboard", { strict: true });
     await screen.findByText("کاربران فعال");
     expect(m.count("POST /auth/refresh")).toBe(1);
   });
@@ -55,17 +57,20 @@ describe("session bootstrap and route guards", () => {
   it("AUDITOR: sees users/dashboard but not settings; cannot open /settings; no write buttons", async () => {
     mockFetch({ ...baseRoutes(makeUser({ username: "aud", role_code: "AUDITOR", role_label_fa: "بازرس ارشد" })), "GET /users": () => json(200, { ...emptyPage, items: [], total: 0 }) });
     renderApp("/settings");
-    expect(await screen.findByText("کاربران فعال")).toBeInTheDocument();           // bounced to the dashboard
+    expect(await screen.findByRole("heading", { name: "گزارش‌ها" })).toBeInTheDocument(); // bounced to the landing page (reports list)
+    expect(screen.getByRole("link", { name: "داشبورد" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "تنظیمات" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ثبت گزارش" })).not.toBeInTheDocument();  // the auditor can never report
     await userEvent.click(screen.getByRole("link", { name: "کاربران" }));
     expect(await screen.findByRole("heading", { name: "کاربران" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /کاربر جدید/ })).not.toBeInTheDocument();
   });
 
-  it("USER lands on report entry and gets no admin navigation", async () => {
+  it("every role lands on the reports list; USER gets no admin navigation", async () => {
     mockFetch(baseRoutes(makeUser({ username: "ali", role_code: "USER", role_label_fa: "کاربر" })));
     renderApp("/");
-    expect(await screen.findByRole("heading", { name: "ثبت گزارش" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "گزارش‌ها" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ثبت گزارش" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "تجهیزات" })).toBeInTheDocument(); // equipment stays one click away
     expect(screen.queryByRole("link", { name: "کاربران" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "تنظیمات" })).not.toBeInTheDocument();
@@ -80,6 +85,8 @@ describe("login", () => {
       "POST /auth/refresh": () => json(401, { detail: "invalid_refresh_token" }),
       "POST /auth/login": () => (ok ? json(200, tokenBody(makeUser())) : json(401, { detail: "invalid_credentials" })),
       "GET /dashboard/summary": () => json(200, summary),
+      "GET /reports": () => json(200, { items: [], next_cursor: null, other_group_reports_may_exist: false }),
+      "GET /reports/columns": () => json(200, []),
     });
     renderApp("/");
     await userEvent.type(await screen.findByLabelText("نام کاربری"), "boss");
@@ -88,7 +95,7 @@ describe("login", () => {
     expect(await screen.findByText("نام کاربری یا رمز عبور نادرست است.")).toBeInTheDocument();
     ok = true;
     await userEvent.click(screen.getByRole("button", { name: "ورود" }));
-    expect(await screen.findByText("کاربران فعال")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "گزارش‌ها" })).toBeInTheDocument();
   });
 
   it("explains lockout using Retry-After", async () => {
@@ -105,7 +112,7 @@ describe("login", () => {
 
   it("logout clears the session and returns to the login page", async () => {
     const m = mockFetch({ ...baseRoutes(), "POST /auth/logout": () => json(204) });
-    renderApp("/");
+    renderApp("/dashboard");
     await screen.findByText("کاربران فعال");
     await userEvent.click(screen.getByRole("button", { name: "حساب کاربری" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "خروج" }));
@@ -139,6 +146,6 @@ describe("forced password change flow", () => {
     await userEvent.type(screen.getByLabelText("رمز عبور جدید"), "a-much-longer-passphrase");
     await userEvent.type(screen.getByLabelText("تکرار رمز عبور جدید"), "a-much-longer-passphrase");
     await userEvent.click(screen.getByRole("button", { name: "ذخیره رمز جدید" }));
-    await waitFor(() => expect(screen.getByText("کاربران فعال")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "گزارش‌ها" })).toBeInTheDocument());
   });
 });

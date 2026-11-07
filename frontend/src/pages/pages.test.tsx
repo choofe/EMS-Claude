@@ -44,9 +44,9 @@ describe("settings page", () => {
   });
 
   it("is not reachable for non-management roles (never even requests /settings)", async () => {
-    const m = mockFetch({ ...session(makeUser({ role_code: "EXPERT", username: "exp" })), "GET /reports/entry-config": () => json(200, { default_labor_minutes: 30, max_participant_minutes: 1440, max_participants: 30, max_description_length: 5000, future_tolerance_minutes: 5, groups: [] }), "GET /reports/drafts": () => json(200, []), "GET /reports/equipment-quick-pick": () => json(200, { recent: [], frequent: [] }), "GET /report-types": () => json(200, []), "GET /equipment": () => json(200, page([])), "GET /groups": () => json(200, page([])) });
+    const m = mockFetch({ ...session(makeUser({ role_code: "EXPERT", username: "exp" })), "GET /reports": () => json(200, { items: [], next_cursor: null, other_group_reports_may_exist: false }), "GET /reports/columns": () => json(200, []), "GET /report-types": () => json(200, []), "GET /groups": () => json(200, page([])) });
     renderApp("/settings");
-    expect(await screen.findByRole("heading", { name: "ثبت گزارش" })).toBeInTheDocument(); // EXPERT lands on report entry
+    expect(await screen.findByRole("heading", { name: "گزارش‌ها" })).toBeInTheDocument(); // EXPERT is bounced to the reports list
     expect(m.count("GET /settings")).toBe(0);
   });
 });
@@ -96,6 +96,12 @@ describe("equipment page", () => {
     expect(await screen.findByText("ELV-001")).toHaveAttribute("dir", "ltr");
     await userEvent.type(screen.getByLabelText("جستجوی کد"), "elv-0");
     await waitFor(() => expect(m.calls.some((c) => c.path === "/equipment" && c.query.get("q") === "elv-0")).toBe(true));
+  });
+
+  it("every row links to that equipment's report history (the reports list filtered by equipment)", async () => {
+    mockFetch({ ...session(), "GET /groups": () => json(200, page([group()])), "GET /equipment": () => json(200, page([equipment()])) });
+    renderApp("/equipment");
+    expect(await screen.findByRole("link", { name: "تاریخچه ELV-001" })).toHaveAttribute("href", "/reports?equipment_id=10&equipment=ELV-001");
   });
 
   it("moves equipment to another group", async () => {

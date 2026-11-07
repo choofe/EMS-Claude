@@ -58,6 +58,8 @@ const MESSAGES: Record<string, string> = {
   report_number_conflict: "شمارهٔ گزارش تکراری شد. دوباره تلاش کنید.",
   invalid_labor_mode: "حالت ساعت کار معتبر نیست.",
   invalid_equipment_required: "مقدار «تجهیز الزامی» معتبر نیست.",
+  report_not_found: "گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.",
+  invalid_cursor: "صفحه‌بندی نامعتبر است؛ فهرست را دوباره بارگذاری کنید.",
   // --- equipment import (file level)
   unsupported_file_type: "فقط فایل ‎.xlsx‎ یا ‎.csv‎ پذیرفته می‌شود.",
   file_too_large: "حجم فایل از حد مجاز بیشتر است.",

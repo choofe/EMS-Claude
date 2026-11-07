@@ -35,7 +35,7 @@ non-UTC timezone and share boundary fixtures with the backend (`tests/test_jalal
 users TYPE dates (Phase 6) — **not used**: typed Jalali dates are converted by `lib/jalali.ts`, which searches with the same `Intl` formatter that renders dates (so display and input can never disagree) and rejects non-existent days.
 
 ## Pages
-Login · forced/voluntary change-password · Dashboard (MANAGEMENT, AUDITOR) · Users (MANAGEMENT writes, AUDITOR reads) ·
+Login · forced/voluntary change-password · Reports list and detail (all roles, Phase 7b) · Dashboard (MANAGEMENT, AUDITOR, at `/dashboard`) · Users (MANAGEMENT writes, AUDITOR reads) ·
 Groups · Equipment · Report types (everyone reads their scope; MANAGEMENT writes) · Settings (MANAGEMENT only).
 
 ## Equipment import page (Phase 5)
@@ -61,6 +61,23 @@ Groups · Equipment · Report types (everyone reads their scope; MANAGEMENT writ
 - **Report types page** (management/auditor only: no menu entry, route guarded; users meet the types through the picker and its guide) edits `labor_mode`, `equipment_mode` and the guide text.
 - **Landing page** (`lib/access.ts: landingPath`): USER and EXPERT start at `/reports/new`; MANAGEMENT/AUDITOR keep the dashboard until the Phase 7 reports list exists (two marked lines to switch).
 - Not done (later): offline-lite on phones, idle-timeout UI countdown, UX batch (shorter menus, «اکنون» rounding, day buttons, apply-to-all), quick-add people, teams.
+
+## Reports list, detail and equipment history (Phase 7b)
+`/` sends EVERY signed-in role to `/reports` (`lib/access.ts: landingPath`, decided by Amin 2026-11-07); what the list shows is
+decided by the backend scope (docs/report-views.md). The dashboard moved to `/dashboard`.
+- **List** (`pages/reports/ReportsListPage.tsx`): table on desktop, cards on phones (same `md` breakpoint as the shell). Table columns
+  come from `GET /reports/columns` (only `default_visible` ones that have a cell renderer; a future per-user choice only changes that
+  list); `event_datetime`/`created_at` headers sort. Filters: report number, equipment code, description text, type, group, Jalali
+  from/to date (typed text; an invalid date is shown and never sent; `to` = last minute of that day), «مشارکت من», «فقط عمومی». Text
+  filters are debounced; any filter change restarts from the first page; «بیشتر» appends the next cursor page, and an answer that
+  arrives after the filters changed is dropped. General reports carry an «عمومی (بدون تجهیز)» chip.
+- **Equipment history** = the same list with `?equipment_id=…&equipment=CODE` (entry: the history icon on each row of the equipment page,
+  and the equipment link in a report). A chip shows and clears the filter; `other_group_reports_may_exist` shows the notice
+  «ممکن است گزارش‌هایی از گروه قبلی وجود داشته باشد» (never a number).
+- **Detail** (`ReportDetailPage.tsx`): full description, lock state, participants. When `participants_complete` is false the page says
+  only the viewer's own row is shown (or that labor information is not shown) and never claims «no labor recorded». Missing, foreign and
+  soft-deleted reports give one neutral message (`404 report_not_found`).
+- Not yet: the «edited» marker (7c), lock/delete actions (7d), priority (7e–7g), per-user column choice, Jalali date picker (6e).
 
 ## Forgotten password (current process)
 There is no email/SMS service in the MVP, so there is no self-service reset. The user tells a manager; the manager opens

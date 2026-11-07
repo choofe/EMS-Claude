@@ -201,3 +201,35 @@ export interface ImportBatch {
   undone_at: string | null;
   can_undo: boolean;
 }
+
+/** Reports read side (Phase 7a, docs/report-views.md). Labor fields are null when the viewer may not see them. */
+export interface ReportColumn { key: string; label_fa: string; default_visible: boolean; sortable: boolean }
+export interface ReportListItem {
+  id: number;
+  report_number: string;
+  event_datetime: string;
+  created_at: string;
+  group: { id: number; code: string; name: string };
+  report_type: { id: number; code: string; name_fa: string; is_failure: boolean };
+  equipment: { id: number; code: string } | null;
+  is_general: boolean;
+  creator: { id: number; full_name: string };
+  description_summary: string;
+  is_locked: boolean;
+  my_minutes: number | null;
+  total_minutes: number | null;
+  people_count: number | null;
+}
+export interface ReportListPage { items: ReportListItem[]; next_cursor: string | null; other_group_reports_may_exist: boolean }
+export interface ReportParticipant { user_id: number; full_name: string; minutes: number; is_me: boolean }
+export interface ReportDetail extends ReportListItem {
+  description: string;
+  locked_at: string | null;
+  participants: ReportParticipant[];
+  participants_complete: boolean;
+}
+export interface ReportListQuery {
+  date_from?: string; date_to?: string; report_type_id?: number; group_id?: number; equipment_id?: number; equipment_code?: string;
+  report_number?: string; q?: string; general_only?: boolean; mine?: boolean;
+  sort_by?: "event_datetime" | "created_at"; order?: "asc" | "desc"; limit?: number; cursor?: string;
+}

@@ -7,13 +7,9 @@ export const canViewAdmin = (u: AuthUser | null) => u?.role_code === "MANAGEMENT
 export const canReport = (u: AuthUser | null) => u?.role_code === "USER" || u?.role_code === "EXPERT" || u?.role_code === "MANAGEMENT";
 
 /**
- * Where "/" sends each role after sign-in (decided 2026-10-17): USER -> report entry. EXPERT and MANAGEMENT/AUDITOR are meant
- * to land on the reports LIST (their group's / all reports, general reports visibly tagged); that list is Phase 7, so until
- * then EXPERT goes to report entry and MANAGEMENT/AUDITOR keep the dashboard. Switch the two marked lines in Phase 7.
+ * Where "/" sends every signed-in role (Amin, 2026-11-07): the reports list. What the list shows is decided by the
+ * backend scope (USER/EXPERT: their groups; MANAGEMENT/AUDITOR: everything). The dashboard lives at "/dashboard".
  */
 export function landingPath(u: AuthUser | null): string {
-  if (canViewAdmin(u)) return "/"; // Phase 7: "/reports" (list of all reports)
-  if (u?.role_code === "EXPERT") return "/reports/new"; // Phase 7: "/reports" (list of own-group reports)
-  if (u?.role_code === "USER") return "/reports/new";
-  return "/equipment";
+  return u ? "/reports" : "/equipment";
 }

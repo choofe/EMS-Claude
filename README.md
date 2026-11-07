@@ -54,6 +54,10 @@ Create reports with server-side drafts, gap-free numbering, per-type labor rules
 see `docs/report-creation.md` (API) and the "Report entry page" section of `docs/frontend.md`. Run `alembic upgrade head`
 (migrations `f6c3d9a7b104`, `a7d4e1b8c215`, `b8e5f2a9c326`, `c9f6a3b0d437`, and `d0b8c4f1a539` for favorite people). Page: `/reports/new`.
 
+### Reports list UI (Phase 7b)
+
+List, detail and equipment history pages; every role lands on `/reports` (dashboard at `/dashboard`): see `docs/frontend.md`.
+
 ### Reports list/detail (Phase 7a)
 
 Read side of reports: list with filters and cursor, detail, column registry, equipment history: see `docs/report-views.md`. No migration.

@@ -10,6 +10,7 @@ import BuildIcon from "@mui/icons-material/PrecisionManufacturingOutlined";
 import LabelIcon from "@mui/icons-material/LabelOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
 import ImportIcon from "@mui/icons-material/UploadFileOutlined";
+import ListIcon from "@mui/icons-material/ListAltOutlined";
 import ReportIcon from "@mui/icons-material/EditNoteOutlined";
 import AccountIcon from "@mui/icons-material/AccountCircleOutlined";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
@@ -30,8 +31,9 @@ export function AppShell() {
   const navigate = useNavigate();
 
   const items = [
-    ...(canViewAdmin(user) ? [{ to: "/", label: "داشبورد", icon: <DashboardIcon /> }] : []),
+    ...(canViewAdmin(user) ? [{ to: "/dashboard", label: "داشبورد", icon: <DashboardIcon /> }] : []),
     ...(canViewAdmin(user) ? [{ to: "/users", label: "کاربران", icon: <PeopleIcon /> }] : []),
+    { to: "/reports", label: "گزارش‌ها", icon: <ListIcon /> },
     ...(canReport(user) ? [{ to: "/reports/new", label: "ثبت گزارش", icon: <ReportIcon /> }] : []),
     { to: "/groups", label: "گروه‌ها", icon: <GroupsIcon /> },
     { to: "/equipment", label: "تجهیزات", icon: <BuildIcon /> },
@@ -43,7 +45,7 @@ export function AppShell() {
   const nav = (
     <List component="nav" aria-label="منوی اصلی" sx={{ pt: 1 }}>
       {items.map((it) => (
-        <ListItemButton key={it.to} component={NavLink} to={it.to} end={it.to === "/" || it.to === "/equipment"} onClick={() => setOpen(false)}
+        <ListItemButton key={it.to} component={NavLink} to={it.to} end={it.to === "/reports" || it.to === "/equipment"} onClick={() => setOpen(false)}
           sx={{ "&.active": { bgcolor: "action.selected", fontWeight: 700 } }}>
           <ListItemIcon sx={{ minWidth: 40 }}>{it.icon}</ListItemIcon>
           <ListItemText primary={it.label} />
