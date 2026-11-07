@@ -1,6 +1,6 @@
 """Report entry (Phase 6): create a report, its private drafts, and the helpers the entry form needs.
 Every route needs REPORT_CREATE (USER/EXPERT within their groups, MANAGEMENT everywhere; AUDITOR has none).
-Report detail/history/editing are Phase 7 — add `/{report_id}` routes AFTER these static paths."""
+Read side (Phase 7a): list/columns/detail need REPORT_VIEW; the `/{report_id}` route stays LAST (after the static paths)."""
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -9,14 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_principal, require_capability
 from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
+from app.schemas.report_views import ColumnOut, ReportDetail, ReportListOut
 from app.schemas.reports import (
     CandidateOut, DraftCreate, DraftOut, DraftUpdate, EntryConfigOut, HeartbeatOut, QuickPickOut, ReportCreate, ReportCreated,
     FavoriteRemovedOut, FavoritesFilterIn, FavoritesFilterOut, SuggestionsOut,
 )
-from app.services import favorite_people, report_creation, report_drafts
+from app.services import favorite_people, report_columns, report_creation, report_drafts, report_views
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 _create = require_capability(C.REPORT_CREATE)
+_view = require_capability(C.REPORT_VIEW)
 
 
 @router.post("", response_model=ReportCreated, status_code=201)
@@ -103,3 +105,33 @@ async def update_draft(draft_id: int, body: DraftUpdate, principal: Principal = 
 @router.delete("/drafts/{draft_id}", status_code=204)
 async def delete_draft(draft_id: int, principal: Principal = Depends(_create), db: AsyncSession = Depends(get_db)) -> None:
     await report_drafts.delete_draft(db, principal, draft_id)
+
+
+# --- read side (Phase 7a). Static paths above; the dynamic `{report_id}` route must stay last. -----------------------
+
+@router.get("", response_model=ReportListOut)
+async def list_reports(limit: int = Query(25, ge=1, le=100), cursor: str | None = Query(None, max_length=200),
+                       sort_by: str = "event_datetime", order: str = Query("desc", pattern="^(asc|desc)$"),
+                       date_from: datetime | None = None, date_to: datetime | None = None,
+                       report_type_id: int | None = None, group_id: int | None = None, equipment_id: int | None = None,
+                       equipment_code: str | None = Query(None, max_length=64), created_by: int | None = None,
+                       general_only: bool = False, report_number: str | None = Query(None, max_length=32),
+                       q: str | None = Query(None, max_length=100), mine: bool = False,
+                       principal: Principal = Depends(_view), db: AsyncSession = Depends(get_db)) -> dict:
+    """Reports the caller may see, newest event first. With `equipment_id` this IS the equipment history."""
+    return await report_views.list_reports(
+        db, principal, limit=limit, cursor=cursor, sort_by=sort_by, descending=order == "desc", date_from=date_from,
+        date_to=date_to, report_type_id=report_type_id, group_id=group_id, equipment_id=equipment_id,
+        equipment_code=equipment_code, created_by=created_by, general_only=general_only, report_number=report_number,
+        q=q, mine=mine)
+
+
+@router.get("/columns", response_model=list[ColumnOut])
+async def list_columns(principal: Principal = Depends(_view)) -> list[dict]:
+    return [{"key": c.key, "label_fa": c.label_fa, "default_visible": c.default_visible, "sortable": c.sortable}
+            for c in report_columns.columns_for(principal)]
+
+
+@router.get("/{report_id}", response_model=ReportDetail)
+async def get_report(report_id: int, principal: Principal = Depends(_view), db: AsyncSession = Depends(get_db)) -> dict:
+    return await report_views.get_report(db, principal, report_id)
