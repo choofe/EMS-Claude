@@ -53,6 +53,36 @@ def test_wrong_token_type_rejected():
     assert sec.decode_access_token(t) is None
 
 
+def _token(iat_offset: int, exp_offset: int) -> str:
+    s = get_settings()
+    now = sec.utcnow()
+    return jwt.encode({"sub": "1", "typ": "access", "iat": now + timedelta(seconds=iat_offset),
+                       "exp": now + timedelta(seconds=exp_offset)},
+                      s.jwt_secret_key, algorithm=s.jwt_algorithm)
+
+
+def test_leeway_accepts_small_clock_skew(monkeypatch):
+    monkeypatch.setenv("JWT_LEEWAY_SECONDS", "20")
+    get_settings.cache_clear()
+    try:
+        assert sec.decode_access_token(_token(iat_offset=+5, exp_offset=300)) == 1     # iat slightly in the future
+        assert sec.decode_access_token(_token(iat_offset=-300, exp_offset=-5)) == 1    # expired a moment ago
+        assert sec.decode_access_token(_token(iat_offset=+60, exp_offset=300)) is None  # far-future iat
+        assert sec.decode_access_token(_token(iat_offset=-300, exp_offset=-60)) is None  # long expired
+    finally:
+        get_settings.cache_clear()
+
+
+def test_leeway_zero_disables_tolerance(monkeypatch):
+    monkeypatch.setenv("JWT_LEEWAY_SECONDS", "0")
+    get_settings.cache_clear()
+    try:
+        assert sec.decode_access_token(_token(iat_offset=+5, exp_offset=300)) is None
+        assert sec.decode_access_token(_token(iat_offset=-300, exp_offset=-5)) is None
+    finally:
+        get_settings.cache_clear()
+
+
 def test_garbage_tokens_rejected():
     for bad in ("", "abc", "a.b.c", "Bearer x"):
         assert sec.decode_access_token(bad) is None
