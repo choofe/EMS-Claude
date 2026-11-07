@@ -1,4 +1,5 @@
 """Phase 7a — reports list / detail / equipment history: visibility and labor-row rules (SQLite, real routers + login)."""
+import base64
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -160,6 +161,15 @@ async def test_sort_and_cursor_validation(api, data):
     assert (await api.get("/reports?sort_by=description", "ali")).status_code == 422
     assert (await api.get("/reports?cursor=not-a-cursor", "ali")).status_code == 422
     assert (await api.get("/reports?limit=0", "ali")).status_code == 422
+    for forged in ('{"v": "2026-01-01T00:00:00+00:00", "i": 1e999}', '{"v": "2026-01-01T00:00:00+00:00", "i": 1000000000000000000000000000000}',
+                   '{"v": "2026-01-01T00:00:00+00:00", "i": true}', '{"v": "x", "i": 1}', '[1]'):
+        c = base64.urlsafe_b64encode(forged.encode()).decode()
+        assert (await api.get("/reports", "ali", params={"cursor": c})).status_code == 422, forged
+
+
+async def test_naive_date_filters_are_rejected(api, data):
+    for name in ("date_from", "date_to"):
+        assert (await api.get("/reports", "ali", params={name: "2026-01-01T00:00:00"})).status_code == 422
 
 
 async def test_equipment_history_flag_for_moved_equipment(db, api, world):
@@ -171,6 +181,14 @@ async def test_equipment_history_flag_for_moved_equipment(db, api, world):
     r = (await api.get(f"/reports?equipment_id={world.e1.id}", "boss")).json()
     assert len(r["items"]) == 2 and r["other_group_reports_may_exist"] is False
     assert (await api.get("/reports", "ali")).json()["other_group_reports_may_exist"] is False  # only with the filter
+    # probing: ali has no visible report of d1 and is not in DOOR, although DOOR has reports of it
+    await make(db, "05-DOOR-007", world.d1, world.door, world.omid, [(world.omid, 5)], day=1)
+    await db.commit()
+    assert (await api.get(f"/reports?equipment_id={world.d1.id}", "ali")).json()["other_group_reports_may_exist"] is False
+    e3 = await f.equipment(db, "ELV-3", world.elv)  # moved INTO ELV: only DOOR reports exist, none visible to ali
+    await make(db, "05-DOOR-008", e3, world.door, world.omid, [(world.omid, 5)], day=1)
+    await db.commit()
+    assert (await api.get(f"/reports?equipment_id={e3.id}", "ali")).json()["other_group_reports_may_exist"] is True
     e2 = await f.equipment(db, "ELV-2", world.elv)
     await make(db, "05-ELV-006", e2, world.elv, world.exp, [(world.exp, 5)], day=3)
     await db.commit()
@@ -179,7 +197,7 @@ async def test_equipment_history_flag_for_moved_equipment(db, api, world):
 
 async def test_columns_registry_by_role(api, data):
     user_cols = {c["key"] for c in (await api.get("/reports/columns", "ali")).json()}
-    assert {"report_number", "event_datetime", "my_minutes"} <= user_cols
+    assert {"report_number", "event_datetime", "description_summary", "my_minutes"} <= user_cols
     assert {c["key"] for c in (await api.get("/reports/columns", "aud")).json()} >= {"total_minutes", "people_count"}
     sortable = {c["key"] for c in (await api.get("/reports/columns", "boss")).json() if c["sortable"]}
     assert sortable == {"event_datetime", "created_at"}

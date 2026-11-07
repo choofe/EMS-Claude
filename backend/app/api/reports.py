@@ -4,6 +4,7 @@ Read side (Phase 7a): list/columns/detail need REPORT_VIEW; the `/{report_id}` r
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, Response
+from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_principal, require_capability
@@ -112,7 +113,7 @@ async def delete_draft(draft_id: int, principal: Principal = Depends(_create), d
 @router.get("", response_model=ReportListOut)
 async def list_reports(limit: int = Query(25, ge=1, le=100), cursor: str | None = Query(None, max_length=200),
                        sort_by: str = "event_datetime", order: str = Query("desc", pattern="^(asc|desc)$"),
-                       date_from: datetime | None = None, date_to: datetime | None = None,
+                       date_from: AwareDatetime | None = None, date_to: AwareDatetime | None = None,
                        report_type_id: int | None = None, group_id: int | None = None, equipment_id: int | None = None,
                        equipment_code: str | None = Query(None, max_length=64), created_by: int | None = None,
                        general_only: bool = False, report_number: str | None = Query(None, max_length=32),

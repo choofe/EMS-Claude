@@ -25,7 +25,7 @@ COLUMNS: tuple[Column, ...] = (
     Column("group", "گروه"),
     Column("equipment", "تجهیز"),
     Column("creator", "ثبت‌کننده"),
-    Column("description", "شرح"),
+    Column("description_summary", "شرح"),
     Column("created_at", "زمان ثبت", default_visible=False, sortable=True),
     Column("my_minutes", "زمان من"),
     Column("total_minutes", "جمع زمان کار", capability=C.LABOR_VIEW, default_visible=False),

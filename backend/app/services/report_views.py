@@ -22,6 +22,7 @@ from app.services.report_columns import SORTABLE
 DEFAULT_PAGE = 25
 MAX_PAGE = 100
 SUMMARY_CHARS = 140
+MAX_ID = 2**31 - 1  # reports.id is a 32-bit integer; a larger cursor id can only be forged
 
 
 def _visible(principal: Principal):
@@ -51,8 +52,11 @@ def _encode_cursor(value: datetime, report_id: int) -> str:
 def _decode_cursor(cursor: str) -> tuple[datetime, int]:
     try:
         data = json.loads(base64.urlsafe_b64decode(cursor.encode()))
-        return datetime.fromisoformat(data["v"]), int(data["i"])
-    except (ValueError, KeyError, TypeError):
+        rid = data["i"]
+        if isinstance(rid, bool) or not isinstance(rid, int) or not 0 < rid <= MAX_ID:
+            raise ValueError("cursor id out of range")
+        return datetime.fromisoformat(data["v"]), rid
+    except (ValueError, KeyError, TypeError):  # JSON/base64/ISO errors are ValueErrors; floats (1e999) fail the int check
         raise DomainError("invalid_cursor", 422)
 
 
@@ -142,10 +146,19 @@ async def list_reports(db: AsyncSession, principal: Principal, *, limit: int = D
     if has_more:
         out["next_cursor"] = _encode_cursor(getattr(page[-1], sort_by), page[-1].id)
     if equipment_id and principal.scope(C.REPORT_VIEW) is not Scope.ALL:
-        out["other_group_reports_may_exist"] = bool((await db.execute(select(exists().where(
-            Report.equipment_id == equipment_id, Report.is_active.is_(True),
-            Report.group_id.not_in(sorted(principal.group_ids)))))).scalar())
+        out["other_group_reports_may_exist"] = await _moved_equipment_flag(db, principal, equipment_id)
     return out
+
+
+async def _moved_equipment_flag(db: AsyncSession, principal: Principal, equipment_id: int) -> bool:
+    """True only when the equipment has active reports of groups the caller cannot see AND the caller already has a
+    relationship with it (he can see at least one of its reports, or it currently belongs to one of his groups), so
+    the flag can not be used to probe arbitrary equipment ids."""
+    groups = sorted(principal.group_ids)
+    hidden = exists().where(Report.equipment_id == equipment_id, Report.is_active.is_(True), Report.group_id.not_in(groups))
+    seen = exists().where(Report.equipment_id == equipment_id, _visible(principal))
+    mine = exists().where(Equipment.id == equipment_id, Equipment.group_id.in_(groups))
+    return bool((await db.execute(select(and_(hidden, or_(seen, mine))))).scalar())
 
 
 async def get_report(db: AsyncSession, principal: Principal, report_id: int) -> dict:

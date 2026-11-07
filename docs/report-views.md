@@ -11,7 +11,7 @@ detail (same answer as a missing id).
 | `GET /reports/columns` | column registry for the caller (`key`, `label_fa`, `default_visible`, `sortable`) |
 | `GET /reports/{id}` | detail: full description, lock state, participants allowed for the caller |
 
-**List filters:** `date_from`, `date_to` (event time), `report_type_id`, `group_id`, `equipment_id` (this is the
+**List filters:** `date_from`, `date_to` (event time; must carry a UTC offset, naive values are `422`), `report_type_id`, `group_id`, `equipment_id` (this is the
 equipment history), `equipment_code` (partial, case-insensitive), `created_by`, `general_only`, `report_number`
 (partial), `q` (description text; `%`/`_` are literal), `mine` (reports the caller participates in). Filters only
 narrow the caller's scope. `sort_by` ∈ `event_datetime` | `created_at`, `order` = `asc`|`desc`; the cursor is opaque
