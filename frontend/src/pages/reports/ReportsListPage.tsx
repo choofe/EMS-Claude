@@ -71,7 +71,7 @@ export function ReportsListPage() {
   };
   const key = JSON.stringify(query);
   const keyRef = useRef(key);
-  keyRef.current = key;
+  useEffect(() => { keyRef.current = key; }, [key]);
 
   const columns = useLoad(() => reportsApi.columns(), []);
   const types = useLoad(() => reportTypesApi.list(true), []);
@@ -85,7 +85,7 @@ export function ReportsListPage() {
 
   useEffect(() => {
     const ac = new AbortController();
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setBusyMore(false);
     reportsApi.list(query, ac.signal)
       .then((p) => { setItems(p.items); setCursor(p.next_cursor); setOther(p.other_group_reports_may_exist); })
       .catch((e) => { if (!ac.signal.aborted) setError(e); })
@@ -102,7 +102,7 @@ export function ReportsListPage() {
       const p = await reportsApi.list({ ...query, cursor });
       if (keyRef.current !== startedWith) return; // the filters changed meanwhile: this page belongs to an old list
       setItems((old) => [...old, ...p.items]); setCursor(p.next_cursor);
-    } catch (e) { setError(e); } finally { setBusyMore(false); }
+    } catch (e) { if (keyRef.current === startedWith) setError(e); } finally { if (keyRef.current === startedWith) setBusyMore(false); }
   }
 
   const visible = (columns.data ?? []).filter((c) => c.default_visible && CELLS[c.key]);

@@ -15,11 +15,12 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
 export function ReportDetailPage() {
   const id = Number(useParams().id);
   const valid = Number.isInteger(id) && id > 0;
-  const { data: r, error, loading } = useLoad(() => (valid ? reportsApi.detail(id) : Promise.reject(new Error("bad id"))), [id]);
+  const { data, error, loading } = useLoad(() => (valid ? reportsApi.detail(id) : Promise.reject(new Error("bad id"))), [id]);
 
+  const r = data && data.id === id ? data : null; // never show the previous report under a new URL
   const back = <Button component={RouterLink} to="/reports">بازگشت به فهرست</Button>;
   if (!valid) return <><PageHeader title="گزارش" actions={back} /><Alert severity="error">گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.</Alert></>;
-  if (loading && !r) return <Loading />;
+  if (loading) return <Loading />;
   if (!r) return <><PageHeader title="گزارش" actions={back} /><ErrorAlert error={error} /></>;
 
   return (

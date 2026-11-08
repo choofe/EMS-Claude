@@ -59,7 +59,7 @@ Groups · Equipment · Report types (everyone reads their scope; MANAGEMENT writ
 - **No request hangs the UI**: every API call times out after 30 s (uploads/downloads 120 s) and fails with «ارتباط با سرور برقرار نشد»; a heartbeat (`POST /reports/heartbeat`, 60 s) warns when the server is unreachable.
 - Reloading never renders the previous load's data (loads are stamped with an epoch): a discarded draft cannot reappear.
 - **Report types page** (management/auditor only: no menu entry, route guarded; users meet the types through the picker and its guide) edits `labor_mode`, `equipment_mode` and the guide text.
-- **Landing page** (`lib/access.ts: landingPath`): USER and EXPERT start at `/reports/new`; MANAGEMENT/AUDITOR keep the dashboard until the Phase 7 reports list exists (two marked lines to switch).
+- **Landing page** (`lib/access.ts: landingPath`): every signed-in role starts at `/reports` (Phase 7b, below); the dashboard is at `/dashboard`.
 - Not done (later): offline-lite on phones, idle-timeout UI countdown, UX batch (shorter menus, «اکنون» rounding, day buttons, apply-to-all), quick-add people, teams.
 
 ## Reports list, detail and equipment history (Phase 7b)
@@ -86,4 +86,4 @@ are ended). The login page says so. A later "request a reset" page would only re
 (username-only form, identical response for existing/unknown names, rate-limited) — needs a new table and its own decision.
 
 ## Not yet covered
-Real-browser run (only jsdom tests so far); bundle splitting (single ~600 kB chunk); report detail/history pages (Phase 7+); Audit-log viewer.
+Real-browser run (only jsdom tests so far); bundle splitting (single ~600 kB chunk); report edit/lock/priority screens (Phase 7c+); Audit-log viewer.

@@ -73,6 +73,24 @@ describe("reports list", () => {
     expect(screen.queryByText("05-ELV-002")).not.toBeInTheDocument();
   });
 
+  it("a failing «بیشتر» that settles after the filters changed neither shows its error nor blocks the new list's button", async () => {
+    let fail: (r: Response) => void = () => {};
+    mockFetch({
+      ...routes(),
+      "GET /reports": (c) => (c.query.get("cursor") ? new Promise<Response>((res) => { fail = res; }) : json(200, page([item({ id: c.query.get("mine") ? 9 : 1, report_number: c.query.get("mine") ? "05-ELV-009" : "05-ELV-001" })], "CUR1"))),
+    });
+    renderApp("/reports");
+    await screen.findByText("05-ELV-001");
+    await userEvent.click(screen.getByRole("button", { name: "بیشتر" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "مشارکت من" }));
+    await screen.findByText("05-ELV-009");
+    expect(screen.getByRole("button", { name: "بیشتر" })).toBeEnabled();   // the old request is still pending, yet the new list is not blocked
+    fail(json(422, { detail: "invalid_cursor" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/صفحه‌بندی نامعتبر/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "بیشتر" })).toBeEnabled();
+  });
+
   it("sends filters to the API, reloads from page one, and sorts by a sortable header", async () => {
     const m = mockFetch({ ...routes(), "GET /reports": () => json(200, page([item()], "CUR1")) });
     renderApp("/reports");
@@ -156,6 +174,13 @@ describe("report detail", () => {
     expect(await screen.findByText("اطلاعات زمان کار افراد برای شما نمایش داده نمی‌شود.")).toBeInTheDocument();
     expect(screen.queryByText("زمان کاری ثبت نشده است.")).not.toBeInTheDocument();
     expect(screen.getByText("عمومی (بدون تجهیز)")).toBeInTheDocument();
+  });
+
+  it("a failed load never leaves a previously shown report on screen", async () => {
+    mockFetch({ ...routes(), "GET /reports/1": () => json(404, { detail: "report_not_found" }) });
+    renderApp("/reports/1");
+    expect(await screen.findByText("گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.")).toBeInTheDocument();
+    expect(screen.queryByText("شرح کامل گزارش")).not.toBeInTheDocument();
   });
 
   it("shows all participants without a notice when the list is complete", async () => {
