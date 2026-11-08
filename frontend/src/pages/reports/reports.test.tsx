@@ -163,22 +163,40 @@ describe("reports list", () => {
 });
 
 describe("report detail", () => {
-  it("a viewer who sees only his own labor row is told so; general reports carry the marker; the equipment links to its history", async () => {
+  it("labor is collapsed behind a button; a viewer who may see only his own row gets «my» wording and the note after opening", async () => {
     mockFetch({ ...routes(), "GET /reports/1": () => json(200, detail()), "GET /reports": () => json(200, page([])) });
     renderApp("/reports/1");
     expect(await screen.findByRole("heading", { name: "گزارش 05-ELV-001" })).toBeInTheDocument();
+    expect(screen.queryByText(/مدیر سامانه/)).not.toBeInTheDocument();                           // collapsed by default
+    await userEvent.click(screen.getByRole("button", { name: "دیدن ساعت کاری من" }));
     expect(screen.getByText("فقط ردیف مربوط به خودتان نمایش داده می‌شود.")).toBeInTheDocument();
     expect(screen.getByText(/مدیر سامانه \(شما\)/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "پنهان کردن ساعات کاری" }));
+    expect(screen.queryByText(/مدیر سامانه/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ELV-001" })).toHaveAttribute("href", "/reports?equipment_id=10&equipment=ELV-001");
     expect(screen.queryByText("عمومی (بدون تجهیز)")).not.toBeInTheDocument();
   });
 
-  it("with no visible labor rows it says labor is not shown (never claims 'no labor recorded'); a complete list has no notice", async () => {
-    mockFetch({ ...routes(), "GET /reports/1": () => json(200, detail({ participants: [], participants_complete: false, equipment: null, is_general: true })), "GET /reports/2": () => json(200, detail({ id: 2, participants_complete: true, participants: [{ user_id: 7, full_name: "حسین", minutes: 60, is_me: false }] })) });
+  it("a viewer who may see NO labor row gets no labor section at all (neither a button nor a «no labor» claim); general reports carry the marker", async () => {
+    mockFetch({ ...routes(), "GET /reports/1": () => json(200, detail({ participants: [], participants_complete: false, equipment: null, is_general: true })) });
     renderApp("/reports/1");
-    expect(await screen.findByText("اطلاعات زمان کار افراد برای شما نمایش داده نمی‌شود.")).toBeInTheDocument();
-    expect(screen.queryByText("زمان کاری ثبت نشده است.")).not.toBeInTheDocument();
-    expect(screen.getByText("عمومی (بدون تجهیز)")).toBeInTheDocument();
+    expect(await screen.findByText("عمومی (بدون تجهیز)")).toBeInTheDocument();
+    expect(screen.queryByText(/ساعت کاری|ساعات کاری|زمان کار/)).not.toBeInTheDocument();
+  });
+
+  it("a report with a complete, empty labor list says so instead of showing a button", async () => {
+    mockFetch({ ...routes(), "GET /reports/1": () => json(200, detail({ participants: [], participants_complete: true })) });
+    renderApp("/reports/1");
+    expect(await screen.findByText("برای این گزارش ساعت کاری ثبت نشده است.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ساعات کاری|ساعت کاری/ })).not.toBeInTheDocument();
+  });
+
+  it("a complete list opens with all participants and no «own row only» note", async () => {
+    mockFetch({ ...routes(), "GET /reports/2": () => json(200, detail({ id: 2, participants_complete: true, participants: [{ user_id: 7, full_name: "حسین", minutes: 60, is_me: false }] })) });
+    renderApp("/reports/2");
+    await userEvent.click(await screen.findByRole("button", { name: "دیدن ساعات کاری ثبت‌شده" }));
+    expect(screen.getByText("حسین")).toBeInTheDocument();
+    expect(screen.queryByText(/فقط ردیف/)).not.toBeInTheDocument();
   });
 
   it("a failed load never leaves a previously shown report on screen", async () => {
@@ -186,13 +204,6 @@ describe("report detail", () => {
     renderApp("/reports/1");
     expect(await screen.findByText("گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.")).toBeInTheDocument();
     expect(screen.queryByText("شرح کامل گزارش")).not.toBeInTheDocument();
-  });
-
-  it("shows all participants without a notice when the list is complete", async () => {
-    mockFetch({ ...routes(), "GET /reports/2": () => json(200, detail({ id: 2, participants_complete: true, participants: [{ user_id: 7, full_name: "حسین", minutes: 60, is_me: false }] })) });
-    renderApp("/reports/2");
-    expect(await screen.findByText("حسین")).toBeInTheDocument();
-    expect(screen.queryByText(/فقط ردیف/)).not.toBeInTheDocument();
   });
 
   it("a 404 (missing, not yours, or deleted) shows one neutral message; a non-numeric id never calls the API", async () => {

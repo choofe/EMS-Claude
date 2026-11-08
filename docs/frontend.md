@@ -74,8 +74,7 @@ decided by the backend scope (docs/report-views.md). The dashboard moved to `/da
 - **Equipment history** = the same list with `?equipment_id=…&equipment=CODE` (entry: the history icon on each row of the equipment page,
   and the equipment link in a report). A chip shows and clears the filter; `other_group_reports_may_exist` shows the notice
   «ممکن است گزارش‌هایی از گروه قبلی وجود داشته باشد» (never a number).
-- **Detail** (`ReportDetailPage.tsx`): full description, lock state, participants. When `participants_complete` is false the page says
-  only the viewer's own row is shown (or that labor information is not shown) and never claims «no labor recorded». Missing, foreign and
+- **Detail** (`ReportDetailPage.tsx`): full description, lock state, and labor behind a collapsed button («دیدن ساعات کاری ثبت‌شده» / «پنهان کردن»). With rows the button appears (wording «دیدن ساعت کاری من» and an own-row-only note when `participants_complete` is false); a complete empty list shows «برای این گزارش ساعت کاری ثبت نشده است»; when the viewer may see no row at all the whole labor section is omitted (no button, and never a «no labor recorded» claim). Missing, foreign and
   soft-deleted reports give one neutral message (`404 report_not_found`).
 - Not yet: the «edited» marker (7c), lock/delete actions (7d), priority (7e–7g), per-user column choice, Jalali date picker (6e).
 

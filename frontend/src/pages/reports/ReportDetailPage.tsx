@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Alert, Button, Chip, Divider, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import LockIcon from "@mui/icons-material/LockOutlined";
 import { Link as RouterLink, useParams } from "react-router-dom";
@@ -17,6 +18,8 @@ export function ReportDetailPage() {
   const valid = Number.isInteger(id) && id > 0;
   const { data, error, loading } = useLoad(() => (valid ? reportsApi.detail(id) : Promise.reject(new Error("bad id"))), [id]);
 
+  const [laborOpenFor, setLaborOpenFor] = useState<number | null>(null);   // collapsed by default, per report
+  const laborOpen = laborOpenFor === id;
   const r = data && data.id === id ? data : null; // never show the previous report under a new URL
   const back = <Button component={RouterLink} to="/reports">بازگشت به فهرست</Button>;
   if (!valid) return <><PageHeader title="گزارش" actions={back} /><Alert severity="error">گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.</Alert></>;
@@ -42,20 +45,34 @@ export function ReportDetailPage() {
         <Divider sx={{ my: 1.5 }} />
         <Typography variant="subtitle2" gutterBottom>شرح</Typography>
         <Typography sx={{ whiteSpace: "pre-wrap" }}>{r.description}</Typography>
-        <Divider sx={{ my: 1.5 }} />
-        <Typography variant="subtitle2" gutterBottom>افراد و زمان کار</Typography>
-        {!r.participants_complete && (
-          <Alert severity="info" sx={{ mb: 1 }}>{r.participants.length ? "فقط ردیف مربوط به خودتان نمایش داده می‌شود." : "اطلاعات زمان کار افراد برای شما نمایش داده نمی‌شود."}</Alert>
+        {(r.participants.length > 0 || r.participants_complete) && (
+          <>
+            <Divider sx={{ my: 1.5 }} />
+            {r.participants.length === 0 ? (
+              <Typography color="text.secondary">برای این گزارش ساعت کاری ثبت نشده است.</Typography>
+            ) : (
+              <>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="subtitle2">افراد و زمان کار</Typography>
+                  <Button size="small" aria-expanded={laborOpen} onClick={() => setLaborOpenFor(laborOpen ? null : id)}>
+                    {laborOpen ? "پنهان کردن ساعات کاری" : r.participants_complete ? "دیدن ساعات کاری ثبت‌شده" : "دیدن ساعت کاری من"}
+                  </Button>
+                </Stack>
+                {laborOpen && (
+                  <>
+                    {!r.participants_complete && <Alert severity="info" sx={{ my: 1 }}>فقط ردیف مربوط به خودتان نمایش داده می‌شود.</Alert>}
+                    <Table size="small">
+                      <TableHead><TableRow><TableCell>نام</TableCell><TableCell>زمان کار</TableCell></TableRow></TableHead>
+                      <TableBody>
+                        {r.participants.map((p) => <TableRow key={p.user_id}><TableCell>{p.full_name}{p.is_me ? " (شما)" : ""}</TableCell><TableCell>{formatMinutes(p.minutes)}</TableCell></TableRow>)}
+                      </TableBody>
+                    </Table>
+                  </>
+                )}
+              </>
+            )}
+          </>
         )}
-        {r.participants.length > 0 && (
-          <Table size="small">
-            <TableHead><TableRow><TableCell>نام</TableCell><TableCell>زمان کار</TableCell></TableRow></TableHead>
-            <TableBody>
-              {r.participants.map((p) => <TableRow key={p.user_id}><TableCell>{p.full_name}{p.is_me ? " (شما)" : ""}</TableCell><TableCell>{formatMinutes(p.minutes)}</TableCell></TableRow>)}
-            </TableBody>
-          </Table>
-        )}
-        {r.participants_complete && r.participants.length === 0 && <Typography color="text.secondary">زمان کاری ثبت نشده است.</Typography>}
       </Paper>
     </>
   );
