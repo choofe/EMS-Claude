@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  Alert, Box, Button, Card, CardActionArea, CardContent, Checkbox, Chip, FormControl, FormControlLabel, InputLabel, MenuItem, Paper, Select, Stack,
+  Alert, Badge, Box, Button, Card, CardActionArea, CardContent, Checkbox, Chip, FormControl, FormControlLabel, InputLabel, MenuItem, Paper, Select, Stack,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, TextField, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import FilterIcon from "@mui/icons-material/FilterListOutlined";
 import { Link as RouterLink, useNavigate, useSearchParams } from "react-router-dom";
 import { groupsApi, reportTypesApi, reportsApi } from "../../api/resources";
 import type { ReportListItem, ReportListQuery } from "../../api/types";
@@ -52,7 +53,10 @@ export function ReportsListPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const theme = useTheme();
-  const phone = !useMediaQuery(theme.breakpoints.up("md")); // same breakpoint as AppShell (tests report "desktop")
+  const desktop = useMediaQuery(theme.breakpoints.up("md")); // same breakpoint as AppShell (tests report "desktop")
+  const phone = !desktop;
+  const [filtersOpen, setFiltersOpen] = useState<boolean | null>(null); // null = default: open on desktop, closed on a phone
+  const showFilters = filtersOpen ?? desktop;
   const [params, setParams] = useSearchParams();
   const equipmentId = Number(params.get("equipment_id")) || undefined;
   const equipmentLabel = params.get("equipment") ?? "";
@@ -108,6 +112,8 @@ export function ReportsListPage() {
   const visible = (columns.data ?? []).filter((c) => c.default_visible && CELLS[c.key]);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((o) => ({ ...o, [k]: v }));
   const dateError = (v: string | null) => (v === null ? "تاریخ شمسی معتبر نیست (مثل ۱۴۰۵/۰۷/۲۵)" : undefined);
+  const activeFilters = [f.type !== "", f.group !== "", f.code.trim(), f.number.trim(), f.q.trim(), f.from.trim(), f.to.trim(), f.mine, f.general].filter(Boolean).length;
+  const clearFilters = () => setF({ type: "", group: "", code: "", number: "", q: "", from: "", to: "", mine: false, general: false });
   const sortBy = (k: string) => {
     if (k !== "event_datetime" && k !== "created_at") return;
     setSort((o) => ({ by: k, order: o.by === k && o.order === "desc" ? "asc" : "desc" }));
@@ -119,7 +125,23 @@ export function ReportsListPage() {
       {equipmentId && (
         <Chip sx={{ mb: 1.5 }} color="primary" label={`تاریخچه تجهیز ${equipmentLabel || equipmentId}`} onDelete={() => setParams({}, { replace: true })} />
       )}
+      <Stack direction="row" gap={1} alignItems="center" sx={{ mb: 1.5 }}>
+        <Badge color="primary" badgeContent={activeFilters} invisible={activeFilters === 0}>
+          <Button variant={showFilters ? "contained" : "outlined"} size="small" startIcon={<FilterIcon />} aria-expanded={showFilters} onClick={() => setFiltersOpen(!showFilters)}>فیلتر و مرتب‌سازی</Button>
+        </Badge>
+        {activeFilters > 0 && <Button size="small" onClick={clearFilters}>پاک کردن فیلترها</Button>}
+      </Stack>
+      {showFilters && (
       <Stack direction={{ xs: "column", md: "row" }} gap={1.5} flexWrap="wrap" sx={{ mb: 1.5 }}>
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel id="rt-sort">مرتب‌سازی</InputLabel>
+          <Select labelId="rt-sort" label="مرتب‌سازی" value={`${sort.by}:${sort.order}`} onChange={(e) => { const [by, order] = String(e.target.value).split(":"); setSort({ by: by as typeof sort.by, order: order as typeof sort.order }); }}>
+            <MenuItem value="event_datetime:desc">جدیدترین رخداد</MenuItem>
+            <MenuItem value="event_datetime:asc">قدیمی‌ترین رخداد</MenuItem>
+            <MenuItem value="created_at:desc">جدیدترین ثبت</MenuItem>
+            <MenuItem value="created_at:asc">قدیمی‌ترین ثبت</MenuItem>
+          </Select>
+        </FormControl>
         <TextField size="small" label="شماره گزارش" value={f.number} onChange={(e) => set("number", e.target.value)} slotProps={{ htmlInput: { dir: "ltr" } }} />
         <TextField size="small" label="کد تجهیز" value={f.code} onChange={(e) => set("code", e.target.value)} slotProps={{ htmlInput: { dir: "ltr" } }} />
         <TextField size="small" label="جستجو در شرح" value={f.q} onChange={(e) => set("q", e.target.value)} />
@@ -142,6 +164,7 @@ export function ReportsListPage() {
         <FormControlLabel control={<Checkbox checked={f.mine} onChange={(e) => set("mine", e.target.checked)} />} label="مشارکت من" />
         <FormControlLabel control={<Checkbox checked={f.general} onChange={(e) => set("general", e.target.checked)} />} label="فقط عمومی" />
       </Stack>
+      )}
       {other && <Alert severity="info" sx={{ mb: 1.5 }}>ممکن است گزارش‌هایی از گروه قبلی وجود داشته باشد.</Alert>}
       <ErrorAlert error={error} />
       {loading && items.length === 0 ? <Loading /> : items.length === 0 && !error ? <Empty text="گزارشی پیدا نشد." /> : phone ? (

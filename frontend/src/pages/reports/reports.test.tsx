@@ -107,6 +107,15 @@ describe("reports list", () => {
     await waitFor(() => expect(listCalls(m).some((c) => c.query.get("order") === "asc" && c.query.get("sort_by") === "event_datetime")).toBe(true));
   });
 
+  it("the sort selector (the only sort control on a phone) sends sort_by/order", async () => {
+    const m = mockFetch({ ...routes(), "GET /reports": () => json(200, page([item()])) });
+    renderApp("/reports");
+    await screen.findByText("05-ELV-001");
+    await userEvent.click(screen.getByRole("combobox", { name: "مرتب‌سازی" }));
+    await userEvent.click(screen.getByRole("option", { name: "قدیمی‌ترین ثبت" }));
+    await waitFor(() => expect(listCalls(m).some((c) => c.query.get("sort_by") === "created_at" && c.query.get("order") === "asc")).toBe(true));
+  });
+
   it("an invalid Jalali date is reported and NOT sent; a valid one is sent as an aware UTC instant", async () => {
     const m = mockFetch({ ...routes(), "GET /reports": () => json(200, page([item()])) });
     renderApp("/reports");
@@ -145,6 +154,17 @@ describe("reports list", () => {
       expect(within(card).getByText(/زمان من: ۱ ساعت و ۳۰ دقیقه/)).toBeInTheDocument();
       expect(screen.getAllByText("عمومی (بدون تجهیز)")).toHaveLength(1);
       expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      // filters start hidden on a phone behind one button; the badge counts active filters; «پاک کردن» resets them
+      expect(screen.queryByLabelText("شماره گزارش")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "فیلتر و مرتب‌سازی" }));
+      await userEvent.type(screen.getByLabelText("شماره گزارش"), "ELV");
+      await userEvent.click(screen.getByRole("checkbox", { name: "فقط عمومی" }));
+      expect(screen.getByText("2")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "پاک کردن فیلترها" }));
+      expect(screen.getByLabelText("شماره گزارش")).toHaveValue("");
+      expect(screen.queryByRole("button", { name: "پاک کردن فیلترها" })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "فیلتر و مرتب‌سازی" }));
+      expect(screen.queryByLabelText("شماره گزارش")).not.toBeInTheDocument();
     } finally { window.matchMedia = original; }
   });
 

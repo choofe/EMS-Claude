@@ -148,4 +148,19 @@ describe("forced password change flow", () => {
     await userEvent.click(screen.getByRole("button", { name: "ذخیره رمز جدید" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "گزارش‌ها" })).toBeInTheDocument());
   });
+
+  it("on a narrow screen the menu button TOGGLES the drawer (a second tap closes it)", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ matches: false, media: query, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+    try {
+      mockFetch(baseRoutes());
+      renderApp("/reports");
+      const btn = await screen.findByRole("button", { name: "منو" });
+      expect(btn).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(btn);
+      expect(btn).toHaveAttribute("aria-expanded", "true");
+      await userEvent.click(btn);
+      expect(btn).toHaveAttribute("aria-expanded", "false");
+    } finally { window.matchMedia = original; }
+  });
 });

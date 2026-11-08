@@ -67,10 +67,11 @@ Groups · Equipment · Report types (everyone reads their scope; MANAGEMENT writ
 decided by the backend scope (docs/report-views.md). The dashboard moved to `/dashboard`.
 - **List** (`pages/reports/ReportsListPage.tsx`): table on desktop, cards on phones (same `md` breakpoint as the shell). Table columns
   come from `GET /reports/columns` (only `default_visible` ones that have a cell renderer; a future per-user choice only changes that
-  list); `event_datetime`/`created_at` headers sort. Filters: report number, equipment code, description text, type, group, Jalali
+  list); `event_datetime`/`created_at` headers sort. Filters and sort sit behind one «فیلتر و مرتب‌سازی» button (closed by default on a phone, open on desktop; a badge counts active filters, «پاک کردن فیلترها» resets them; the sort selector is the only sort control on phones). Filters: report number, equipment code, description text, type, group, Jalali
   from/to date (typed text; an invalid date is shown and never sent; `to` = last minute of that day), «مشارکت من», «فقط عمومی». Text
   filters are debounced; any filter change restarts from the first page; «بیشتر» appends the next cursor page, and an answer that
   arrives after the filters changed is dropped. General reports carry an «عمومی (بدون تجهیز)» chip.
+- The shell's menu button toggles the drawer (a second tap closes it; fixed in 7b).
 - **Equipment history** = the same list with `?equipment_id=…&equipment=CODE` (entry: the history icon on each row of the equipment page,
   and the equipment link in a report). A chip shows and clears the filter; `other_group_reports_may_exist` shows the notice
   «ممکن است گزارش‌هایی از گروه قبلی وجود داشته باشد» (never a number).

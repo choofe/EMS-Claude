@@ -59,7 +59,7 @@ export function AppShell() {
       <AppBar position="fixed" color="primary" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
         <Toolbar>
           {!desktop && (
-            <IconButton color="inherit" edge="start" onClick={() => setOpen(true)} aria-label="باز کردن منو"><MenuIcon /></IconButton>
+            <IconButton color="inherit" edge="start" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="منو"><MenuIcon /></IconButton>
           )}
           <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontSize: { xs: 16, md: 20 } }}>سامانه گزارش‌دهی نگهداری تجهیزات</Typography>
           <IconButton color="inherit" onClick={(e) => setMenuEl(e.currentTarget)} aria-label="حساب کاربری"><AccountIcon /></IconButton>
