@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { render } from "@testing-library/react";
+import { ThemeProvider } from "@mui/material";
+import { theme } from "../../theme/theme";
+import { ReportDetailPage } from "./ReportDetailPage";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
 import type { ReportColumn, ReportDetail, ReportListItem } from "../../api/types";
 import { dayBound } from "./ReportsListPage";
@@ -200,5 +205,24 @@ describe("report detail", () => {
     expect(await screen.findByText("گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.")).toBeInTheDocument();
     expect(m2.calls.some((c) => c.path.startsWith("/reports/"))).toBe(false);
     expect(m.count("GET /reports/9")).toBe(1);
+  });
+
+  it("navigating from one report to another never shows the first report under the second URL, even if the second answer is slow or fails", async () => {
+    let answer2: (r: Response) => void = () => {};
+    mockFetch({ "GET /reports/1": () => json(200, detail()), "GET /reports/2": () => new Promise<Response>((res) => { answer2 = res; }) });
+    const Go = () => { const nav = useNavigate(); return <button onClick={() => nav("/reports/2")}>go</button>; };
+    render(
+      <ThemeProvider theme={theme}>
+        <MemoryRouter initialEntries={["/reports/1"]}>
+          <Routes><Route path="/reports/:id" element={<><Go /><ReportDetailPage /></>} /></Routes>
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+    expect(await screen.findByText("شرح کامل گزارش")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "go" }));
+    await waitFor(() => expect(screen.queryByText("شرح کامل گزارش")).not.toBeInTheDocument());   // while 2 is loading
+    answer2(json(404, { detail: "report_not_found" }));
+    expect(await screen.findByText("گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.")).toBeInTheDocument();
+    expect(screen.queryByText("شرح کامل گزارش")).not.toBeInTheDocument();                         // and after 2 failed
   });
 });
