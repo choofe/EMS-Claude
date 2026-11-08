@@ -16,6 +16,10 @@ import { jalaliToDate, parseJalaliDateText } from "../../lib/jalali";
 import { formatMinutes } from "../../lib/labor";
 import { useLoad } from "../../lib/useLoad";
 
+/** At most two lines of the summary; the full text is on the detail page. */
+const Clamp = ({ children }: { children: ReactNode }) => (
+  <Box data-testid="summary" sx={{ maxWidth: 320, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" }}>{children}</Box>
+);
 export const GeneralChip = () => <Chip size="small" color="info" variant="outlined" label="عمومی (بدون تجهیز)" />;
 const mins = (v: number | null) => (v === null ? "—" : formatMinutes(v));
 
@@ -28,7 +32,7 @@ const CELLS: Record<string, (r: ReportListItem) => ReactNode> = {
   group: (r) => r.group.name,
   equipment: (r) => (r.equipment ? <Ltr>{r.equipment.code}</Ltr> : <GeneralChip />),
   creator: (r) => r.creator.full_name,
-  description_summary: (r) => r.description_summary,
+  description_summary: (r) => <Clamp>{r.description_summary}</Clamp>,
   my_minutes: (r) => mins(r.my_minutes),
   total_minutes: (r) => mins(r.total_minutes),
   people_count: (r) => (r.people_count === null ? "—" : formatJalaliDigits(r.people_count)),
@@ -178,7 +182,7 @@ export function ReportsListPage() {
                     {r.equipment ? <Ltr>{r.equipment.code}</Ltr> : <GeneralChip />}
                   </Stack>
                   <Typography variant="body2" color="text.secondary">{r.report_type.name_fa} · {r.group.name} · {formatJalaliDateTime(r.event_datetime)}</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5 }}>{r.description_summary}</Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}><Clamp>{r.description_summary}</Clamp></Typography>
                   <Typography variant="caption" color="text.secondary">{r.creator.full_name}{r.my_minutes !== null ? ` · زمان من: ${mins(r.my_minutes)}` : ""}</Typography>
                 </CardContent>
               </CardActionArea>

@@ -70,6 +70,21 @@ describe("report entry page", () => {
     expect(new Date(String(body.event_datetime)).getTime()).toBeLessThanOrEqual(Date.now());
   });
 
+  it("the description counter stays visible when over the limit and next to the validation error", async () => {
+    const m = mockFetch(routes({}, { cfgOver: { max_description_length: 20 } }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await pasteText("x".repeat(25));
+    const box = await screen.findByLabelText("شرح گزارش");
+    expect(box).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(/۲۵ \/ ۲۰/)).toHaveTextContent("۵ نویسه بیش از حد مجاز");
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    expect(await screen.findByText("توضیحات بیش از حد مجاز طولانی است.")).toBeInTheDocument();
+    expect(screen.getByText(/۲۵ \/ ۲۰/)).toBeInTheDocument();                                   // the counter did not disappear
+    expect(posts(m, "/reports")).toHaveLength(0);                                                // and nothing was sent
+  });
+
   it("editing hours+minutes converts to minutes; invalid numbers are caught before sending", async () => {
     const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
     renderApp("/reports/new");

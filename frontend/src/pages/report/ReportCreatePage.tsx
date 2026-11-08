@@ -465,7 +465,17 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
           <DateTimeField dateText={form.dateText} timeText={form.timeText} error={issueOf("datetime")} onChange={(v) => patch(v)} />
 
           <TextField label="شرح گزارش" multiline minRows={4} value={form.description} onChange={(e) => patch({ description: e.target.value })}
-            error={!!issueOf("description")} helperText={issueOf("description") ?? `${toPersianDigits(String(form.description.length))} / ${toPersianDigits(String(cfg.max_description_length))}`} />
+            error={!!issueOf("description") || form.description.length > cfg.max_description_length}
+            helperText={(
+              <>
+                {issueOf("description") && <span style={{ display: "block" }}>{issueOf("description")}</span>}
+                {/* the counter stays visible next to an error: the author must see how much is too much */}
+                <span style={{ display: "block" }}>
+                  {toPersianDigits(String(form.description.length))} / {toPersianDigits(String(cfg.max_description_length))}
+                  {form.description.length > cfg.max_description_length && ` — ${toPersianDigits(String(form.description.length - cfg.max_description_length))} نویسه بیش از حد مجاز`}
+                </span>
+              </>
+            )} />
 
           {laborMode(type) === "OPTIONAL" && !form.laborOpened && (
             <Box><Button variant="outlined" onClick={openLabor}>اضافه کردن ساعات افراد - اختیاری</Button></Box>

@@ -151,6 +151,7 @@ describe("reports list", () => {
       const card = (await screen.findByText("05-ELV-001")).closest("a") as HTMLElement;
       expect(card).toHaveAttribute("href", "/reports/1");
       expect(within(card).getByText("تعویض فیوز")).toBeInTheDocument();
+      expect(within(card).getByTestId("summary")).toHaveStyle({ overflow: "hidden" });            // long summaries are clamped to two lines
       expect(within(card).getByText(/زمان من: ۱ ساعت و ۳۰ دقیقه/)).toBeInTheDocument();
       expect(screen.getAllByText("عمومی (بدون تجهیز)")).toHaveLength(1);
       expect(screen.queryByRole("table")).not.toBeInTheDocument();
