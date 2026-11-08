@@ -23,7 +23,7 @@ export function ReportDetailPage() {
   const r = data && data.id === id ? data : null; // never show the previous report under a new URL
   const back = <Button component={RouterLink} to="/reports">بازگشت به فهرست</Button>;
   if (!valid) return <><PageHeader title="گزارش" actions={back} /><Alert severity="error">گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.</Alert></>;
-  if (loading) return <Loading />;
+  if (loading || (!r && !error)) return <Loading />;   // also the first render after the id changed (before the loader effect runs)
   if (!r) return <><PageHeader title="گزارش" actions={back} /><ErrorAlert error={error} /></>;
 
   return (

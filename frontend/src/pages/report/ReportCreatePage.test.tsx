@@ -85,6 +85,16 @@ describe("report entry page", () => {
     expect(posts(m, "/reports")).toHaveLength(0);                                                // and nothing was sent
   });
 
+  it("the counter and the over-limit state use the trimmed length (same basis as validation and the server)", async () => {
+    mockFetch(routes({}, { cfgOver: { max_description_length: 20 } }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await pasteText("x".repeat(18) + " ".repeat(6));
+    expect(await screen.findByText(/۱۸ \/ ۲۰/)).toBeInTheDocument();
+    expect(screen.getByLabelText("شرح گزارش")).toHaveAttribute("aria-invalid", "false");
+    expect(screen.getByLabelText("شرح گزارش")).toHaveAttribute("aria-describedby", "report-description-helper-text");
+  });
+
   it("editing hours+minutes converts to minutes; invalid numbers are caught before sending", async () => {
     const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
     renderApp("/reports/new");

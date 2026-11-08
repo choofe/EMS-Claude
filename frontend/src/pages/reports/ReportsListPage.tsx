@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   Alert, Badge, Box, Button, Card, CardActionArea, CardContent, Checkbox, Chip, FormControl, FormControlLabel, InputLabel, MenuItem, Paper, Select, Stack,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, TextField, Typography, useMediaQuery, useTheme,
@@ -79,7 +79,8 @@ export function ReportsListPage() {
   };
   const key = JSON.stringify(query);
   const keyRef = useRef(key);
-  useEffect(() => { keyRef.current = key; }, [key]);
+  useLayoutEffect(() => { keyRef.current = key; }, [key]); // synchronous in the commit: a late «بیشتر» answer must see the new key
+  const moreAbort = useRef<AbortController | null>(null);
 
   const columns = useLoad(() => reportsApi.columns(), []);
   const types = useLoad(() => reportTypesApi.list(true), []);
@@ -93,6 +94,7 @@ export function ReportsListPage() {
 
   useEffect(() => {
     const ac = new AbortController();
+    moreAbort.current?.abort(); // a pending «بیشتر» of the previous filters is cancelled too
     setLoading(true); setError(null); setBusyMore(false);
     reportsApi.list(query, ac.signal)
       .then((p) => { setItems(p.items); setCursor(p.next_cursor); setOther(p.other_group_reports_may_exist); })
@@ -105,9 +107,11 @@ export function ReportsListPage() {
   async function more() {
     if (!cursor) return;
     const startedWith = key;
+    const ac = new AbortController();
+    moreAbort.current = ac;
     setBusyMore(true);
     try {
-      const p = await reportsApi.list({ ...query, cursor });
+      const p = await reportsApi.list({ ...query, cursor }, ac.signal);
       if (keyRef.current !== startedWith) return; // the filters changed meanwhile: this page belongs to an old list
       setItems((old) => [...old, ...p.items]); setCursor(p.next_cursor);
     } catch (e) { if (keyRef.current === startedWith) setError(e); } finally { if (keyRef.current === startedWith) setBusyMore(false); }

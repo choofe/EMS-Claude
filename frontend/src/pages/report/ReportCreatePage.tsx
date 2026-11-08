@@ -247,6 +247,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   }
   const openLabor = () => setForm((f) => withDefaultLabor({ ...f, laborOpened: true }, type, author, cfg.default_labor_minutes));
   const context = participantContext(type, form);
+  const descLen = form.description.trim().length; // same basis as validate() and the server (both trim)
   const issueOf = (field: Issue["field"]) => issues.find((i) => i.field === field)?.message;
   const laborIssues = issues.filter((i) => i.field === "labor").map((i) => i.message).join(" ");
 
@@ -464,15 +465,15 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
 
           <DateTimeField dateText={form.dateText} timeText={form.timeText} error={issueOf("datetime")} onChange={(v) => patch(v)} />
 
-          <TextField label="شرح گزارش" multiline minRows={4} value={form.description} onChange={(e) => patch({ description: e.target.value })}
-            error={!!issueOf("description") || form.description.length > cfg.max_description_length}
+          <TextField id="report-description" label="شرح گزارش" multiline minRows={4} value={form.description} onChange={(e) => patch({ description: e.target.value })}
+            error={!!issueOf("description") || descLen > cfg.max_description_length}
             helperText={(
               <>
                 {issueOf("description") && <span style={{ display: "block" }}>{issueOf("description")}</span>}
                 {/* the counter stays visible next to an error: the author must see how much is too much */}
                 <span style={{ display: "block" }}>
-                  {toPersianDigits(String(form.description.length))} / {toPersianDigits(String(cfg.max_description_length))}
-                  {form.description.length > cfg.max_description_length && ` — ${toPersianDigits(String(form.description.length - cfg.max_description_length))} نویسه بیش از حد مجاز`}
+                  {toPersianDigits(String(descLen))} / {toPersianDigits(String(cfg.max_description_length))}
+                  {descLen > cfg.max_description_length && ` — ${toPersianDigits(String(descLen - cfg.max_description_length))} نویسه بیش از حد مجاز`}
                 </span>
               </>
             )} />
