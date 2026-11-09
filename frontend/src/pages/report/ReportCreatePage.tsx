@@ -150,7 +150,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
       const s = formRef.current;
       if (isBlank(s) && !draftRef.current) return true; // nothing worth a server row
       setSave({ kind: "saving" });
-      const payload = toDraftPayload(s);
+      const payload = toDraftPayload(s, cfg.max_description_length);
       try {
         const d = draftRef.current
           ? await reportsApi.updateDraft(draftRef.current.id, payload, draftRef.current.version)
@@ -158,7 +158,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
         draftRef.current = { id: d.id, version: d.version };
         saves.current += 1;
         savedText.current = s.description;
-        dirty.current = JSON.stringify(toDraftPayload(formRef.current)) !== JSON.stringify(payload); // typed meanwhile?
+        dirty.current = JSON.stringify(toDraftPayload(formRef.current, cfg.max_description_length)) !== JSON.stringify(payload); // typed meanwhile?
         dirtySince.current = dirty.current ? Date.now() : null;
         persistLocal(); // the local copy now builds on this server version
         clearUndo(uid); setUndo(null); // the replaced version only has to survive until the next draft version
@@ -323,7 +323,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
       // Submit FROM a draft: the server consumes it in the same transaction, which also protects a second device or tab
       // that still holds the same draft from creating a duplicate.
       try {
-        const d = await reportsApi.createDraft(toDraftPayload(form));
+        const d = await reportsApi.createDraft(toDraftPayload(form, cfg.max_description_length));
         draftRef.current = { id: d.id, version: d.version };
       } catch { /* e.g. another draft exists elsewhere, or offline: submit without this protection */ }
     }
