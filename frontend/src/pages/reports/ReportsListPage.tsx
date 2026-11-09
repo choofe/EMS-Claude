@@ -39,7 +39,10 @@ const CELLS: Record<string, (r: ReportListItem) => ReactNode> = {
 };
 const formatJalaliDigits = (n: number) => String(n).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
 
-/** Start of a Jalali day (or its last minute). "" = no bound; null = typed text is not a real date. */
+/**
+ * Return a UTC ISO bound for a Jalali date in Tehran: midnight, or 23:59:59.999 when `end` is true.
+ * Blank text returns "" (no bound); malformed, unsupported, or nonexistent dates return null.
+ */
 export function dayBound(text: string, end: boolean): string | "" | null {
   if (!text.trim()) return "";
   const d = parseJalaliDateText(text);
@@ -48,7 +51,11 @@ export function dayBound(text: string, end: boolean): string | "" | null {
   return at ? new Date(at.getTime() + (end ? 59_999 : 0)).toISOString() : null;
 }
 
-/** Follows `value` after `ms` of quiet. Compared by content: a fresh-but-equal object each render must not re-arm the timer (it would re-render forever). */
+/**
+ * Return the initial value immediately, then follow changes after `ms` milliseconds of quiet (350 by default).
+ * Compare JSON serialization, so fresh objects with equal serialized content do not restart the timer.
+ * Values must be JSON-serializable; serialization errors propagate during render.
+ */
 export function useDebounced<T>(value: T, ms = 350): T {
   const [v, setV] = useState(value);
   const content = JSON.stringify(value);
@@ -56,6 +63,7 @@ export function useDebounced<T>(value: T, ms = 350): T {
   return v;
 }
 
+/** Render filtered reports as desktop columns or phone cards, with cursor pagination and optional equipment history from the URL. */
 export function ReportsListPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -109,6 +117,7 @@ export function ReportsListPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  /** Append the next page if a cursor exists; ignore stale responses and show current request errors in the page. */
   async function more() {
     if (!cursor) return;
     const startedWith = key;

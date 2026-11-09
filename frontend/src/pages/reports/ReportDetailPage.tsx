@@ -13,6 +13,10 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
   <Stack direction="row" gap={1} sx={{ py: 0.5 }}><Typography color="text.secondary" sx={{ minWidth: 110 }}>{label}</Typography><Typography component="div">{children}</Typography></Stack>
 );
 
+/**
+ * Load the report identified by the route and render its details with initially collapsed labor rows.
+ * Invalid IDs and load failures render errors; an empty labor list is described as empty only when complete.
+ */
 export function ReportDetailPage() {
   const id = Number(useParams().id);
   const valid = Number.isInteger(id) && id > 0;

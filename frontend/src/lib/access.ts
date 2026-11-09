@@ -9,6 +9,7 @@ export const canReport = (u: AuthUser | null) => u?.role_code === "USER" || u?.r
 /**
  * Where "/" sends every signed-in role (Amin, 2026-11-07): the reports list. What the list shows is decided by the
  * backend scope (USER/EXPERT: their groups; MANAGEMENT/AUDITOR: everything). The dashboard lives at "/dashboard".
+ * A null user falls back to "/equipment".
  */
 export function landingPath(u: AuthUser | null): string {
   return u ? "/reports" : "/equipment";

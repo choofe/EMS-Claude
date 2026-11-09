@@ -140,7 +140,11 @@ export function validate(s: FormState, t: ReportType | undefined, cfg: EntryConf
   return issues;
 }
 
-/** Body for POST /reports. Throws if called with an invalid form (call validate first). */
+/**
+ * Build the POST /reports body with a trimmed description and only visible equipment and labor.
+ * Throws Error("invalid form") for an invalid date/time or an unselected type; call validate first for all other rules.
+ * `draftId` links the submission to a draft when non-null; `clientRequestId` supplies the optional idempotency key.
+ */
 export function buildCreateBody(s: FormState, t: ReportType, draftId: number | null, clientRequestId?: string): ReportCreateBody {
   const when = dateTimeFromTexts(s.dateText, s.timeText);
   if (!when || s.typeId === "") throw new Error("invalid form");
@@ -163,7 +167,9 @@ export function buildCreateBody(s: FormState, t: ReportType, draftId: number | n
 /**
  * `maxDescription` = the server's description limit (entry-config). The server accepts a RAW draft text of up to twice that
  * (it trims later), so padding beyond it would make the draft save fail and a submit would lose its draft protection:
- * only then is the text trimmed; below it the text is kept exactly as typed (trailing spaces included).
+ * only then is the text trimmed; at or below it the text is kept exactly as typed (trailing spaces included).
+ * Omitting the limit preserves the text; empty descriptions become null. This does not truncate overlong text.
+ * Incomplete fields are allowed: invalid dates become null and labor minutes are clamped to 0..MAX_MINUTES.
  */
 export function toDraftPayload(s: FormState, maxDescription = Number.POSITIVE_INFINITY): DraftPayload {
   const when = dateTimeFromTexts(s.dateText, s.timeText);
