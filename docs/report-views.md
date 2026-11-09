@@ -31,5 +31,7 @@ reports of a group the caller cannot see (never a number). Always `false` for MA
 **Column registry** (`app/services/report_columns.py`): the code-level list a future per-user column choice will use.
 Choosing columns is cosmetic only: the API never returns data the caller may not see.
 
-Not in 7a: the UI (7b), edit marker / history (7c), lock and soft-delete actions (7d), priority fields (7e–7g). The
+The UI (list, detail, equipment history) is Phase 7b: see `docs/frontend.md`.
+
+Not in 7a/7b: edit marker / history (7c), lock and soft-delete actions (7d), priority fields (7e–7g). The
 USER labor panel (own minutes in non-member groups, 60-day window) belongs to Phase 8.

@@ -1,0 +1,83 @@
+import { useState } from "react";
+import { Alert, Button, Chip, Divider, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
+import LockIcon from "@mui/icons-material/LockOutlined";
+import { Link as RouterLink, useParams } from "react-router-dom";
+import { reportsApi } from "../../api/resources";
+import { ErrorAlert, Loading, Ltr, PageHeader } from "../../components/common";
+import { formatJalaliDateTime } from "../../lib/dates";
+import { formatMinutes } from "../../lib/labor";
+import { useLoad } from "../../lib/useLoad";
+import { GeneralChip } from "./ReportsListPage";
+
+const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <Stack direction="row" gap={1} sx={{ py: 0.5 }}><Typography color="text.secondary" sx={{ minWidth: 110 }}>{label}</Typography><Typography component="div">{children}</Typography></Stack>
+);
+
+/**
+ * Load the report identified by the route and render its details with initially collapsed labor rows.
+ * Invalid IDs and load failures render errors; an empty labor list is described as empty only when complete.
+ */
+export function ReportDetailPage() {
+  const id = Number(useParams().id);
+  const valid = Number.isInteger(id) && id > 0;
+  const { data, error, loading } = useLoad(() => (valid ? reportsApi.detail(id) : Promise.reject(new Error("bad id"))), [id]);
+
+  const [laborOpenFor, setLaborOpenFor] = useState<number | null>(null);   // collapsed by default, per report
+  const laborOpen = laborOpenFor === id;
+  const r = data && data.id === id ? data : null; // never show the previous report under a new URL
+  const back = <Button component={RouterLink} to="/reports">بازگشت به فهرست</Button>;
+  if (!valid) return <><PageHeader title="گزارش" actions={back} /><Alert severity="error">گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.</Alert></>;
+  if (loading || (!r && !error)) return <Loading />;   // also the first render after the id changed (before the loader effect runs)
+  if (!r) return <><PageHeader title="گزارش" actions={back} /><ErrorAlert error={error} /></>;
+
+  return (
+    <>
+      <PageHeader title={`گزارش ${r.report_number}`} actions={back} />
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 1 }}>
+          {r.is_general && <GeneralChip />}
+          {r.report_type.is_failure && <Chip size="small" color="warning" label="خرابی" />}
+          {r.is_locked && <Chip size="small" icon={<LockIcon />} label={`قفل‌شده ${formatJalaliDateTime(r.locked_at)}`} />}
+        </Stack>
+        <Field label="شمارهٔ گزارش"><Ltr>{r.report_number}</Ltr></Field>
+        <Field label="نوع گزارش">{r.report_type.name_fa}</Field>
+        <Field label="گروه">{r.group.name} (<Ltr>{r.group.code}</Ltr>)</Field>
+        <Field label="تجهیز">{r.equipment ? <Button component={RouterLink} to={`/reports?equipment_id=${r.equipment.id}&equipment=${encodeURIComponent(r.equipment.code)}`} size="small" sx={{ minWidth: 0 }}><Ltr>{r.equipment.code}</Ltr></Button> : "—"}</Field>
+        <Field label="زمان رخداد">{formatJalaliDateTime(r.event_datetime)}</Field>
+        <Field label="زمان ثبت">{formatJalaliDateTime(r.created_at)}</Field>
+        <Field label="ثبت‌کننده">{r.creator.full_name}</Field>
+        <Divider sx={{ my: 1.5 }} />
+        <Typography variant="subtitle2" gutterBottom>شرح</Typography>
+        <Typography sx={{ whiteSpace: "pre-wrap" }}>{r.description}</Typography>
+        {(r.participants.length > 0 || r.participants_complete) && (
+          <>
+            <Divider sx={{ my: 1.5 }} />
+            {r.participants.length === 0 ? (
+              <Typography color="text.secondary">برای این گزارش ساعت کاری ثبت نشده است.</Typography>
+            ) : (
+              <>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="subtitle2">افراد و زمان کار</Typography>
+                  <Button size="small" aria-expanded={laborOpen} onClick={() => setLaborOpenFor(laborOpen ? null : id)}>
+                    {laborOpen ? "پنهان کردن ساعات کاری" : r.participants_complete ? "دیدن ساعات کاری ثبت‌شده" : "دیدن ساعت کاری من"}
+                  </Button>
+                </Stack>
+                {laborOpen && (
+                  <>
+                    {!r.participants_complete && <Alert severity="info" sx={{ my: 1 }}>فقط ردیف مربوط به خودتان نمایش داده می‌شود.</Alert>}
+                    <Table size="small">
+                      <TableHead><TableRow><TableCell>نام</TableCell><TableCell>زمان کار</TableCell></TableRow></TableHead>
+                      <TableBody>
+                        {r.participants.map((p) => <TableRow key={p.user_id}><TableCell>{p.full_name}{p.is_me ? " (شما)" : ""}</TableCell><TableCell>{formatMinutes(p.minutes)}</TableCell></TableRow>)}
+                      </TableBody>
+                    </Table>
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </Paper>
+    </>
+  );
+}

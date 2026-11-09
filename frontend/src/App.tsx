@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { RequireAuth, RequireRole, RequireSession } from "./auth/guards";
 import { AppShell } from "./components/AppShell";
-import { canViewAdmin, landingPath } from "./lib/access";
+import { landingPath } from "./lib/access";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { EquipmentPage } from "./pages/EquipmentPage";
@@ -12,6 +12,8 @@ import { GroupsPage } from "./pages/GroupsPage";
 import { ImportPage } from "./pages/ImportPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReportCreatePage } from "./pages/report/ReportCreatePage";
+import { ReportDetailPage } from "./pages/reports/ReportDetailPage";
+import { ReportsListPage } from "./pages/reports/ReportsListPage";
 import { ReportTypesPage } from "./pages/ReportTypesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UsersPage } from "./pages/UsersPage";
@@ -20,7 +22,7 @@ import { theme } from "./theme/theme";
 
 function Home() {
   const { user } = useAuth();
-  return canViewAdmin(user) ? <DashboardPage /> : <Navigate to={landingPath(user)} replace />;
+  return <Navigate to={landingPath(user)} replace />;
 }
 
 export function AppRoutes() {
@@ -30,6 +32,9 @@ export function AppRoutes() {
       <Route path="/change-password" element={<RequireSession><ChangePasswordPage /></RequireSession>} />
       <Route element={<RequireAuth><AppShell /></RequireAuth>}>
         <Route index element={<Home />} />
+        <Route path="/dashboard" element={<RequireRole check="admin-view"><DashboardPage /></RequireRole>} />
+        <Route path="/reports" element={<ReportsListPage />} />
+        <Route path="/reports/:id" element={<ReportDetailPage />} />
         <Route path="/users" element={<RequireRole check="admin-view"><UsersPage /></RequireRole>} />
         <Route path="/groups" element={<GroupsPage />} />
         <Route path="/equipment" element={<EquipmentPage />} />

@@ -70,6 +70,42 @@ describe("report entry page", () => {
     expect(new Date(String(body.event_datetime)).getTime()).toBeLessThanOrEqual(Date.now());
   });
 
+  it("the description counter stays visible when over the limit and next to the validation error", async () => {
+    const m = mockFetch(routes({}, { cfgOver: { max_description_length: 20 } }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await pasteText("x".repeat(25));
+    const box = await screen.findByLabelText("شرح گزارش");
+    expect(box).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(/۲۵ \/ ۲۰/)).toHaveTextContent("۵ نویسه بیش از حد مجاز");
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    expect(await screen.findByText("توضیحات بیش از حد مجاز طولانی است.")).toBeInTheDocument();
+    expect(screen.getByText(/۲۵ \/ ۲۰/)).toBeInTheDocument();                                   // the counter did not disappear
+    expect(posts(m, "/reports")).toHaveLength(0);                                                // and nothing was sent
+  });
+
+  it("the counter and the over-limit state use the trimmed length (same basis as validation and the server)", async () => {
+    mockFetch(routes({}, { cfgOver: { max_description_length: 20 } }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await pasteText("x".repeat(18) + " ".repeat(6));
+    expect(await screen.findByText(/۱۸ \/ ۲۰/)).toBeInTheDocument();
+    expect(screen.getByLabelText("شرح گزارش")).toHaveAttribute("aria-invalid", "false");
+    expect(screen.getByLabelText("شرح گزارش")).toHaveAttribute("aria-describedby", "report-description-helper-text");
+  });
+
+  it("the description is sent trimmed (padding never counts against the server's raw limit)", async () => {
+    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await pasteText("  تعویض بلبرینگ" + " ".repeat(40) + "\n\n");
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    expect((posts(m, "/reports")[0].body as { description: string }).description).toBe("تعویض بلبرینگ");
+  });
+
   it("editing hours+minutes converts to minutes; invalid numbers are caught before sending", async () => {
     const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
     renderApp("/reports/new");

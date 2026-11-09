@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Button, FormControl, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip } from "@mui/material";
 import EditIcon from "@mui/icons-material/EditOutlined";
+import HistoryIcon from "@mui/icons-material/HistoryOutlined";
+import { Link as RouterLink } from "react-router-dom";
 import MoveIcon from "@mui/icons-material/SwapHorizOutlined";
 import PowerIcon from "@mui/icons-material/PowerSettingsNewOutlined";
 import AddIcon from "@mui/icons-material/Add";
@@ -60,19 +62,20 @@ export function EquipmentPage() {
       {list.loading && !list.data ? <Loading /> : list.data && list.data.items.length === 0 ? <Empty /> : list.data && (
         <TableContainer component={Paper} variant="outlined">
           <Table size="small">
-            <TableHead><TableRow><TableCell>کد تجهیز</TableCell><TableCell>گروه</TableCell><TableCell>توضیحات</TableCell><TableCell>وضعیت</TableCell>{manage && <TableCell />}</TableRow></TableHead>
+            <TableHead><TableRow><TableCell>کد تجهیز</TableCell><TableCell>گروه</TableCell><TableCell>توضیحات</TableCell><TableCell>وضعیت</TableCell><TableCell /></TableRow></TableHead>
             <TableBody>
               {list.data.items.map((e) => (
                 <TableRow key={e.id} hover>
                   <TableCell><Ltr>{e.equipment_code}</Ltr></TableCell><TableCell>{e.group_name} (<Ltr>{e.group_code}</Ltr>)</TableCell>
                   <TableCell>{e.description ?? "—"}</TableCell><TableCell><StatusChip active={e.is_active} /></TableCell>
-                  {manage && (
-                    <TableCell align="right">
+                  <TableCell align="right">
+                    <Tooltip title="تاریخچه گزارش‌ها"><IconButton component={RouterLink} to={`/reports?equipment_id=${e.id}&equipment=${encodeURIComponent(e.equipment_code)}`} aria-label={`تاریخچه ${e.equipment_code}`}><HistoryIcon fontSize="small" /></IconButton></Tooltip>
+                    {manage && (<>
                       <Tooltip title="ویرایش توضیحات"><IconButton aria-label={`ویرایش ${e.equipment_code}`} onClick={() => open({ kind: "edit", item: e }, e)}><EditIcon fontSize="small" /></IconButton></Tooltip>
                       <Tooltip title="انتقال به گروه دیگر"><IconButton aria-label={`انتقال ${e.equipment_code}`} onClick={() => open({ kind: "move", item: e }, e)}><MoveIcon fontSize="small" /></IconButton></Tooltip>
                       <Tooltip title={e.is_active ? "غیرفعال‌سازی" : "فعال‌سازی"}><IconButton aria-label={`${e.is_active ? "غیرفعال‌سازی" : "فعال‌سازی"} ${e.equipment_code}`} onClick={() => setDlg({ kind: "toggle", item: e })}><PowerIcon fontSize="small" /></IconButton></Tooltip>
-                    </TableCell>
-                  )}
+                    </>)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
