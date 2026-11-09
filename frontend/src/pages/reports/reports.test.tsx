@@ -8,7 +8,9 @@ import { theme } from "../../theme/theme";
 import { ReportDetailPage } from "./ReportDetailPage";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
 import type { ReportColumn, ReportDetail, ReportListItem } from "../../api/types";
-import { dayBound } from "./ReportsListPage";
+import { act, renderHook } from "@testing-library/react";
+import { vi } from "vitest";
+import { dayBound, useDebounced } from "./ReportsListPage";
 
 beforeEach(() => resetClientState());
 afterEach(() => resetClientState());
@@ -113,6 +115,24 @@ describe("reports list", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText("05-ELV-002")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "بیشتر" })).toBeEnabled();
+  });
+
+  it("a slow FIRST-page answer for old filters never overwrites the list of the new filters", async () => {
+    let releaseOld: (r: Response) => void = () => {};
+    mockFetch({
+      ...routes(),
+      "GET /reports": (c) => (c.query.get("mine") ? json(200, page([item({ id: 9, report_number: "05-ELV-009" })])) : c.query.get("report_number") ? new Promise<Response>((res) => { releaseOld = res; }) : json(200, page([item()]))),
+    });
+    renderApp("/reports");
+    await screen.findByText("05-ELV-001");
+    await userEvent.type(screen.getByLabelText("شماره گزارش"), "ELV");                  // filters A: slow
+    await waitFor(() => expect(screen.getByLabelText("شماره گزارش")).toHaveValue("ELV"));
+    await new Promise((r) => setTimeout(r, 450));                                         // let A be requested
+    await userEvent.click(screen.getByRole("checkbox", { name: "مشارکت من" }));         // filters B (+A text): answered at once
+    releaseOld(json(200, page([item({ id: 2, report_number: "05-ELV-002" })])));        // the old answer arrives late
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await screen.findByText("05-ELV-009")).toBeInTheDocument();
+    expect(screen.queryByText("05-ELV-002")).not.toBeInTheDocument();
   });
 
   it("sends filters to the API, reloads from page one, and sorts by a sortable header", async () => {
@@ -277,5 +297,22 @@ describe("report detail", () => {
     answer2(json(404, { detail: "report_not_found" }));
     expect(await screen.findByText("گزارش پیدا نشد یا اجازهٔ دیدن آن را ندارید.")).toBeInTheDocument();
     expect(screen.queryByText("شرح کامل گزارش")).not.toBeInTheDocument();                         // and after 2 failed
+  });
+});
+
+describe("useDebounced", () => {
+  it("follows the value after the quiet period and does NOT re-render forever when given a fresh-but-equal object each render", () => {
+    vi.useFakeTimers();
+    try {
+      let renders = 0;
+      const { result, rerender } = renderHook(({ q }: { q: string }) => { renders++; return useDebounced({ q }, 350); }, { initialProps: { q: "a" } });
+      rerender({ q: "a" });                                      // one unrelated re-render hands the hook a fresh-but-equal object
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(renders).toBe(2);                                   // equal content: no timer-driven state update, no render loop
+      rerender({ q: "ab" });
+      expect(result.current.q).toBe("a");                        // not yet
+      act(() => { vi.advanceTimersByTime(400); });
+      expect(result.current.q).toBe("ab");
+    } finally { vi.useRealTimers(); }
   });
 });

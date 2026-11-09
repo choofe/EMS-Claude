@@ -48,9 +48,11 @@ export function dayBound(text: string, end: boolean): string | "" | null {
   return at ? new Date(at.getTime() + (end ? 59_999 : 0)).toISOString() : null;
 }
 
-function useDebounced<T>(value: T, ms = 350): T {
+/** Follows `value` after `ms` of quiet. Compared by content: a fresh-but-equal object each render must not re-arm the timer (it would re-render forever). */
+export function useDebounced<T>(value: T, ms = 350): T {
   const [v, setV] = useState(value);
-  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
+  const content = JSON.stringify(value);
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [content, ms]); // eslint-disable-line react-hooks/exhaustive-deps
   return v;
 }
 
@@ -95,12 +97,14 @@ export function ReportsListPage() {
 
   useEffect(() => {
     const ac = new AbortController();
+    // the HTTP client detaches the abort listener once the headers arrive, so an aborted request can still deliver its body: check explicitly
+    const stale = () => ac.signal.aborted || keyRef.current !== key;
     moreAbort.current?.abort(); // a pending «بیشتر» of the previous filters is cancelled too
     setLoading(true); setError(null); setBusyMore(false);
     reportsApi.list(query, ac.signal)
-      .then((p) => { setItems(p.items); setCursor(p.next_cursor); setOther(p.other_group_reports_may_exist); })
-      .catch((e) => { if (!ac.signal.aborted) setError(e); })
-      .finally(() => { if (!ac.signal.aborted) setLoading(false); });
+      .then((p) => { if (!stale()) { setItems(p.items); setCursor(p.next_cursor); setOther(p.other_group_reports_may_exist); } })
+      .catch((e) => { if (!stale()) setError(e); })
+      .finally(() => { if (!stale()) setLoading(false); });
     return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
