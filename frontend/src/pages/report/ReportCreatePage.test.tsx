@@ -95,6 +95,17 @@ describe("report entry page", () => {
     expect(screen.getByLabelText("شرح گزارش")).toHaveAttribute("aria-describedby", "report-description-helper-text");
   });
 
+  it("the description is sent trimmed (padding never counts against the server's raw limit)", async () => {
+    const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
+    renderApp("/reports/new");
+    await chooseType("تعمیر خرابی جزئی");
+    await chooseEquipment();
+    await pasteText("  تعویض بلبرینگ" + " ".repeat(40) + "\n\n");
+    await userEvent.click(screen.getByRole("button", { name: "ثبت گزارش" }));
+    await waitFor(() => expect(posts(m, "/reports")).toHaveLength(1));
+    expect((posts(m, "/reports")[0].body as { description: string }).description).toBe("تعویض بلبرینگ");
+  });
+
   it("editing hours+minutes converts to minutes; invalid numbers are caught before sending", async () => {
     const m = mockFetch(routes({ "POST /reports": () => json(201, created) }));
     renderApp("/reports/new");

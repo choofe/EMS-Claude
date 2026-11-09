@@ -147,7 +147,7 @@ export function buildCreateBody(s: FormState, t: ReportType, draftId: number | n
   const body: ReportCreateBody = {
     report_type_id: s.typeId,
     event_datetime: when.toISOString(),
-    description: s.description,
+    description: s.description.trim(), // what the counter, validate() and the server (which strips) all measure
     participants: laborVisible(t, s)
       ? s.labor.filter((r) => r.userId !== null).map((r) => ({ user_id: r.userId!, minutes: rowMinutes(r)! }))
       : [],

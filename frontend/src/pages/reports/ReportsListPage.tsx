@@ -44,7 +44,8 @@ export function dayBound(text: string, end: boolean): string | "" | null {
   if (!text.trim()) return "";
   const d = parseJalaliDateText(text);
   const at = d && jalaliToDate({ ...d, hour: end ? 23 : 0, minute: end ? 59 : 0 });
-  return at ? at.toISOString() : null;
+  // the server compares date_to inclusively: the end bound is the last millisecond of the day, not 23:59:00
+  return at ? new Date(at.getTime() + (end ? 59_999 : 0)).toISOString() : null;
 }
 
 function useDebounced<T>(value: T, ms = 350): T {
@@ -108,13 +109,14 @@ export function ReportsListPage() {
     if (!cursor) return;
     const startedWith = key;
     const ac = new AbortController();
+    const stale = () => ac.signal.aborted || keyRef.current !== startedWith; // aborted even if the key came back to the same value
     moreAbort.current = ac;
     setBusyMore(true);
     try {
       const p = await reportsApi.list({ ...query, cursor }, ac.signal);
-      if (keyRef.current !== startedWith) return; // the filters changed meanwhile: this page belongs to an old list
+      if (stale()) return; // the filters changed meanwhile: this page belongs to an old list
       setItems((old) => [...old, ...p.items]); setCursor(p.next_cursor);
-    } catch (e) { if (keyRef.current === startedWith) setError(e); } finally { if (keyRef.current === startedWith) setBusyMore(false); }
+    } catch (e) { if (!stale()) setError(e); } finally { if (!stale()) setBusyMore(false); }
   }
 
   const visible = (columns.data ?? []).filter((c) => c.default_visible && CELLS[c.key]);

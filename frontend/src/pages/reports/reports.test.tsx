@@ -96,6 +96,25 @@ describe("reports list", () => {
     expect(screen.getByRole("button", { name: "بیشتر" })).toBeEnabled();
   });
 
+  it("a «بیشتر» aborted by a filter change is ignored even when the filters return to the same value", async () => {
+    let release: (r: Response) => void = () => {};
+    mockFetch({
+      ...routes(),
+      "GET /reports": (c) => (c.query.get("cursor") ? new Promise<Response>((res) => { release = res; }) : json(200, page([item(), ...(c.query.get("mine") ? [item({ id: 9, report_number: "05-ELV-009" })] : [])], c.query.get("mine") ? null : "CUR1"))),
+    });
+    renderApp("/reports");
+    await screen.findByText("05-ELV-001");
+    await userEvent.click(screen.getByRole("button", { name: "بیشتر" }));          // pending, belongs to filters A
+    await userEvent.click(screen.getByRole("checkbox", { name: "مشارکت من" }));    // B
+    await screen.findByText("05-ELV-009");
+    await userEvent.click(screen.getByRole("checkbox", { name: "مشارکت من" }));    // back to A
+    await waitFor(() => expect(screen.queryByText("05-ELV-009")).not.toBeInTheDocument());
+    release(json(200, page([item({ id: 2, report_number: "05-ELV-002" })])));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("05-ELV-002")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "بیشتر" })).toBeEnabled();
+  });
+
   it("sends filters to the API, reloads from page one, and sorts by a sortable header", async () => {
     const m = mockFetch({ ...routes(), "GET /reports": () => json(200, page([item()], "CUR1")) });
     renderApp("/reports");
@@ -128,7 +147,9 @@ describe("reports list", () => {
     await userEvent.type(screen.getByLabelText("از تاریخ (شمسی)"), "1405/01/01");
     await waitFor(() => expect(listCalls(m).some((c) => /^\d{4}-\d\d-\d\dT.*Z$/.test(c.query.get("date_from") ?? ""))).toBe(true));
     expect(dayBound("", false)).toBe("");
-    expect(dayBound("1405/01/01", true)! > dayBound("1405/01/01", false)!).toBe(true);
+    const start = new Date(dayBound("1405/01/01", false) as string).getTime();
+    const end = new Date(dayBound("1405/01/01", true) as string).getTime();
+    expect(end - start).toBe(24 * 3600 * 1000 - 1);                                              // the whole day, inclusive to the last millisecond
   });
 
   it("equipment history = the same list filtered by equipment_id, with a removable chip and the moved-equipment notice", async () => {
