@@ -42,3 +42,9 @@ users or groups is a future item.
 
 ## Profile operations on a login-less person
 Role change, password reset and forced password change answer `409 user_has_no_profile` (profiles are created in `Pb`).
+
+## Frontend contract (minimal, until `Pf`)
+`User` in `frontend/src/api/types.ts` has nullable `username` / `role_code` / `role_label_fa` plus `has_login`. The
+existing users page shows «بدون پروفایل» for a person without a profile, offers only name edit, groups and
+activate/deactivate for them, and never sends `role_code` in their edit. The full panel (group tags, no-group
+warning, profile creation) is `Pf`.
