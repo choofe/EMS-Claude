@@ -16,7 +16,7 @@ EXPECTED = {
     "AUDITOR": {
         C.REPORT_TYPES_VIEW: S.ALL, C.EQUIPMENT_VIEW: S.ALL, C.GROUPS_VIEW: S.ALL, C.REPORT_VIEW: S.ALL,
         C.REPORT_ANALYTICS: S.ALL, C.LABOR_VIEW: S.ALL, C.REPORT_EXPORT: S.ALL,
-        C.USERS_VIEW: S.ALL, C.AUDIT_VIEW: S.ALL,
+        C.USERS_VIEW: S.ALL, C.AUDIT_VIEW: S.ALL, C.PERSONNEL_MOBILE_VIEW: S.ALL,
     },
     "MANAGEMENT": {cap: S.ALL for cap in C},
 }
@@ -55,7 +55,8 @@ def test_unknown_role_fails_closed():
 
 def test_user_and_expert_cannot_administer():
     admin = {C.USERS_VIEW, C.USERS_MANAGE, C.GROUPS_MANAGE, C.EQUIPMENT_MANAGE, C.EXCEL_IMPORT,
-             C.REPORT_TYPES_MANAGE, C.SETTINGS_MANAGE, C.AUDIT_VIEW, C.REPORT_DELETE, C.REPORT_LOCK}
+             C.REPORT_TYPES_MANAGE, C.SETTINGS_MANAGE, C.AUDIT_VIEW, C.REPORT_DELETE, C.REPORT_LOCK,
+             C.PERSONNEL_MOBILE_VIEW}
     for role in ("USER", "EXPERT"):
         for cap in admin:
             assert scope_for(role, cap) is S.NONE

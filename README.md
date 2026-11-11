@@ -62,6 +62,11 @@ List, detail and equipment history pages; every role lands on `/reports` (dashbo
 
 Read side of reports: list with filters and cursor, detail, column registry, equipment history: see `docs/report-views.md`. No migration.
 
+### Personnel phase (in progress)
+
+Sub-phase `Pa` (data foundation: optional login profile, personnel code, mobile): see `docs/personnel.md`. Run
+`alembic upgrade head` (migration `e1c7b2d9f640`).
+
 ### Management API (Phase 4a)
 
 Users, groups, equipment, report types and settings: see `docs/management-api.md`. Run `alembic upgrade head` after

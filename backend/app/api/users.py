@@ -18,10 +18,11 @@ async def list_users(
     q: str | None = Query(None, max_length=64), role_code: str | None = Query(None, max_length=32),
     is_active: bool | None = None, group_id: int | None = None,
     limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0, le=MAX_OFFSET),
-    _: Principal = _view, db: AsyncSession = Depends(get_db),
+    viewer: Principal = _view, db: AsyncSession = Depends(get_db),
 ) -> dict:
     items, total = await user_admin.list_users(db, q=q, role_code=role_code, is_active=is_active,
-                                               group_id=group_id, limit=limit, offset=offset)
+                                               group_id=group_id, limit=limit, offset=offset,
+                                               include_mobile=user_admin.can_see_mobile(viewer))
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -36,12 +37,12 @@ async def create_user(body: UserCreate, actor: Principal = Depends(_manage), db:
         db, username=body.username, full_name=body.full_name, role_code=body.role_code, password=body.password,
         actor_id=actor.user_id, group_ids=body.group_ids, must_change_password=body.must_change_password,
     )
-    return await user_admin.get_user_view(db, user.id)
+    return await user_admin.get_user_view(db, user.id, user_admin.can_see_mobile(actor))
 
 
 @router.get("/{user_id}", response_model=UserOut)
-async def get_user(user_id: int, _: Principal = _view, db: AsyncSession = Depends(get_db)) -> dict:
-    return await user_admin.get_user_view(db, user_id)
+async def get_user(user_id: int, viewer: Principal = _view, db: AsyncSession = Depends(get_db)) -> dict:
+    return await user_admin.get_user_view(db, user_id, user_admin.can_see_mobile(viewer))
 
 
 @router.patch("/{user_id}", response_model=UserOut)

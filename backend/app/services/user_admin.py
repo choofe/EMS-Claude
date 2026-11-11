@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import DomainError
 from app.core.normalize import canonical_username, clean_text
 from app.core.password_policy import validate_password
-from app.core.permissions import Principal
+from app.core.permissions import Capability, Principal
 from app.core.security import ahash_password, utcnow
 from app.models.group import Group
 from app.models.refresh_token import RefreshToken
@@ -47,34 +47,44 @@ async def _user(db: AsyncSession, user_id: int, *, lock: bool = False) -> User:
     return user
 
 
-def _view(user: User, role: Role, group_ids: list[int]) -> dict:
+def can_see_mobile(actor: Principal) -> bool:
+    return actor.can(Capability.PERSONNEL_MOBILE_VIEW)
+
+
+def _view(user: User, role: Role | None, group_ids: list[int], include_mobile: bool) -> dict:
+    """A person without a login profile has username/role = None and has_login False. The mobile number is
+    returned only when the caller holds `personnel.mobile.view` (include_mobile), otherwise it is None."""
     return {
         "id": user.id, "username": user.username, "full_name": user.full_name,
-        "role_code": role.code, "role_label_fa": role.label_fa,
+        "first_name": user.first_name, "last_name": user.last_name, "personnel_code": user.personnel_code,
+        "mobile": user.mobile if include_mobile else None,
+        "role_code": role.code if role else None, "role_label_fa": role.label_fa if role else None,
+        "has_login": user.username is not None, "login_enabled": user.login_enabled,
         "is_active": user.is_active, "must_change_password": user.must_change_password,
         "group_ids": sorted(group_ids), "created_at": user.created_at, "updated_at": user.updated_at,
     }
 
 
-async def _views(db: AsyncSession, rows: list[tuple[User, Role]]) -> list[dict]:
+async def _views(db: AsyncSession, rows: list[tuple[User, Role | None]], include_mobile: bool = False) -> list[dict]:
     ids = [u.id for u, _ in rows]
     groups: dict[int, list[int]] = {i: [] for i in ids}
     if ids:
         for uid, gid in (await db.execute(select(UserGroup.user_id, UserGroup.group_id).where(UserGroup.user_id.in_(ids)))).all():
             groups[uid].append(gid)
-    return [_view(u, r, groups[u.id]) for u, r in rows]
+    return [_view(u, r, groups[u.id], include_mobile) for u, r in rows]
 
 
-async def get_user_view(db: AsyncSession, user_id: int) -> dict:
-    row = (await db.execute(select(User, Role).join(Role, Role.id == User.role_id).where(User.id == user_id))).first()
+async def get_user_view(db: AsyncSession, user_id: int, include_mobile: bool = False) -> dict:
+    row = (await db.execute(
+        select(User, Role).outerjoin(Role, Role.id == User.role_id).where(User.id == user_id))).first()
     if row is None:
         raise DomainError("user_not_found", 404)
-    return (await _views(db, [row]))[0]
+    return (await _views(db, [row], include_mobile))[0]
 
 
 async def list_users(
     db: AsyncSession, *, q: str | None, role_code: str | None, is_active: bool | None,
-    group_id: int | None, limit: int, offset: int,
+    group_id: int | None, limit: int, offset: int, include_mobile: bool = False,
 ) -> tuple[list[dict], int]:
     conds = []
     if q and q.strip():
@@ -86,10 +96,10 @@ async def list_users(
         conds.append(User.is_active.is_(is_active))
     if group_id is not None:
         conds.append(User.id.in_(select(UserGroup.user_id).where(UserGroup.group_id == group_id)))
-    base = select(User, Role).join(Role, Role.id == User.role_id).where(*conds)
+    base = select(User, Role).outerjoin(Role, Role.id == User.role_id).where(*conds)  # people without a profile too
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    rows = (await db.execute(base.order_by(User.username).limit(limit).offset(offset))).all()
-    return await _views(db, [(u, r) for u, r in rows]), total
+    rows = (await db.execute(base.order_by(User.username, User.id).limit(limit).offset(offset))).all()
+    return await _views(db, [(u, r) for u, r in rows], include_mobile), total
 
 
 # ---------------------------------------------------------------- guards
@@ -98,7 +108,7 @@ async def _lock_management(db: AsyncSession) -> None:
     """Serialise every operation that could reduce the number of active MANAGEMENT users."""
     await db.execute(
         select(User.id).join(Role, Role.id == User.role_id)
-        .where(Role.code == MANAGEMENT, User.is_active.is_(True)).with_for_update()
+        .where(Role.code == MANAGEMENT, User.is_active.is_(True), User.login_enabled.is_(True)).with_for_update()
     )
 
 
@@ -106,7 +116,7 @@ async def _assert_management_remains(db: AsyncSession) -> None:
     await db.flush()
     n = (await db.execute(
         select(func.count()).select_from(User).join(Role, Role.id == User.role_id)
-        .where(Role.code == MANAGEMENT, User.is_active.is_(True))
+        .where(Role.code == MANAGEMENT, User.is_active.is_(True), User.login_enabled.is_(True))
     )).scalar_one()
     if n == 0:
         await db.rollback()
@@ -122,6 +132,13 @@ async def _check_groups_assignable(db: AsyncSession, group_ids: set[int]) -> Non
             raise DomainError("group_not_found", 404, group_id=gid)
         if not found[gid].is_active:
             raise DomainError("group_inactive", 409, group_id=gid)
+
+
+def _require_profile(user: User) -> None:
+    """Password / role operations make sense only for a person who HAS a login profile (profiles are created in Pb);
+    writing them on a login-less row would also violate CHECK login_all_or_none."""
+    if user.username is None:
+        raise DomainError("user_has_no_profile", 409)
 
 
 async def _validated_password(db: AsyncSession, password: str, username: str) -> str:
@@ -176,7 +193,9 @@ async def update_user(
             raise DomainError("cannot_change_own_role", 409)
         await _lock_management(db)  # before reading the target, so concurrent demotions serialise
     user = await _user(db, user_id, lock=True)
-    old_role = (await db.get(Role, user.role_id)).code
+    if new_role is not None:
+        _require_profile(user)
+    old_role = (await db.get(Role, user.role_id)).code if user.role_id is not None else None
 
     if new_name is not None and new_name != user.full_name:
         add_audit(db, actor_id=actor.user_id, action="user.update", entity_type="user", entity_id=user.id,
@@ -189,7 +208,7 @@ async def update_user(
         if old_role == MANAGEMENT:
             await _assert_management_remains(db)
     await db.commit()
-    return await get_user_view(db, user_id)
+    return await get_user_view(db, user_id, can_see_mobile(actor))
 
 
 async def set_active(db: AsyncSession, *, actor: Principal, user_id: int, active: bool) -> dict:
@@ -206,7 +225,7 @@ async def set_active(db: AsyncSession, *, actor: Principal, user_id: int, active
         add_audit(db, actor_id=actor.user_id, action="user.activate" if active else "user.deactivate",
                   entity_type="user", entity_id=user.id)
     await db.commit()
-    return await get_user_view(db, user_id)
+    return await get_user_view(db, user_id, can_see_mobile(actor))
 
 
 async def set_groups(db: AsyncSession, *, actor: Principal, user_id: int, group_ids: list[int]) -> dict:
@@ -223,7 +242,7 @@ async def set_groups(db: AsyncSession, *, actor: Principal, user_id: int, group_
         add_audit(db, actor_id=actor.user_id, action="user.groups_change", entity_type="user", entity_id=user.id,
                   metadata={"added": sorted(to_add), "removed": sorted(to_remove)})
     await db.commit()
-    return await get_user_view(db, user_id)
+    return await get_user_view(db, user_id, can_see_mobile(actor))
 
 
 # ---------------------------------------------------------------- passwords / sessions
@@ -231,6 +250,7 @@ async def set_groups(db: AsyncSession, *, actor: Principal, user_id: int, group_
 async def _apply_password_reset(
     db: AsyncSession, user: User, password: str, force_change: bool, actor_id: int | None,
 ) -> None:
+    _require_profile(user)
     user.hashed_password = await _validated_password(db, password, user.username)
     user.must_change_password = force_change
     await revoke_all_user_tokens(db, user.id)
@@ -256,22 +276,23 @@ async def reset_password_for(
         raise DomainError("use_change_password_endpoint", 409)  # own password: needs the current password
     user = await _user(db, user_id, lock=True)
     await _apply_password_reset(db, user, password, force_change, actor.user_id)
-    return await get_user_view(db, user_id)
+    return await get_user_view(db, user_id, can_see_mobile(actor))
 
 
 async def force_password_change_user(db: AsyncSession, *, actor: Principal, user_id: int) -> dict:
     user = await _user(db, user_id, lock=True)
+    _require_profile(user)
     user.must_change_password = True
     await revoke_all_user_tokens(db, user.id)
     add_audit(db, actor_id=actor.user_id, action="user.force_password_change", entity_type="user", entity_id=user.id)
     await db.commit()
-    return await get_user_view(db, user_id)
+    return await get_user_view(db, user_id, can_see_mobile(actor))
 
 
 async def force_password_change_all(db: AsyncSession, *, actor_id: int | None = None) -> int:
     """Every ACTIVE user (whatever their current password looks like) must set a new password at next
     login, and every existing session is ended. Returns the user count."""
-    result = await db.execute(update(User).where(User.is_active.is_(True)).values(must_change_password=True))
+    result = await db.execute(update(User).where(User.is_active.is_(True), User.username.is_not(None)).values(must_change_password=True))
     await db.execute(update(RefreshToken).where(RefreshToken.revoked_at.is_(None)).values(revoked_at=utcnow()))
     count = result.rowcount or 0
     add_audit(db, actor_id=actor_id, action="auth.force_password_change_all", entity_type="system",

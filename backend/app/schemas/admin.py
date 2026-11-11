@@ -28,10 +28,16 @@ class Page(BaseModel, Generic[T]):
 # ---- users
 class UserOut(BaseModel):
     id: int
-    username: str
+    username: str | None  # None = a person without a login profile
     full_name: str
-    role_code: str
-    role_label_fa: str
+    first_name: str | None
+    last_name: str | None
+    personnel_code: int | None
+    mobile: str | None  # only for callers holding personnel.mobile.view, else None
+    role_code: str | None
+    role_label_fa: str | None
+    has_login: bool
+    login_enabled: bool
     is_active: bool
     must_change_password: bool
     group_ids: list[int]
