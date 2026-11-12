@@ -32,16 +32,6 @@ target_metadata = Base.metadata
 if not config.get_main_option("sqlalchemy.url"):
     config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
-# === تغییر جدید: اجبار به استفاده از درایور asyncpg ===
-from sqlalchemy.engine import make_url
-_db_url = config.get_main_option("sqlalchemy.url")
-if _db_url:
-    _parsed = make_url(_db_url)
-    if _parsed.drivername in ("postgresql", "postgresql+psycopg2"):
-        _parsed = _parsed.set(drivername="postgresql+asyncpg")
-        config.set_main_option("sqlalchemy.url", _parsed.render_as_string(hide_password=False))
-# === پایان تغییر ===
-
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
