@@ -27,3 +27,6 @@ dist/
 # TypeScript build artifacts (tsc -b composite mode)
 *.tsbuildinfo
 .tsbuild-node/
+
+# Database dumps never go into git (a real dump was committed once on this branch)
+*.dump
