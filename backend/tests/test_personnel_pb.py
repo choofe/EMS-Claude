@@ -279,3 +279,28 @@ async def test_no_group_alert_does_not_count_a_person_promoted_to_an_organisatio
     assert (await api.get("/users/no-group-alert", "boss")).json()["count"] == 1
     await api.patch(f"/users/{p.id}", "boss", json={"role_code": "AUDITOR"})
     assert (await api.get("/users/no-group-alert", "boss")).json()["count"] == 0
+
+
+async def test_note_limit_is_the_same_in_schema_and_service(api, world):
+    uid = world.ali.id
+    ok = await api.put(f"/users/{uid}/username", "boss", json={"username": "ali2", "reason": "OTHER", "note": "n" * 200})
+    assert ok.status_code == 200
+    for note in ("n" * 201, "n" * 300):
+        r = await api.put(f"/users/{uid}/username", "boss", json={"username": "ali3", "reason": "OTHER", "note": note})
+        assert r.status_code == 422 and "invalid_reason_note" not in r.text  # refused by the schema, not the service
+    await api.put(f"/users/{uid}/personnel-code", "boss", json={"personnel_code": "5"})
+    r = await api.put(f"/users/{uid}/personnel-code", "boss", json={"personnel_code": "6", "reason": "OTHER", "note": "n" * 201})
+    assert r.status_code == 422
+
+
+async def test_enabling_a_login_revokes_any_token_that_survived_the_disable(api, world, db):
+    from datetime import timedelta
+    from app.core.security import utcnow
+    await api.post(f"/users/{world.ali.id}/login/disable", "boss")
+    # a token created by a sign-in that raced with the disable (inserted directly)
+    db.add(m.RefreshToken(user_id=world.ali.id, family_id="f" * 32, token_hash="h" * 64,
+                          expires_at=utcnow() + timedelta(days=1)))
+    await db.commit()
+    await api.post(f"/users/{world.ali.id}/login/enable", "boss")
+    rows = (await db.execute(select(m.RefreshToken).where(m.RefreshToken.user_id == world.ali.id))).scalars().all()
+    assert rows and all(r.revoked_at is not None for r in rows)

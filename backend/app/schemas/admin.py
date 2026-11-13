@@ -84,7 +84,7 @@ class PersonCreate(Request):
 class PersonnelCodeSet(Request):
     personnel_code: str = Field(min_length=1, max_length=8)
     reason: Reason | None = None  # required when an existing code is CHANGED
-    note: str | None = Field(default=None, max_length=300)  # required with reason OTHER
+    note: str | None = Field(default=None, max_length=200)  # same limit as the service  # required with reason OTHER
 
 
 class MobileSet(Request):
@@ -94,7 +94,7 @@ class MobileSet(Request):
 class UsernameSet(Request):
     username: str = Field(min_length=1, max_length=64)
     reason: Reason
-    note: str | None = Field(default=None, max_length=300)
+    note: str | None = Field(default=None, max_length=200)  # same limit as the service
 
 
 class NoGroupAlertOut(BaseModel):
@@ -186,7 +186,7 @@ class ReportTypeCreate(Request):
     is_failure: bool = False
     labor_mode: Mode = "REQUIRED"
     equipment_mode: Mode = "REQUIRED"
-    help_fa: str | None = Field(default=None, max_length=300)
+    help_fa: str | None = Field(default=None, max_length=200)  # same limit as the service
 
 
 class ReportTypeUpdate(Request):
@@ -194,7 +194,7 @@ class ReportTypeUpdate(Request):
     is_failure: bool | None = None
     labor_mode: Mode | None = None
     equipment_mode: Mode | None = None
-    help_fa: str | None = Field(default=None, max_length=300)  # explicit null clears it
+    help_fa: str | None = Field(default=None, max_length=200)  # same limit as the service  # explicit null clears it
 
 
 # ---- settings

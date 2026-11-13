@@ -187,8 +187,10 @@ async def set_login_enabled(db: AsyncSession, *, actor: Principal, user_id: int,
         raise DomainError("person_inactive", 409)
     if user.login_enabled != enabled:
         user.login_enabled = enabled
+        # Both directions: disabling ends the sessions; enabling also revokes, so a refresh token that a sign-in
+        # created while the switch was being turned off can never come back to life (review finding on PR #19).
+        await revoke_all_user_tokens(db, user.id)
         if not enabled:
-            await revoke_all_user_tokens(db, user.id)
             await _assert_management_remains(db)
         add_audit(db, actor_id=actor.user_id, action="user.login_enable" if enabled else "user.login_disable",
                   entity_type="user", entity_id=user.id)
