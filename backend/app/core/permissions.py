@@ -50,6 +50,7 @@ class Capability(StrEnum):
     AUDIT_VIEW = "audit.view"
     REPORT_DELETE = "report.delete"      # soft delete
     REPORT_LOCK = "report.lock"          # lock / unlock
+    PERSONNEL_MOBILE_VIEW = "personnel.mobile.view"  # a person's mobile number (MANAGEMENT, AUDITOR only)
 
 
 C = Capability
@@ -89,6 +90,7 @@ _AUDITOR = {  # read / report / export organisation-wide, nothing that writes
     C.REPORT_EXPORT: S.ALL,
     C.USERS_VIEW: S.ALL,
     C.AUDIT_VIEW: S.ALL,
+    C.PERSONNEL_MOBILE_VIEW: S.ALL,
 }
 
 _MANAGEMENT = {

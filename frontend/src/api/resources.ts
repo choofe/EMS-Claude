@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, ReportColumn, ReportDetail, ReportListPage, ReportListQuery, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -16,7 +16,7 @@ export const usersApi = {
     request<Page<User>>("/users", { query: q }),
   create: (body: { username: string; full_name: string; role_code: string; password: string; group_ids: number[]; must_change_password: boolean }) =>
     request<User>("/users", { method: "POST", body }),
-  update: (id: number, body: { full_name?: string; role_code?: string }) =>
+  update: (id: number, body: { full_name?: string; first_name?: string; last_name?: string; role_code?: string }) =>
     request<User>(`/users/${id}`, { method: "PATCH", body }),
   setActive: (id: number, active: boolean) =>
     request<User>(`/users/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" }),
@@ -89,6 +89,9 @@ export const importApi = {
 };
 
 export const reportsApi = {
+  list: (q: ReportListQuery, signal?: AbortSignal) => request<ReportListPage>("/reports", { query: q as Record<string, string | number | boolean | undefined>, signal }),
+  columns: () => request<ReportColumn[]>("/reports/columns"),
+  detail: (id: number) => request<ReportDetail>(`/reports/${id}`),
   entryConfig: () => request<EntryConfig>("/reports/entry-config"),
   candidates: (q: { equipment_id?: number; group_id?: number; q?: string; limit?: number; favorites_only?: boolean }) =>
     request<Candidate[]>("/reports/participant-candidates", { query: q }),

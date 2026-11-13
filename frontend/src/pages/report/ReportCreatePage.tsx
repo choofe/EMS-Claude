@@ -150,7 +150,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
       const s = formRef.current;
       if (isBlank(s) && !draftRef.current) return true; // nothing worth a server row
       setSave({ kind: "saving" });
-      const payload = toDraftPayload(s);
+      const payload = toDraftPayload(s, cfg.max_description_length);
       try {
         const d = draftRef.current
           ? await reportsApi.updateDraft(draftRef.current.id, payload, draftRef.current.version)
@@ -158,7 +158,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
         draftRef.current = { id: d.id, version: d.version };
         saves.current += 1;
         savedText.current = s.description;
-        dirty.current = JSON.stringify(toDraftPayload(formRef.current)) !== JSON.stringify(payload); // typed meanwhile?
+        dirty.current = JSON.stringify(toDraftPayload(formRef.current, cfg.max_description_length)) !== JSON.stringify(payload); // typed meanwhile?
         dirtySince.current = dirty.current ? Date.now() : null;
         persistLocal(); // the local copy now builds on this server version
         clearUndo(uid); setUndo(null); // the replaced version only has to survive until the next draft version
@@ -247,6 +247,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
   }
   const openLabor = () => setForm((f) => withDefaultLabor({ ...f, laborOpened: true }, type, author, cfg.default_labor_minutes));
   const context = participantContext(type, form);
+  const descLen = form.description.trim().length; // same basis as validate() and the server (both trim)
   const issueOf = (field: Issue["field"]) => issues.find((i) => i.field === field)?.message;
   const laborIssues = issues.filter((i) => i.field === "labor").map((i) => i.message).join(" ");
 
@@ -322,7 +323,7 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
       // Submit FROM a draft: the server consumes it in the same transaction, which also protects a second device or tab
       // that still holds the same draft from creating a duplicate.
       try {
-        const d = await reportsApi.createDraft(toDraftPayload(form));
+        const d = await reportsApi.createDraft(toDraftPayload(form, cfg.max_description_length));
         draftRef.current = { id: d.id, version: d.version };
       } catch { /* e.g. another draft exists elsewhere, or offline: submit without this protection */ }
     }
@@ -464,8 +465,18 @@ function ReportForm({ boot, onReload }: { boot: Boot; onReload: () => void }) {
 
           <DateTimeField dateText={form.dateText} timeText={form.timeText} error={issueOf("datetime")} onChange={(v) => patch(v)} />
 
-          <TextField label="شرح گزارش" multiline minRows={4} value={form.description} onChange={(e) => patch({ description: e.target.value })}
-            error={!!issueOf("description")} helperText={issueOf("description") ?? `${toPersianDigits(String(form.description.length))} / ${toPersianDigits(String(cfg.max_description_length))}`} />
+          <TextField id="report-description" label="شرح گزارش" multiline minRows={4} value={form.description} onChange={(e) => patch({ description: e.target.value })}
+            error={!!issueOf("description") || descLen > cfg.max_description_length}
+            helperText={(
+              <>
+                {issueOf("description") && <span style={{ display: "block" }}>{issueOf("description")}</span>}
+                {/* the counter stays visible next to an error: the author must see how much is too much */}
+                <span style={{ display: "block" }}>
+                  {toPersianDigits(String(descLen))} / {toPersianDigits(String(cfg.max_description_length))}
+                  {descLen > cfg.max_description_length && ` — ${toPersianDigits(String(descLen - cfg.max_description_length))} نویسه بیش از حد مجاز`}
+                </span>
+              </>
+            )} />
 
           {laborMode(type) === "OPTIONAL" && !form.laborOpened && (
             <Box><Button variant="outlined" onClick={openLabor}>اضافه کردن ساعات افراد - اختیاری</Button></Box>

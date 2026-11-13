@@ -35,7 +35,7 @@ non-UTC timezone and share boundary fixtures with the backend (`tests/test_jalal
 users TYPE dates (Phase 6) — **not used**: typed Jalali dates are converted by `lib/jalali.ts`, which searches with the same `Intl` formatter that renders dates (so display and input can never disagree) and rejects non-existent days.
 
 ## Pages
-Login · forced/voluntary change-password · Dashboard (MANAGEMENT, AUDITOR) · Users (MANAGEMENT writes, AUDITOR reads) ·
+Login · forced/voluntary change-password · Reports list and detail (all roles, Phase 7b) · Dashboard (MANAGEMENT, AUDITOR, at `/dashboard`) · Users (MANAGEMENT writes, AUDITOR reads) ·
 Groups · Equipment · Report types (everyone reads their scope; MANAGEMENT writes) · Settings (MANAGEMENT only).
 
 ## Equipment import page (Phase 5)
@@ -59,8 +59,25 @@ Groups · Equipment · Report types (everyone reads their scope; MANAGEMENT writ
 - **No request hangs the UI**: every API call times out after 30 s (uploads/downloads 120 s) and fails with «ارتباط با سرور برقرار نشد»; a heartbeat (`POST /reports/heartbeat`, 60 s) warns when the server is unreachable.
 - Reloading never renders the previous load's data (loads are stamped with an epoch): a discarded draft cannot reappear.
 - **Report types page** (management/auditor only: no menu entry, route guarded; users meet the types through the picker and its guide) edits `labor_mode`, `equipment_mode` and the guide text.
-- **Landing page** (`lib/access.ts: landingPath`): USER and EXPERT start at `/reports/new`; MANAGEMENT/AUDITOR keep the dashboard until the Phase 7 reports list exists (two marked lines to switch).
+- **Landing page** (`lib/access.ts: landingPath`): every signed-in role starts at `/reports` (Phase 7b, below); the dashboard is at `/dashboard`.
 - Not done (later): offline-lite on phones, idle-timeout UI countdown, UX batch (shorter menus, «اکنون» rounding, day buttons, apply-to-all), quick-add people, teams.
+
+## Reports list, detail and equipment history (Phase 7b)
+`/` sends EVERY signed-in role to `/reports` (`lib/access.ts: landingPath`, decided by Amin 2026-11-07); what the list shows is
+decided by the backend scope (docs/report-views.md). The dashboard moved to `/dashboard`.
+- **List** (`pages/reports/ReportsListPage.tsx`): table on desktop, cards on phones (same `md` breakpoint as the shell). Table columns
+  come from `GET /reports/columns` (only `default_visible` ones that have a cell renderer; a future per-user choice only changes that
+  list); `event_datetime`/`created_at` headers sort. Filters and sort sit behind one «فیلتر و مرتب‌سازی» button (closed by default on a phone, open on desktop; a badge counts active filters, «پاک کردن فیلترها» resets them; the sort selector is the only sort control on phones). Filters: report number, equipment code, description text, type, group, Jalali
+  from/to date (typed text; an invalid date is shown and never sent; `to` = last minute of that day), «مشارکت من», «فقط عمومی». Text
+  filters are debounced; any filter change restarts from the first page; «بیشتر» appends the next cursor page, and an answer that
+  arrives after the filters changed is dropped. General reports carry an «عمومی (بدون تجهیز)» chip.
+- The shell's menu button toggles the drawer (a second tap closes it; fixed in 7b).
+- **Equipment history** = the same list with `?equipment_id=…&equipment=CODE` (entry: the history icon on each row of the equipment page,
+  and the equipment link in a report). A chip shows and clears the filter; `other_group_reports_may_exist` shows the notice
+  «ممکن است گزارش‌هایی از گروه قبلی وجود داشته باشد» (never a number).
+- **Detail** (`ReportDetailPage.tsx`): full description, lock state, and labor behind a collapsed button («دیدن ساعات کاری ثبت‌شده» / «پنهان کردن»). With rows the button appears (wording «دیدن ساعت کاری من» and an own-row-only note when `participants_complete` is false); a complete empty list shows «برای این گزارش ساعت کاری ثبت نشده است»; when the viewer may see no row at all the whole labor section is omitted (no button, and never a «no labor recorded» claim). Missing, foreign and
+  soft-deleted reports give one neutral message (`404 report_not_found`).
+- Not yet: the «edited» marker (7c), lock/delete actions (7d), priority (7e–7g), per-user column choice, Jalali date picker (6e).
 
 ## Forgotten password (current process)
 There is no email/SMS service in the MVP, so there is no self-service reset. The user tells a manager; the manager opens
@@ -69,4 +86,4 @@ are ended). The login page says so. A later "request a reset" page would only re
 (username-only form, identical response for existing/unknown names, rate-limited) — needs a new table and its own decision.
 
 ## Not yet covered
-Real-browser run (only jsdom tests so far); bundle splitting (single ~600 kB chunk); report detail/history pages (Phase 7+); Audit-log viewer.
+Real-browser run (only jsdom tests so far); bundle splitting (single ~600 kB chunk); report edit/lock/priority screens (Phase 7c+); Audit-log viewer.

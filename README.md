@@ -1,14 +1,21 @@
 # EMS-Claude — Equipment Maintenance Reporting System
 
 Equipment/maintenance activity reporting system (not a full CMMS).
-See `docs/ems-handoff.md` for full project history: Phase 0 decisions,
-Phase 1 status, and next steps.
+**Status:** Phases 0-6 are accepted and merged into `main` (tag `phase6-accepted`); Phase 7
+(reports list/detail, editing, priority system) is next.
+
+Project documents (synced here at the end of every phase; the project files remain the source of truth):
+
+- `docs/ems-master-prompt.md` — governing requirements, business rules, quality standards and phase plan.
+- `docs/ems-handoff.md` — current progress, accepted decisions, open questions and next steps.
 
 ## Repository layout
 
 ```
-backend/   FastAPI + SQLAlchemy async + Alembic backend (Phase 1 skeleton)
-docs/      Project handoff / decision log
+backend/   FastAPI + SQLAlchemy async + Alembic backend
+frontend/  React + TypeScript + Vite + MUI (RTL, Persian)
+scripts/   Development helper scripts
+docs/      Project documents (Master Prompt, Handoff) and technical docs per phase
 ```
 
 ## Backend quickstart
@@ -45,7 +52,20 @@ Excel/CSV import per group with preview, error report and undo: see `docs/equipm
 
 Create reports with server-side drafts, gap-free numbering, per-type labor rules and "general" (equipment-less) reports:
 see `docs/report-creation.md` (API) and the "Report entry page" section of `docs/frontend.md`. Run `alembic upgrade head`
-(migrations `f6c3d9a7b104`, `a7d4e1b8c215`, `b8e5f2a9c326`, `c9f6a3b0d437`). Page: `/reports/new`.
+(migrations `f6c3d9a7b104`, `a7d4e1b8c215`, `b8e5f2a9c326`, `c9f6a3b0d437`, and `d0b8c4f1a539` for favorite people). Page: `/reports/new`.
+
+### Reports list UI (Phase 7b)
+
+List, detail and equipment history pages; every role lands on `/reports` (dashboard at `/dashboard`): see `docs/frontend.md`.
+
+### Reports list/detail (Phase 7a)
+
+Read side of reports: list with filters and cursor, detail, column registry, equipment history: see `docs/report-views.md`. No migration.
+
+### Personnel phase (in progress)
+
+Sub-phase `Pa` (data foundation: optional login profile, personnel code, mobile): see `docs/personnel.md`. Run
+`alembic upgrade head` (migration `e1c7b2d9f640`).
 
 ### Management API (Phase 4a)
 

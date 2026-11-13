@@ -15,6 +15,14 @@ const ok = (o: Partial<FormState> = {}): FormState => ({ ...emptyState(NOW), equ
 const fields = (s: FormState, t: ReportType) => validate(s, t, cfg, NOW).map((i) => i.field);
 
 describe("which sections a type shows (labor and equipment share one rule set)", () => {
+  it("a draft keeps the description exactly as typed, except padding beyond the server's raw limit (2x) which is trimmed", () => {
+    const ok2 = (description: string) => toDraftPayload({ ...ok(), description }, 20).description;
+    expect(ok2("abc   ")).toBe("abc   ");                                   // normal typing: trailing space kept
+    expect(ok2("x".repeat(39) + " ")).toBe("x".repeat(39) + " ");           // exactly at the raw limit (40): untouched
+    expect(ok2("abc" + " ".repeat(60))).toBe("abc");                        // beyond it: the padding goes, the draft can still be saved
+    expect(toDraftPayload({ ...ok(), description: "abc" + " ".repeat(60) }).description).toBe("abc" + " ".repeat(60));  // no limit given = unchanged
+  });
+
   it("REQUIRED always shows, NONE never, OPTIONAL only after the author asks", () => {
     const s = emptyState(NOW);
     for (const kind of ["labor", "equipment"] as const) {
