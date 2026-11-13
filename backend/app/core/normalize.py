@@ -82,7 +82,10 @@ def compose_full_name(first_name: str, last_name: str) -> str:
     """full_name is always composed from the two name columns on every write (old rows keep their full_name only)."""
     first = clean_text(first_name, max_length=64, code="invalid_first_name")
     last = clean_text(last_name, max_length=64, code="invalid_last_name")
-    return f"{first} {last}"
+    full = f"{first} {last}"
+    if len(full) > 128:  # users.full_name is String(128): 64 + 1 + 64 would not fit
+        raise DomainError("invalid_full_name", 422)
+    return full
 
 
 def clean_text(raw: str | None, *, max_length: int, code: str) -> str:

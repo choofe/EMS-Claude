@@ -10,9 +10,9 @@ users-panel UI = `Pf`); `Pa` prepares the schema, the sign-in guards and the rea
 | `username`, `hashed_password`, `role_id` | NULLable, but `CHECK login_all_or_none`: all three set or all three NULL. A person without a profile has no role, hence NO capability (`scope_for` fails closed), and can never authenticate. |
 | `login_enabled` | "the profile may sign in" (existing rows: true). `CHECK`: it cannot be true without a username. |
 | `is_active` | keeps meaning "the person is active". |
-| `first_name`, `last_name` | optional (old users keep only `full_name`); `full_name` is composed from them on every write (`compose_full_name`, used from `Pb` on). |
+| `first_name`, `last_name` | optional (old users keep only `full_name`). `full_name` is composed from them (`compose_full_name`, at most 128 characters in total = the column size). |
 | `personnel_code` | integer 1–9999 (`CHECK`), unique among non-NULL values (partial unique index `uq_users_personnel_code`). |
-| `mobile` | normalised `09xxxxxxxxx` (`canonical_mobile` accepts `+98`, `0098`, `98`, missing leading 0, Persian digits), unique among non-NULL values (`uq_users_mobile`). |
+| `mobile` | normalised `09xxxxxxxxx` (`canonical_mobile` accepts `+98`, `0098`, `98`, missing leading 0, Persian digits), unique among non-NULL values (`uq_users_mobile`). The `CHECK mobile_format` demands 11 characters, prefix `09` and ASCII digits only (spelled with `substr` + `IN`, so it means the same on SQLite and PostgreSQL). |
 
 ## Sign-in guard
 Login, `load_principal` (every request) and `change_password` require credentials AND `login_enabled` AND `is_active`.
@@ -43,8 +43,13 @@ users or groups is a future item.
 ## Profile operations on a login-less person
 Role change, password reset and forced password change answer `409 user_has_no_profile` (profiles are created in `Pb`).
 
+## Name contract (`PATCH /users/{id}`)
+- A person who has `first_name`/`last_name`: they are authoritative. The request must send BOTH (`both_name_parts_required`), `full_name` is composed by the server and, if also sent, must equal the composition (`full_name_conflicts_with_parts`). Sending `full_name` alone answers `422 name_parts_required`. A name is never split from free text.
+- An old user without parts: still edited through `full_name`; his parts stay empty.
+- The audit entry carries the before/after of `full_name` and, when parts were sent, of both parts.
+
 ## Frontend contract (minimal, until `Pf`)
 `User` in `frontend/src/api/types.ts` has nullable `username` / `role_code` / `role_label_fa` plus `has_login`. The
-existing users page shows «بدون پروفایل» for a person without a profile, offers only name edit, groups and
+existing users page edits a person who has first/last name through those two fields (and an old user through the full name), shows «بدون پروفایل» for a person without a profile, offers only name edit, groups and
 activate/deactivate for them, and never sends `role_code` in their edit. The full panel (group tags, no-group
 warning, profile creation) is `Pf`.

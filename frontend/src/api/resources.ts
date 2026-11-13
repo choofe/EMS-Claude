@@ -16,7 +16,7 @@ export const usersApi = {
     request<Page<User>>("/users", { query: q }),
   create: (body: { username: string; full_name: string; role_code: string; password: string; group_ids: number[]; must_change_password: boolean }) =>
     request<User>("/users", { method: "POST", body }),
-  update: (id: number, body: { full_name?: string; role_code?: string }) =>
+  update: (id: number, body: { full_name?: string; first_name?: string; last_name?: string; role_code?: string }) =>
     request<User>(`/users/${id}`, { method: "PATCH", body }),
   setActive: (id: number, active: boolean) =>
     request<User>(`/users/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" }),

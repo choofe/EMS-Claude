@@ -56,6 +56,8 @@ class UserCreate(Request):
 
 class UserUpdate(Request):
     full_name: str | None = Field(default=None, max_length=128)
+    first_name: str | None = Field(default=None, max_length=64)
+    last_name: str | None = Field(default=None, max_length=64)
     role_code: str | None = Field(default=None, max_length=32)
 
 

@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
-from app.core.normalize import canonical_username, clean_text
+from app.core.normalize import canonical_username, clean_text, compose_full_name
 from app.core.password_policy import validate_password
 from app.core.permissions import Capability, Principal
 from app.core.security import ahash_password, utcnow
@@ -185,8 +185,21 @@ async def create_user(
 
 async def update_user(
     db: AsyncSession, *, actor: Principal, user_id: int, full_name: str | None = None, role_code: str | None = None,
+    first_name: str | None = None, last_name: str | None = None,
 ) -> dict:
+    """Name contract: when a row has first_name/last_name they are authoritative and full_name is composed from them
+    (never split from a free text); an old user with no components is still edited through full_name."""
     new_name = clean_text(full_name, max_length=128, code="invalid_full_name") if full_name is not None else None
+    parts = None
+    if first_name is not None or last_name is not None:
+        if first_name is None or last_name is None:
+            raise DomainError("both_name_parts_required", 422)
+        parts = (clean_text(first_name, max_length=64, code="invalid_first_name"),
+                 clean_text(last_name, max_length=64, code="invalid_last_name"))
+        composed = compose_full_name(*parts)
+        if new_name is not None and new_name != composed:
+            raise DomainError("full_name_conflicts_with_parts", 422)
+        new_name = composed
     new_role = await _role(db, role_code) if role_code is not None else None
     if new_role is not None:
         if user_id == actor.user_id:
@@ -197,10 +210,17 @@ async def update_user(
         _require_profile(user)
     old_role = (await db.get(Role, user.role_id)).code if user.role_id is not None else None
 
-    if new_name is not None and new_name != user.full_name:
+    if parts is None and new_name is not None and (user.first_name is not None or user.last_name is not None):
+        raise DomainError("name_parts_required", 422)  # editing full_name alone would contradict the stored parts
+    new_first, new_last = parts if parts is not None else (user.first_name, user.last_name)
+    if (new_name is not None and new_name != user.full_name) or (new_first, new_last) != (user.first_name, user.last_name):
+        changes = {"full_name": [user.full_name, new_name or user.full_name]}
+        if parts is not None:
+            changes.update(first_name=[user.first_name, new_first], last_name=[user.last_name, new_last])
         add_audit(db, actor_id=actor.user_id, action="user.update", entity_type="user", entity_id=user.id,
-                  metadata={"changes": {"full_name": [user.full_name, new_name]}})
-        user.full_name = new_name
+                  metadata={"changes": changes})
+        user.full_name = new_name or user.full_name
+        user.first_name, user.last_name = new_first, new_last
     if new_role is not None and new_role.id != user.role_id:
         user.role_id = new_role.id
         add_audit(db, actor_id=actor.user_id, action="user.role_change", entity_type="user", entity_id=user.id,

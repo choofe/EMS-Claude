@@ -40,7 +40,7 @@ export function UsersPage() {
   const [rows, setRows] = useState(25);
   const [dlg, setDlg] = useState<Dlg>(null);
   const [menu, setMenu] = useState<{ el: HTMLElement; user: User } | null>(null);
-  const [form, setForm] = useState({ username: "", full_name: "", role_code: "USER", password: "", must_change: true, group_ids: [] as number[] });
+  const [form, setForm] = useState({ username: "", full_name: "", first_name: "", last_name: "", role_code: "USER", password: "", must_change: true, group_ids: [] as number[] });
 
   const roles = useLoad(() => usersApi.roles(), []);
   const groups = useLoad(() => groupsApi.list({ limit: 100, offset: 0 }), []);
@@ -51,7 +51,7 @@ export function UsersPage() {
   const roleList = roles.data ?? [];
 
   const open = (d: Dlg, u?: User) => {
-    setForm({ username: u?.username ?? "", full_name: u?.full_name ?? "", role_code: u?.role_code ?? "USER", password: "", must_change: true, group_ids: u?.group_ids ?? [] });
+    setForm({ username: u?.username ?? "", full_name: u?.full_name ?? "", first_name: u?.first_name ?? "", last_name: u?.last_name ?? "", role_code: u?.role_code ?? "USER", password: "", must_change: true, group_ids: u?.group_ids ?? [] });
     setDlg(d);
     setMenu(null);
   };
@@ -145,12 +145,22 @@ export function UsersPage() {
       <FormDialog open={dlg?.kind === "edit"} title={`ویرایش ${form.username || form.full_name}`} onClose={close}
         onSubmit={async () => {
           if (dlg?.kind !== "edit") return;
-          const body: { full_name?: string; role_code?: string } = { full_name: form.full_name };
+          // a person whose name is stored as first + last name is edited through those two fields (full_name is composed by the server)
+          const hasParts = dlg.user.first_name !== null || dlg.user.last_name !== null;
+          const body: { full_name?: string; first_name?: string; last_name?: string; role_code?: string } =
+            hasParts ? { first_name: form.first_name, last_name: form.last_name } : { full_name: form.full_name };
           if (dlg.user.has_login && form.role_code !== dlg.user.role_code) body.role_code = form.role_code;  // a person without a profile has no role to change
           await usersApi.update(dlg.user.id, body);
           list.reload();
         }}>
-        <TextField label="نام کامل" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+        {dlg?.kind === "edit" && (dlg.user.first_name !== null || dlg.user.last_name !== null) ? (
+          <>
+            <TextField label="نام" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} />
+            <TextField label="نام خانوادگی" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
+          </>
+        ) : (
+          <TextField label="نام کامل" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+        )}
         {dlg?.kind === "edit" && !dlg.user.has_login ? null : dlg?.kind === "edit" && dlg.user.id !== me?.id ? roleSelect : <Typography variant="caption" color="text.secondary">نقش خودتان را نمی‌توانید تغییر دهید.</Typography>}
       </FormDialog>
 

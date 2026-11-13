@@ -54,9 +54,11 @@ async def test_personnel_code_range_and_uniqueness(db):
 
 
 async def test_mobile_format_and_uniqueness(db):
-    for bad in ("0912345678", "09123456789x", "08123456789", "912345678901"):
+    for bad in ("0912345678", "09123456789x", "08123456789", "912345678901", "09abcdefghi", "09123abc789",
+                "09 23456789", "+989123456789", "091234567890", "09١٢٣٤٥٦٧٨٩"):
         await _commit_fails(db, m.User(full_name="A", login_enabled=False, mobile=bad))
     await f.person(db, "A", "One", mobile="09121234567")
+    await f.person(db, "Z", "Zero", mobile="09000000000")
     await f.person(db, "B", "Two")            # NULL mobiles may repeat (old users)
     await f.person(db, "C", "Three")
     await db.commit()
@@ -216,13 +218,61 @@ async def test_a_manager_who_cannot_sign_in_does_not_count_as_remaining(db):
     assert e.value.code == "last_management"
 
 
-async def test_name_edit_still_works_for_a_login_less_person(db):
+async def _boss_actor(db):
     boss = await f.user(db, "boss", "MANAGEMENT")
+    await db.commit()
+    return await auth_service.load_principal(db, boss.id)
+
+
+async def test_name_parts_are_authoritative_and_full_name_is_composed(db):
+    actor = await _boss_actor(db)
     p = await f.person(db, "Sara", "Karimi")
     await db.commit()
-    actor = await auth_service.load_principal(db, boss.id)
-    view = await user_admin.update_user(db, actor=actor, user_id=p.id, full_name="Sara K")
-    assert view["full_name"] == "Sara K" and view["username"] is None
+    view = await user_admin.update_user(db, actor=actor, user_id=p.id, first_name=" Sara ", last_name="Karimi Zadeh")
+    assert (view["first_name"], view["last_name"], view["full_name"]) == ("Sara", "Karimi Zadeh", "Sara Karimi Zadeh")
+    assert view["username"] is None
+    log = (await db.execute(select(m.AuditLog).where(m.AuditLog.action == "user.update"))).scalars().one()
+    assert log.metadata_json["changes"]["last_name"] == ["Karimi", "Karimi Zadeh"]
+
+
+async def test_full_name_alone_cannot_contradict_stored_parts(db):
+    actor = await _boss_actor(db)
+    p = await f.person(db, "Sara", "Karimi")
+    await db.commit()
+    pid = p.id
+    with pytest.raises(DomainError) as e:
+        await user_admin.update_user(db, actor=actor, user_id=pid, full_name="Sara K")
+    assert e.value.code == "name_parts_required"
+    await db.rollback()
+    row = (await db.execute(select(m.User).where(m.User.id == pid))).scalar_one()
+    assert (row.first_name, row.last_name, row.full_name) == ("Sara", "Karimi", "Sara Karimi")
+
+
+async def test_name_edit_input_rules(db):
+    actor = await _boss_actor(db)
+    p = await f.person(db, "Sara", "Karimi")
+    await db.commit()
+    pid = p.id
+    cases = [dict(first_name="Only"), dict(last_name="Only"),
+             dict(first_name="A", last_name="B", full_name="Someone Else"), dict(first_name=" ", last_name="B"),
+             dict(first_name="A" * 65, last_name="B"), dict(first_name="A" * 64, last_name="B" * 64)]
+    expected = ["both_name_parts_required", "both_name_parts_required", "full_name_conflicts_with_parts",
+                "invalid_first_name", "invalid_first_name", "invalid_full_name"]
+    for kw, code in zip(cases, expected):
+        with pytest.raises(DomainError) as e:
+            await user_admin.update_user(db, actor=actor, user_id=pid, **kw)
+        assert e.value.code == code, kw
+        await db.rollback()
+    ok = await user_admin.update_user(db, actor=actor, user_id=pid, first_name="A", last_name="B", full_name="A B")
+    assert ok["full_name"] == "A B"
+
+
+async def test_old_user_without_parts_is_still_edited_by_full_name(db):
+    actor = await _boss_actor(db)
+    old = await f.user(db, "ali", "USER")
+    await db.commit()
+    view = await user_admin.update_user(db, actor=actor, user_id=old.id, full_name="Ali Rezaei")
+    assert (view["full_name"], view["first_name"], view["last_name"]) == ("Ali Rezaei", None, None)
 
 
 # ---------------------------------------------------------------- normalisers
@@ -254,6 +304,7 @@ def test_mobile_rejects(raw):
 
 def test_compose_full_name():
     assert compose_full_name("  Sara ", "Karimi  Zadeh") == "Sara Karimi Zadeh"
-    for a, b in (("", "x"), ("x", " "), ("x" * 65, "y")):
+    for a, b in (("", "x"), ("x", " "), ("x" * 65, "y"), ("x" * 64, "y" * 64)):  # last: 129 > String(128)
         with pytest.raises(DomainError):
             compose_full_name(a, b)
+    assert len(compose_full_name("x" * 63, "y" * 64)) == 128

@@ -39,7 +39,9 @@ def upgrade() -> None:
         sa.text("personnel_code IS NULL OR (personnel_code BETWEEN 1 AND 9999)"))
     op.create_check_constraint(
         op.f("ck_users_mobile_format"), "users",
-        sa.text("mobile IS NULL OR (length(mobile) = 11 AND substr(mobile, 1, 2) = '09')"))
+        sa.text("mobile IS NULL OR (length(mobile) = 11 AND substr(mobile, 1, 2) = '09' AND "
+                + " AND ".join(f"substr(mobile, {i}, 1) IN ('0','1','2','3','4','5','6','7','8','9')"
+                               for i in range(3, 12)) + ")"))
     op.create_index("uq_users_personnel_code", "users", ["personnel_code"], unique=True,
                     postgresql_where=sa.text("personnel_code IS NOT NULL"))
     op.create_index("uq_users_mobile", "users", ["mobile"], unique=True,

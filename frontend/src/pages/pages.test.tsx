@@ -224,6 +224,21 @@ describe("users page", () => {
     expect(m.calls.find((c) => c.method === "PATCH")!.body).toEqual({ full_name: "سارا کریمی‌زاده" });  // no role_code
   });
 
+  it("a person stored as first + last name is edited through those two fields (full_name is composed by the server)", async () => {
+    const sara = user({ id: 8, username: null, full_name: "سارا کریمی", first_name: "سارا", last_name: "کریمی", role_code: null, role_label_fa: null, has_login: false, login_enabled: false });
+    const m = mockFetch({ ...routes(), "GET /users": () => json(200, page([sara])), "PATCH /users/8": () => json(200, sara) });
+    renderApp("/users");
+    await userEvent.click(await screen.findByRole("button", { name: "عملیات سارا کریمی" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "ویرایش نام" }));
+    expect(screen.queryByLabelText("نام کامل")).not.toBeInTheDocument();
+    const last = await screen.findByLabelText("نام خانوادگی");
+    await userEvent.clear(last);
+    await userEvent.type(last, "کریمی‌زاده");
+    await userEvent.click(screen.getByRole("button", { name: "ذخیره" }));
+    await waitFor(() => expect(m.count("PATCH /users/8")).toBe(1));
+    expect(m.calls.find((c) => c.method === "PATCH")!.body).toEqual({ first_name: "سارا", last_name: "کریمی‌زاده" });
+  });
+
   it("creates a user: sends exactly what was typed plus groups and the forced-change flag", async () => {
     const m = mockFetch({ ...routes(), "POST /users": () => json(201, user({ id: 9, username: "newbie" })) });
     renderApp("/users");

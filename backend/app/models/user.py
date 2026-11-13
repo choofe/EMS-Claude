@@ -21,6 +21,13 @@ from app.db.base import Base
 from app.models.mixins import SoftDeleteMixin, TimestampMixin
 
 
+# Canonical stored mobile: 09 + nine ASCII digits. Written with substr/IN only so it means the same on SQLite and
+# PostgreSQL (no regex/GLOB); the migration carries its own copy of this text.
+MOBILE_CHECK = ("mobile IS NULL OR (length(mobile) = 11 AND substr(mobile, 1, 2) = '09' AND "
+                + " AND ".join(f"substr(mobile, {i}, 1) IN ('0','1','2','3','4','5','6','7','8','9')" for i in range(3, 12))
+                + ")")
+
+
 class User(TimestampMixin, SoftDeleteMixin, Base):
     """One row per PERSON (decision P1, personnel phase). A person may have no login profile: then `username`,
     `hashed_password` and `role_id` are all NULL (CHECK `login_all_or_none`), the row holds no role and therefore no
@@ -37,8 +44,7 @@ class User(TimestampMixin, SoftDeleteMixin, Base):
         ),
         CheckConstraint("username IS NOT NULL OR NOT login_enabled", name="login_enabled_needs_profile"),
         CheckConstraint("personnel_code IS NULL OR (personnel_code BETWEEN 1 AND 9999)", name="personnel_code_range"),
-        CheckConstraint("mobile IS NULL OR (length(mobile) = 11 AND substr(mobile, 1, 2) = '09')",
-                        name="mobile_format"),
+        CheckConstraint(MOBILE_CHECK, name="mobile_format"),
         Index("uq_users_personnel_code", "personnel_code", unique=True,
               postgresql_where=text("personnel_code IS NOT NULL"), sqlite_where=text("personnel_code IS NOT NULL")),
         Index("uq_users_mobile", "mobile", unique=True,

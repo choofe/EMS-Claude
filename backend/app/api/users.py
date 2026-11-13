@@ -48,7 +48,8 @@ async def get_user(user_id: int, viewer: Principal = _view, db: AsyncSession = D
 @router.patch("/{user_id}", response_model=UserOut)
 async def update_user(user_id: int, body: UserUpdate, actor: Principal = Depends(_manage),
                       db: AsyncSession = Depends(get_db)) -> dict:
-    return await user_admin.update_user(db, actor=actor, user_id=user_id, full_name=body.full_name, role_code=body.role_code)
+    return await user_admin.update_user(db, actor=actor, user_id=user_id, full_name=body.full_name, role_code=body.role_code,
+                                      first_name=body.first_name, last_name=body.last_name)
 
 
 @router.post("/{user_id}/deactivate", response_model=UserOut)

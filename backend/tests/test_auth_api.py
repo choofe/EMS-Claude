@@ -242,6 +242,18 @@ async def test_refresh_rotates_and_issues_new_access_token(env):
     assert (await c.get("/_t/ping", headers=bearer(r))).status_code == 200
 
 
+async def test_refresh_is_refused_and_the_family_revoked_when_login_is_disabled(env):
+    c, db = env["client"], env["db"]
+    await login(c)
+    ali = await db.get(m.User, env["ali"].id)
+    ali.login_enabled = False
+    await db.commit()
+    r = await c.post("/auth/refresh", headers=CSRF)
+    assert r.status_code == 401 and r.json() == {"detail": "invalid_refresh_token"}
+    rows = (await db.execute(select(m.RefreshToken).where(m.RefreshToken.user_id == ali.id))).scalars().all()
+    assert rows and all(t.revoked_at is not None for t in rows)
+
+
 async def test_refresh_token_replay_revokes_the_whole_family(env):
     db, c = env["db"], env["client"]
     await login(c)
