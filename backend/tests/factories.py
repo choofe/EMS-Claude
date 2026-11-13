@@ -33,6 +33,18 @@ async def user(db, username, role_code="USER", groups=(), active=True, must_chan
     return u
 
 
+async def person(db, first, last, *, code=None, mobile=None, groups=(), active=True):
+    """A person WITHOUT a login profile: no username, no password, no role (personnel phase)."""
+    u = m.User(full_name=f"{first} {last}", first_name=first, last_name=last, personnel_code=code, mobile=mobile,
+               is_active=active, login_enabled=False)
+    db.add(u)
+    await db.flush()
+    for g in groups:
+        db.add(m.UserGroup(user_id=u.id, group_id=g.id))
+    await db.flush()
+    return u
+
+
 async def equipment(db, code, grp):
     e = m.Equipment(equipment_code=code, group_id=grp.id)
     db.add(e)

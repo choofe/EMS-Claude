@@ -12,7 +12,7 @@ const ts = "2026-03-20T20:30:00";
 const group = (o: Partial<Group> = {}): Group => ({ id: 1, code: "ELV", name: "آسانسور", description: null, is_active: true, equipment_count: 2, member_count: 3, created_at: ts, updated_at: ts, ...o });
 const equipment = (o: Partial<Equipment> = {}): Equipment => ({ id: 10, equipment_code: "ELV-001", group_id: 1, group_code: "ELV", group_name: "آسانسور", description: null, is_active: true, created_at: ts, updated_at: ts, ...o });
 const rtype = (o: Partial<ReportType> = {}): ReportType => ({ id: 5, code: "MINOR_FAILURE", name_fa: "خرابی جزئی", is_failure: true, labor_mode: "REQUIRED", equipment_mode: "REQUIRED", help_fa: null, is_active: true, created_at: ts, updated_at: ts, ...o });
-const user = (o: Partial<User> = {}): User => ({ id: 2, username: "ali", full_name: "علی رضایی", role_code: "USER", role_label_fa: "کاربر", is_active: true, must_change_password: false, group_ids: [1], created_at: ts, updated_at: ts, ...o });
+const user = (o: Partial<User> = {}): User => ({ id: 2, username: "ali", full_name: "علی رضایی", first_name: null, last_name: null, personnel_code: null, mobile: null, has_login: true, login_enabled: true, role_code: "USER", role_label_fa: "کاربر", is_active: true, must_change_password: false, group_ids: [1], created_at: ts, updated_at: ts, ...o });
 const setting = (o: Partial<Setting> = {}): Setting => ({ key: "REPORT_EDIT_WINDOW_HOURS", label_fa: "مهلت ویرایش گزارش", description: "d", value: 24, default: 24, minimum: 0, maximum: 720, special_values: [-1], is_default: true, updated_at: null, updated_by: null, ...o });
 const roles = [{ code: "USER", label_fa: "کاربر" }, { code: "MANAGEMENT", label_fa: "مدیریت" }];
 
@@ -201,6 +201,42 @@ describe("users page", () => {
     await userEvent.click(await screen.findByRole("button", { name: "عملیات ali" }));
     expect(await screen.findByRole("menuitem", { name: "غیرفعال‌سازی" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "تعیین رمز موقت" })).toBeInTheDocument();
+  });
+
+  it("a person without a login profile: no role is shown or sent, no password actions are offered", async () => {
+    const m = mockFetch({
+      ...routes(),
+      "GET /users": () => json(200, page([user({ id: 7, username: null, full_name: "سارا کریمی", role_code: null, role_label_fa: null, has_login: false, login_enabled: false })])),
+      "PATCH /users/7": () => json(200, user({ id: 7, username: null, full_name: "سارا کریمی‌زاده", role_code: null, role_label_fa: null, has_login: false, login_enabled: false })),
+    });
+    renderApp("/users");
+    expect(await screen.findByText("بدون پروفایل")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "عملیات سارا کریمی" }));
+    expect(screen.queryByRole("menuitem", { name: "تعیین رمز موقت" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "اجبار تغییر رمز" })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "ویرایش نام" }));
+    expect(screen.queryByRole("combobox", { name: "نقش" })).not.toBeInTheDocument();
+    const name = await screen.findByLabelText("نام کامل");
+    await userEvent.clear(name);
+    await userEvent.type(name, "سارا کریمی‌زاده");
+    await userEvent.click(screen.getByRole("button", { name: "ذخیره" }));
+    await waitFor(() => expect(m.count("PATCH /users/7")).toBe(1));
+    expect(m.calls.find((c) => c.method === "PATCH")!.body).toEqual({ full_name: "سارا کریمی‌زاده" });  // no role_code
+  });
+
+  it("a person stored as first + last name is edited through those two fields (full_name is composed by the server)", async () => {
+    const sara = user({ id: 8, username: null, full_name: "سارا کریمی", first_name: "سارا", last_name: "کریمی", role_code: null, role_label_fa: null, has_login: false, login_enabled: false });
+    const m = mockFetch({ ...routes(), "GET /users": () => json(200, page([sara])), "PATCH /users/8": () => json(200, sara) });
+    renderApp("/users");
+    await userEvent.click(await screen.findByRole("button", { name: "عملیات سارا کریمی" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "ویرایش نام" }));
+    expect(screen.queryByLabelText("نام کامل")).not.toBeInTheDocument();
+    const last = await screen.findByLabelText("نام خانوادگی");
+    await userEvent.clear(last);
+    await userEvent.type(last, "کریمی‌زاده");
+    await userEvent.click(screen.getByRole("button", { name: "ذخیره" }));
+    await waitFor(() => expect(m.count("PATCH /users/8")).toBe(1));
+    expect(m.calls.find((c) => c.method === "PATCH")!.body).toEqual({ first_name: "سارا", last_name: "کریمی‌زاده" });
   });
 
   it("creates a user: sends exactly what was typed plus groups and the forced-change flag", async () => {

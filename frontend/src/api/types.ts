@@ -26,10 +26,18 @@ export interface Page<T> {
 
 export interface User {
   id: number;
-  username: string;
+  /** null = a person without a login profile (no username, no role) */
+  username: string | null;
   full_name: string;
-  role_code: string;
-  role_label_fa: string;
+  first_name: string | null;
+  last_name: string | null;
+  personnel_code: number | null;
+  /** only sent to callers who may see mobile numbers (MANAGEMENT, AUDITOR) */
+  mobile: string | null;
+  role_code: string | null;
+  role_label_fa: string | null;
+  has_login: boolean;
+  login_enabled: boolean;
   is_active: boolean;
   must_change_password: boolean;
   group_ids: number[];

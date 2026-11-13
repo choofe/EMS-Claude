@@ -40,7 +40,7 @@ export function UsersPage() {
   const [rows, setRows] = useState(25);
   const [dlg, setDlg] = useState<Dlg>(null);
   const [menu, setMenu] = useState<{ el: HTMLElement; user: User } | null>(null);
-  const [form, setForm] = useState({ username: "", full_name: "", role_code: "USER", password: "", must_change: true, group_ids: [] as number[] });
+  const [form, setForm] = useState({ username: "", full_name: "", first_name: "", last_name: "", role_code: "USER", password: "", must_change: true, group_ids: [] as number[] });
 
   const roles = useLoad(() => usersApi.roles(), []);
   const groups = useLoad(() => groupsApi.list({ limit: 100, offset: 0 }), []);
@@ -51,7 +51,7 @@ export function UsersPage() {
   const roleList = roles.data ?? [];
 
   const open = (d: Dlg, u?: User) => {
-    setForm({ username: u?.username ?? "", full_name: u?.full_name ?? "", role_code: u?.role_code ?? "USER", password: "", must_change: true, group_ids: u?.group_ids ?? [] });
+    setForm({ username: u?.username ?? "", full_name: u?.full_name ?? "", first_name: u?.first_name ?? "", last_name: u?.last_name ?? "", role_code: u?.role_code ?? "USER", password: "", must_change: true, group_ids: u?.group_ids ?? [] });
     setDlg(d);
     setMenu(null);
   };
@@ -105,15 +105,15 @@ export function UsersPage() {
             <TableBody>
               {list.data.items.map((u) => (
                 <TableRow key={u.id} hover>
-                  <TableCell><Ltr>{u.username}</Ltr></TableCell>
-                  <TableCell>{u.full_name}</TableCell><TableCell>{u.role_label_fa}</TableCell>
+                  <TableCell>{u.username ? <Ltr>{u.username}</Ltr> : "—"}</TableCell>
+                  <TableCell>{u.full_name}</TableCell><TableCell>{u.has_login ? u.role_label_fa : "بدون پروفایل"}</TableCell>
                   <TableCell>{groupCodes(u.group_ids)}</TableCell>
                   <TableCell>
                     <StatusChip active={u.is_active} />
                     {u.must_change_password && <Chip size="small" color="warning" variant="outlined" label="تغییر رمز در انتظار" sx={{ ms: 0.5, mr: 0.5 }} />}
                   </TableCell>
                   <TableCell><DateText value={u.updated_at} /></TableCell>
-                  {manage && <TableCell align="right"><IconButton aria-label={`عملیات ${u.username}`} onClick={(e) => setMenu({ el: e.currentTarget, user: u })}><MoreIcon /></IconButton></TableCell>}
+                  {manage && <TableCell align="right"><IconButton aria-label={`عملیات ${u.username ?? u.full_name}`} onClick={(e) => setMenu({ el: e.currentTarget, user: u })}><MoreIcon /></IconButton></TableCell>}
                 </TableRow>
               ))}
             </TableBody>
@@ -124,10 +124,10 @@ export function UsersPage() {
 
       <Menu anchorEl={menu?.el} open={!!menu} onClose={() => setMenu(null)}>
         {menu && [
-          <MenuItem key="edit" onClick={() => open({ kind: "edit", user: menu.user }, menu.user)}>ویرایش نام و نقش</MenuItem>,
+          <MenuItem key="edit" onClick={() => open({ kind: "edit", user: menu.user }, menu.user)}>{menu.user.has_login ? "ویرایش نام و نقش" : "ویرایش نام"}</MenuItem>,
           <MenuItem key="groups" onClick={() => open({ kind: "groups", user: menu.user }, menu.user)}>گروه‌ها</MenuItem>,
-          ...(menu.user.id !== me?.id ? [<MenuItem key="reset" onClick={() => open({ kind: "reset", user: menu.user }, menu.user)}>تعیین رمز موقت</MenuItem>] : []),
-          <MenuItem key="force" onClick={() => open({ kind: "force", user: menu.user }, menu.user)}>اجبار تغییر رمز</MenuItem>,
+          ...(menu.user.has_login && menu.user.id !== me?.id ? [<MenuItem key="reset" onClick={() => open({ kind: "reset", user: menu.user }, menu.user)}>تعیین رمز موقت</MenuItem>] : []),
+          ...(menu.user.has_login ? [<MenuItem key="force" onClick={() => open({ kind: "force", user: menu.user }, menu.user)}>اجبار تغییر رمز</MenuItem>] : []),
           ...(menu.user.id !== me?.id ? [<MenuItem key="toggle" onClick={() => open({ kind: "toggle", user: menu.user }, menu.user)}>{menu.user.is_active ? "غیرفعال‌سازی" : "فعال‌سازی"}</MenuItem>] : []),
         ]}
       </Menu>
@@ -142,19 +142,29 @@ export function UsersPage() {
         {mustChange}
       </FormDialog>
 
-      <FormDialog open={dlg?.kind === "edit"} title={`ویرایش ${form.username}`} onClose={close}
+      <FormDialog open={dlg?.kind === "edit"} title={`ویرایش ${form.username || form.full_name}`} onClose={close}
         onSubmit={async () => {
           if (dlg?.kind !== "edit") return;
-          const body: { full_name?: string; role_code?: string } = { full_name: form.full_name };
-          if (form.role_code !== dlg.user.role_code) body.role_code = form.role_code;
+          // a person whose name is stored as first + last name is edited through those two fields (full_name is composed by the server)
+          const hasParts = dlg.user.first_name !== null || dlg.user.last_name !== null;
+          const body: { full_name?: string; first_name?: string; last_name?: string; role_code?: string } =
+            hasParts ? { first_name: form.first_name, last_name: form.last_name } : { full_name: form.full_name };
+          if (dlg.user.has_login && form.role_code !== dlg.user.role_code) body.role_code = form.role_code;  // a person without a profile has no role to change
           await usersApi.update(dlg.user.id, body);
           list.reload();
         }}>
-        <TextField label="نام کامل" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-        {dlg?.kind === "edit" && dlg.user.id !== me?.id ? roleSelect : <Typography variant="caption" color="text.secondary">نقش خودتان را نمی‌توانید تغییر دهید.</Typography>}
+        {dlg?.kind === "edit" && (dlg.user.first_name !== null || dlg.user.last_name !== null) ? (
+          <>
+            <TextField label="نام" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} />
+            <TextField label="نام خانوادگی" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
+          </>
+        ) : (
+          <TextField label="نام کامل" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+        )}
+        {dlg?.kind === "edit" && !dlg.user.has_login ? null : dlg?.kind === "edit" && dlg.user.id !== me?.id ? roleSelect : <Typography variant="caption" color="text.secondary">نقش خودتان را نمی‌توانید تغییر دهید.</Typography>}
       </FormDialog>
 
-      <FormDialog open={dlg?.kind === "groups"} title={`گروه‌های ${form.username}`} onClose={close}
+      <FormDialog open={dlg?.kind === "groups"} title={`گروه‌های ${form.username || form.full_name}`} onClose={close}
         onSubmit={async () => { if (dlg?.kind === "groups") { await usersApi.setGroups(dlg.user.id, form.group_ids); list.reload(); } }}>
         <GroupPicker groups={groupList} value={form.group_ids} onChange={(v) => setForm({ ...form, group_ids: v })} />
       </FormDialog>

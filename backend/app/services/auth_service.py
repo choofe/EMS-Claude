@@ -74,13 +74,16 @@ class Session:
 
 async def load_principal(db: AsyncSession, user_id: int) -> Principal | None:
     """Fresh from the DB every time. None if the user is missing or inactive.
+    Also None for a person without a login profile (no credentials, no role) or with login_enabled false:
+    the inner join on Role already drops role-less rows, the other guards are explicit.
     Group memberships are loaded regardless of groups.is_active so that history
     of a deactivated group stays visible to its members (spec section 26)."""
     row = (
         await db.execute(
             select(User, Role)
             .join(Role, Role.id == User.role_id)
-            .where(User.id == user_id, User.is_active.is_(True))
+            .where(User.id == user_id, User.is_active.is_(True), User.login_enabled.is_(True),
+                   User.username.is_not(None), User.hashed_password.is_not(None))
         )
     ).first()
     if row is None:
@@ -235,11 +238,11 @@ async def login(
     await _check_lockout(db, username, ip, policy, now)
 
     user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
-    if user is None:
+    if user is None or user.hashed_password is None:
         await averify_dummy(password)  # same cost as a real check -> no timing oracle
         ok = False
     else:
-        ok = await averify_password(user.hashed_password, password) and user.is_active
+        ok = await averify_password(user.hashed_password, password) and user.is_active and user.login_enabled
 
     await _record_attempt(db, username, ip, ok, now)
     if not ok:
@@ -351,7 +354,7 @@ async def change_password(
     user = (
         await db.execute(select(User).where(User.id == principal.user_id).with_for_update())
     ).scalar_one_or_none()
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or not user.login_enabled or user.hashed_password is None:
         await db.rollback()
         raise InvalidCredentials()
     ok = await averify_password(user.hashed_password, current_password)

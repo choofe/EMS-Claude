@@ -53,6 +53,41 @@ def canonical_report_type_code(raw: str) -> str:
     return value
 
 
+_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
+def canonical_personnel_code(raw: str | int) -> int:
+    """Numeric, 1-9999, no leading zero. Persian/Arabic digits are accepted (Excel from Iran)."""
+    value = str(raw).strip().translate(_DIGITS)
+    if not re.fullmatch(r"[1-9][0-9]{0,3}", value):
+        raise DomainError("invalid_personnel_code", 422)
+    return int(value)
+
+
+def canonical_mobile(raw: str) -> str:
+    """Iranian mobile in the single stored form 09xxxxxxxxx (also accepts +98 / 0098 / 98 / missing leading 0)."""
+    value = re.sub(r"[\s\-()]", "", raw.strip().translate(_DIGITS))
+    for prefix in ("+98", "0098", "98"):
+        if value.startswith(prefix) and len(value) > 10:
+            value = "0" + value[len(prefix):]
+            break
+    if re.fullmatch(r"9[0-9]{9}", value):
+        value = "0" + value
+    if not re.fullmatch(r"09[0-9]{9}", value):
+        raise DomainError("invalid_mobile", 422)
+    return value
+
+
+def compose_full_name(first_name: str, last_name: str) -> str:
+    """full_name is always composed from the two name columns on every write (old rows keep their full_name only)."""
+    first = clean_text(first_name, max_length=64, code="invalid_first_name")
+    last = clean_text(last_name, max_length=64, code="invalid_last_name")
+    full = f"{first} {last}"
+    if len(full) > 128:  # users.full_name is String(128): 64 + 1 + 64 would not fit
+        raise DomainError("invalid_full_name", 422)
+    return full
+
+
 def clean_text(raw: str | None, *, max_length: int, code: str) -> str:
     if raw is None:  # explicit JSON null for a non-nullable field
         raise DomainError(code, 422)

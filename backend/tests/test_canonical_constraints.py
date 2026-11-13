@@ -24,7 +24,10 @@ def _migration_targets():
 # (Phase 6d, d0b8c4f1a539; checked in tests/test_favorite_people.py).
 _OTHER_CHECKS = {"ck_report_participants_minutes_range", "ck_report_types_labor_mode_valid",
                  "ck_reports_equipment_or_general", "ck_report_types_equipment_mode_valid",
-                 "ck_favorite_people_not_self"}
+                 "ck_favorite_people_not_self",
+                 # personnel phase Pa (e1c7b2d9f640; checked in tests/test_personnel_foundation.py)
+                 "ck_users_login_all_or_none", "ck_users_login_enabled_needs_profile",
+                 "ck_users_personnel_code_range", "ck_users_mobile_format"}
 
 
 def test_model_check_constraints_match_the_migration():
