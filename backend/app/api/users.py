@@ -5,8 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_capability
 from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
-from app.schemas.admin import MAX_OFFSET, CountOut, Page, PasswordReset, UserCreate, UserGroupsSet, UserOut, UserUpdate
-from app.services import user_admin
+from app.schemas.admin import (MAX_OFFSET, CountOut, MobileSet, NoGroupAlertOut, Page, PasswordReset, PersonCreate,
+                               PersonnelCodeSet, ProfileCreate, UserCreate, UserGroupsSet, UserOut, UsernameSet,
+                               UserUpdate)
+from app.services import personnel_admin, user_admin
 
 router = APIRouter(prefix="/users", tags=["users"])
 _view = Depends(require_capability(C.USERS_VIEW))
@@ -29,6 +31,23 @@ async def list_users(
 @router.post("/force-password-change-all", response_model=CountOut)
 async def force_change_all(actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
     return {"users_affected": await user_admin.force_password_change_all(db, actor_id=actor.user_id)}
+
+
+@router.get("/no-group-alert", response_model=NoGroupAlertOut)
+async def no_group_alert(actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.no_group_alert(db, actor=actor)
+
+
+@router.post("/no-group-alert/dismiss", response_model=NoGroupAlertOut)
+async def dismiss_no_group_alert(actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.dismiss_no_group_alert(db, actor=actor)
+
+
+@router.post("/people", response_model=UserOut, status_code=201)
+async def create_person(body: PersonCreate, actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.create_person(
+        db, actor=actor, first_name=body.first_name, last_name=body.last_name, personnel_code=body.personnel_code,
+        mobile=body.mobile, group_ids=body.group_ids, profile=body.profile.model_dump() if body.profile else None)
 
 
 @router.post("", response_model=UserOut, status_code=201)
@@ -78,3 +97,39 @@ async def reset_password(user_id: int, body: PasswordReset, actor: Principal = D
 @router.post("/{user_id}/force-password-change", response_model=UserOut)
 async def force_change(user_id: int, actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
     return await user_admin.force_password_change_user(db, actor=actor, user_id=user_id)
+
+
+@router.post("/{user_id}/profile", response_model=UserOut, status_code=201)
+async def create_profile(user_id: int, body: ProfileCreate, actor: Principal = Depends(_manage),
+                         db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.create_profile(db, actor=actor, user_id=user_id, **body.model_dump())
+
+
+@router.put("/{user_id}/personnel-code", response_model=UserOut)
+async def set_personnel_code(user_id: int, body: PersonnelCodeSet, actor: Principal = Depends(_manage),
+                             db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.set_personnel_code(db, actor=actor, user_id=user_id, personnel_code=body.personnel_code,
+                                                    reason=body.reason, note=body.note)
+
+
+@router.put("/{user_id}/mobile", response_model=UserOut)
+async def set_mobile(user_id: int, body: MobileSet, actor: Principal = Depends(_manage),
+                     db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.set_mobile(db, actor=actor, user_id=user_id, mobile=body.mobile)
+
+
+@router.put("/{user_id}/username", response_model=UserOut)
+async def set_username(user_id: int, body: UsernameSet, actor: Principal = Depends(_manage),
+                       db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.set_username(db, actor=actor, user_id=user_id, username=body.username,
+                                              reason=body.reason, note=body.note)
+
+
+@router.post("/{user_id}/login/disable", response_model=UserOut)
+async def disable_login(user_id: int, actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.set_login_enabled(db, actor=actor, user_id=user_id, enabled=False)
+
+
+@router.post("/{user_id}/login/enable", response_model=UserOut)
+async def enable_login(user_id: int, actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
+    return await personnel_admin.set_login_enabled(db, actor=actor, user_id=user_id, enabled=True)

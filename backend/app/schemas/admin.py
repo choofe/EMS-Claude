@@ -61,6 +61,47 @@ class UserUpdate(Request):
     role_code: str | None = Field(default=None, max_length=32)
 
 
+Reason = Literal["TYPO", "UNIT_CHANGE", "REHIRE", "ORG_WIDE_CHANGE", "NAME_CHANGE", "OTHER"]
+
+
+class ProfileCreate(Request):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+    role_code: str = Field(min_length=1, max_length=32)  # USER or EXPERT (checked by the service)
+    must_change_password: bool = True
+
+
+class PersonCreate(Request):
+    """A new person: all four identity fields are mandatory; `profile` (optional) also creates the login profile."""
+    first_name: str = Field(min_length=1, max_length=64)
+    last_name: str = Field(min_length=1, max_length=64)
+    personnel_code: str = Field(min_length=1, max_length=8)
+    mobile: str = Field(min_length=1, max_length=32)
+    group_ids: list[int] = Field(default_factory=list, max_length=200)
+    profile: ProfileCreate | None = None
+
+
+class PersonnelCodeSet(Request):
+    personnel_code: str = Field(min_length=1, max_length=8)
+    reason: Reason | None = None  # required when an existing code is CHANGED
+    note: str | None = Field(default=None, max_length=300)  # required with reason OTHER
+
+
+class MobileSet(Request):
+    mobile: str = Field(min_length=1, max_length=32)
+
+
+class UsernameSet(Request):
+    username: str = Field(min_length=1, max_length=64)
+    reason: Reason
+    note: str | None = Field(default=None, max_length=300)
+
+
+class NoGroupAlertOut(BaseModel):
+    count: int
+    show: bool
+
+
 class UserGroupsSet(Request):
     group_ids: list[int] = Field(max_length=200)
 
