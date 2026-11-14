@@ -313,5 +313,5 @@ async def test_report_type_help_text_keeps_its_300_character_limit(api, world):
     assert ok.status_code == 201, ok.text
     assert (await api.post("/report-types", "boss", json={**base, "code": "help_limit_2", "help_fa": "x" * 301})).status_code == 422
     tid = ok.json()["id"]
-    assert (await api.patch(f"/report-types/{tid}", "boss", json={"help_fa": "y" * 250})).status_code == 200
+    assert (await api.patch(f"/report-types/{tid}", "boss", json={"help_fa": "y" * 300})).status_code == 200
     assert (await api.patch(f"/report-types/{tid}", "boss", json={"help_fa": "y" * 301})).status_code == 422
