@@ -60,6 +60,8 @@ class User(TimestampMixin, SoftDeleteMixin, Base):
     personnel_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mobile: Mapped[str | None] = mapped_column(String(11), nullable=True)  # normalised 09xxxxxxxxx
     role_id: Mapped[int | None] = mapped_column(ForeignKey("roles.id", ondelete="RESTRICT"), nullable=True)
+    # Manager-only UI state: how many people had no group when «don't show again» was chosen (NULL = never).
+    no_group_alert_dismissed_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     login_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     must_change_password: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false(), nullable=False
