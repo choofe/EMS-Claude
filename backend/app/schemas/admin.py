@@ -61,7 +61,8 @@ class UserUpdate(Request):
     role_code: str | None = Field(default=None, max_length=32)
 
 
-Reason = Literal["TYPO", "UNIT_CHANGE", "REHIRE", "ORG_WIDE_CHANGE", "NAME_CHANGE", "OTHER"]
+CodeReason = Literal["TYPO", "UNIT_CHANGE", "REHIRE", "ORG_WIDE_CHANGE", "OTHER"]
+UsernameReason = Literal["TYPO", "NAME_CHANGE", "OTHER"]
 
 
 class ProfileCreate(Request):
@@ -83,7 +84,7 @@ class PersonCreate(Request):
 
 class PersonnelCodeSet(Request):
     personnel_code: str = Field(min_length=1, max_length=8)
-    reason: Reason | None = None  # required when an existing code is CHANGED
+    reason: CodeReason | None = None  # required when an existing code is CHANGED
     note: str | None = Field(default=None, max_length=200)  # same limit as the service; required with reason OTHER
 
 
@@ -93,7 +94,7 @@ class MobileSet(Request):
 
 class UsernameSet(Request):
     username: str = Field(min_length=1, max_length=64)
-    reason: Reason
+    reason: UsernameReason
     note: str | None = Field(default=None, max_length=200)  # same limit as the service
 
 

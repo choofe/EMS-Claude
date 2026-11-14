@@ -1,5 +1,5 @@
 """User management. Read: USERS_VIEW (MANAGEMENT, AUDITOR). Everything that writes: USERS_MANAGE (MANAGEMENT)."""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_capability
@@ -34,7 +34,9 @@ async def force_change_all(actor: Principal = Depends(_manage), db: AsyncSession
 
 
 @router.get("/no-group-alert", response_model=NoGroupAlertOut)
-async def no_group_alert(actor: Principal = Depends(_manage), db: AsyncSession = Depends(get_db)) -> dict:
+async def no_group_alert(response: Response, actor: Principal = Depends(_manage),
+                         db: AsyncSession = Depends(get_db)) -> dict:
+    response.headers["Cache-Control"] = "no-store"  # per-manager state that can change between two reads
     return await personnel_admin.no_group_alert(db, actor=actor)
 
 

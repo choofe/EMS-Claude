@@ -315,3 +315,19 @@ async def test_report_type_help_text_keeps_its_300_character_limit(api, world):
     tid = ok.json()["id"]
     assert (await api.patch(f"/report-types/{tid}", "boss", json={"help_fa": "y" * 300})).status_code == 200
     assert (await api.patch(f"/report-types/{tid}", "boss", json={"help_fa": "y" * 301})).status_code == 422
+
+
+async def test_no_group_alert_get_sets_no_store_and_a_plain_read_writes_nothing(api, world, db):
+    await f.person(db, "A", "One", code=1)
+    await db.commit()
+    r = await api.get("/users/no-group-alert", "boss")
+    assert r.headers["cache-control"] == "no-store"
+    assert (await db.get(m.User, world.boss.id)).no_group_alert_dismissed_count is None  # a read never creates state
+
+
+async def test_reason_values_are_validated_per_operation_by_the_schema(api, world):
+    uid = world.ali.id
+    r = await api.put(f"/users/{uid}/username", "boss", json={"username": "alix", "reason": "REHIRE"})
+    assert r.status_code == 422 and "reason" in r.text
+    r = await api.put(f"/users/{uid}/personnel-code", "boss", json={"personnel_code": "9", "reason": "NAME_CHANGE"})
+    assert r.status_code == 422 and "reason" in r.text

@@ -214,13 +214,13 @@ async def no_group_alert(db: AsyncSession, *, actor: Principal) -> dict:
     at this count or a larger one. If the count has fallen below the dismissed value the dismissal follows it down,
     so people who become group-less later bring the alert back."""
     count = await _no_group_count(db)
-    me = await _user(db, actor.user_id, lock=True)
-    dismissed = me.no_group_alert_dismissed_count
-    if dismissed is not None and count < dismissed:
-        me.no_group_alert_dismissed_count = dismissed = count
+    dismissed = (await db.execute(select(User.no_group_alert_dismissed_count).where(User.id == actor.user_id))).scalar_one_or_none()
+    if dismissed is not None and count < dismissed:  # the only case that writes; every other read is lock-free
+        me = await _user(db, actor.user_id, lock=True)
+        dismissed = me.no_group_alert_dismissed_count  # re-read under the lock (a dismiss may have run meanwhile)
+        if dismissed is not None and count < dismissed:
+            me.no_group_alert_dismissed_count = dismissed = count
         await db.commit()
-    else:
-        await db.rollback()  # release the row lock; nothing changed
     return {"count": count, "show": count > 0 and (dismissed is None or count > dismissed)}
 
 
