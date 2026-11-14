@@ -304,3 +304,14 @@ async def test_enabling_a_login_revokes_any_token_that_survived_the_disable(api,
     await api.post(f"/users/{world.ali.id}/login/enable", "boss")
     rows = (await db.execute(select(m.RefreshToken).where(m.RefreshToken.user_id == world.ali.id))).scalars().all()
     assert rows and all(r.revoked_at is not None for r in rows)
+
+
+async def test_report_type_help_text_keeps_its_300_character_limit(api, world):
+    """Regression: the personnel note limit (200) must not leak into the report-type `help_fa` schemas (300)."""
+    base = {"code": "help_limit_type", "name_fa": "نوع آزمایشی"}
+    ok = await api.post("/report-types", "boss", json={**base, "help_fa": "x" * 300})
+    assert ok.status_code == 201, ok.text
+    assert (await api.post("/report-types", "boss", json={**base, "code": "help_limit_2", "help_fa": "x" * 301})).status_code == 422
+    tid = ok.json()["id"]
+    assert (await api.patch(f"/report-types/{tid}", "boss", json={"help_fa": "y" * 250})).status_code == 200
+    assert (await api.patch(f"/report-types/{tid}", "boss", json={"help_fa": "y" * 301})).status_code == 422
