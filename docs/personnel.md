@@ -53,3 +53,24 @@ Role change, password reset and forced password change answer `409 user_has_no_p
 existing users page edits a person who has first/last name through those two fields (and an old user through the full name), shows «بدون پروفایل» for a person without a profile, offers only name edit, groups and
 activate/deactivate for them, and never sends `role_code` in their edit. The full panel (group tags, no-group
 warning, profile creation) is `Pf`.
+
+# Management API for people (sub-phase Pb)
+
+Migration `f2d8c3a1b750` (adds `users.no_group_alert_dismissed_count`; run `alembic upgrade head`). Backend only; the users
+panel UI is `Pf`. All endpoints below need capability `users.manage` (MANAGEMENT); AUDITOR, EXPERT and USER get `403`.
+Code: `app/services/personnel_admin.py`. The legacy `POST /users` is unchanged and is replaced in `Pf`.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /users/people` | New person. `first_name`, `last_name`, `personnel_code`, `mobile` are mandatory (normalised by the `Pa` normalisers; `group_ids` optional). An optional `profile` object (`username`, `password`, `role_code`, `must_change_password`) creates the login profile in the same transaction. |
+| `POST /users/{id}/profile` | Login profile for an existing person without one. `role_code` is `USER` or `EXPERT` only (`422 invalid_profile_role`). `409 user_has_profile`, `409 person_inactive`, `409 username_taken`. |
+| `PUT /users/{id}/personnel-code` | Set/change the code. The FIRST assignment (old users) needs no reason; CHANGING an existing code needs `reason` = `TYPO`, `UNIT_CHANGE`, `REHIRE`, `ORG_WIDE_CHANGE` or `OTHER` (`OTHER` needs `note`). A code cannot be cleared. Audit: before/after, reason, note. `409 personnel_code_taken`. |
+| `PUT /users/{id}/mobile` | Set/change the mobile number (cannot be cleared; `409 mobile_taken`). The audit records only that a number was changed, never the number. |
+| `PUT /users/{id}/username` | Rename a profile. `reason` = `TYPO`, `NAME_CHANGE` or `OTHER` (`OTHER` needs `note`) is mandatory; `409 user_has_no_profile` for a person without a profile. Reports and sessions are untouched (tokens carry the user id). Audit: before/after, reason, note. |
+| `POST /users/{id}/login/disable`, `/login/enable` | Switch the profile off (all refresh tokens are revoked at once; the person and history stay) or back on (enabling also revokes every refresh token). Known limit: an ACCESS token issued before a disable becomes valid again if the profile is enabled again within the access-token lifetime (`ACCESS_TOKEN_EXPIRE_MINUTES`, 15 by default); the same holds for deactivate/reactivate since Phase 4a. A per-user revocation cutoff is planned together with the token-version mechanism of `7c`. Not on oneself; the last active, sign-in-enabled MANAGEMENT is protected (`409 last_management`); enabling an inactive person is `409 person_inactive`. |
+| `GET /users/no-group-alert`, `POST /users/no-group-alert/dismiss` | The «users without a group» alert of the calling manager: `{count, show}`. The count is active people with no group; MANAGEMENT and AUDITOR are excluded (organisation-wide scope needs no group). «Dismiss» stores the current count on the manager's own row; the alert shows again when the count is larger. If the count later falls below the stored value, the next `GET` lowers the stored value with it (so a new group-less person is never hidden). Each manager has his own state. |
+
+Concurrency: unique personnel code / mobile / username are enforced by the database; two simultaneous writers get one
+success and one clean `409` (PostgreSQL tests). Audit actions: `user.create_person`, `user.profile_create`,
+`user.personnel_code_change`, `user.mobile_change`, `user.username_change`, `user.login_disable`, `user.login_enable`.
+Mobile numbers and passwords never appear in audit metadata.
