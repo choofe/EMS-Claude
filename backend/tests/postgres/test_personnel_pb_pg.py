@@ -79,3 +79,27 @@ async def test_concurrent_login_disable_of_both_managers_keeps_one(committed_eng
         n = (await s.execute(select(func.count()).select_from(m.User).join(m.Role).where(
             m.Role.code == "MANAGEMENT", m.User.is_active.is_(True), m.User.login_enabled.is_(True)))).scalar_one()
     assert n == 1
+
+
+async def test_alert_get_racing_with_a_dismiss_never_writes_a_stale_lower_count(committed_engine):
+    """CodeRabbit finding: the lowering branch must use the CURRENT count, recounted under the manager's row lock."""
+    actor = await _boss(committed_engine)
+    async with AsyncSession(committed_engine, expire_on_commit=False) as s:
+        for i in range(2):
+            await f.person(s, f"P{i}", "X", code=100 + i)
+        (await s.get(m.User, actor.user_id)).no_group_alert_dismissed_count = 5
+        await s.commit()
+    async with AsyncSession(committed_engine, expire_on_commit=False) as holder:
+        holder_user = await holder.get(m.User, actor.user_id, with_for_update=True)  # a dismiss is "in progress"
+        async with AsyncSession(committed_engine, expire_on_commit=False) as s2:
+            get_task = asyncio.create_task(personnel_admin.no_group_alert(s2, actor=actor))  # reads count 2 < 5, waits
+            await asyncio.sleep(0.5)
+            async with AsyncSession(committed_engine, expire_on_commit=False) as s3:
+                await f.person(s3, "P3", "X", code=103)  # a third group-less person appears meanwhile
+                await s3.commit()
+            holder_user.no_group_alert_dismissed_count = 3  # the dismiss stores the then-current count (3)
+            await holder.commit()
+            result = await get_task
+    assert result == {"count": 3, "show": False}
+    async with AsyncSession(committed_engine) as s:
+        assert (await s.get(m.User, actor.user_id)).no_group_alert_dismissed_count == 3

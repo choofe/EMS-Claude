@@ -217,7 +217,8 @@ async def no_group_alert(db: AsyncSession, *, actor: Principal) -> dict:
     dismissed = (await db.execute(select(User.no_group_alert_dismissed_count).where(User.id == actor.user_id))).scalar_one_or_none()
     if dismissed is not None and count < dismissed:  # the only case that writes; every other read is lock-free
         me = await _user(db, actor.user_id, lock=True)
-        dismissed = me.no_group_alert_dismissed_count  # re-read under the lock (a dismiss may have run meanwhile)
+        count = await _no_group_count(db)  # recount under the lock: a dismiss may have committed meanwhile
+        dismissed = me.no_group_alert_dismissed_count
         if dismissed is not None and count < dismissed:
             me.no_group_alert_dismissed_count = dismissed = count
         await db.commit()
