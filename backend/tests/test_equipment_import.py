@@ -533,3 +533,11 @@ async def test_csv_template(api, world):
     r = await api.get("/equipment/import/template?format=csv", "boss")
     assert r.status_code == 200 and r.content.decode("utf-8-sig").strip() == "equipment_code,group_code,description"
     assert (await api.get("/equipment/import/template?format=exe", "boss")).status_code == 422
+
+
+async def test_csv_delimiter_comes_from_the_header_record(api, world):
+    """Quoted commas in an ignored header and CR-only line endings must not change the delimiter."""
+    for data in ('equipment_code;group_code;"notes,,,"\nELV-9;ELV;x\n', "equipment_code,group_code\rELV-9,ELV\r"):
+        r = await api.post("/equipment/import/preview", "boss", data={"group_id": str(world.elv.id)},
+                           files={"file": ("a.csv", data.encode(), "text/csv")})
+        assert r.status_code == 200 and r.json()["valid_count"] == 1, r.text

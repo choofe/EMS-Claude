@@ -176,6 +176,23 @@ def _parse_xlsx(data: bytes, max_rows: int, max_uncompressed: int, spec: ColumnS
 
 
 # ---------------------------------------------------------------- csv
+def _header_delimiter(text: str, spec: ColumnSpec) -> str:
+    """Pick the delimiter from the first RECORD only (data rows are unreliable: the personnel `groups` cell holds
+    ";"). The first record is parsed with the csv module itself, so quoted fields and CR / LF / CRLF record
+    boundaries are handled exactly as the real parse will. Winner = the delimiter that recognises the most
+    standard column names, then the one that yields the most fields; comma if nothing helps."""
+    best, best_score = ",", (-1, -1)
+    for delimiter in (",", ";", "\t"):
+        try:
+            first = next(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter), [])
+        except csv.Error:
+            continue
+        score = (sum(1 for v in first if _header_key(v) in spec.known), len(first))
+        if score > best_score:
+            best, best_score = delimiter, score
+    return best
+
+
 def _parse_csv(data: bytes, max_rows: int, spec: ColumnSpec) -> ParsedFile:
     if b"\x00" in data:
         raise DomainError("file_corrupt", 422)
@@ -183,11 +200,7 @@ def _parse_csv(data: bytes, max_rows: int, spec: ColumnSpec) -> ParsedFile:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise DomainError("file_encoding", 422)  # ask the user to save as "CSV UTF-8"
-    # The delimiter comes from the HEADER line only: sniffing data rows is unreliable once a cell may itself
-    # contain ";" (the personnel "groups" column, e.g. ELV;ESC).
-    header_line = text.split("\n", 1)[0]
-    counts = {d: header_line.count(d) for d in (",", ";", "\t")}
-    delimiter = max(counts, key=counts.get) if any(counts.values()) else ","
+    delimiter = _header_delimiter(text, spec)
     try:
         return _collect(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter), max_rows, spec)
     except csv.Error:

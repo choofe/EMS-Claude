@@ -191,3 +191,34 @@ async def test_csv_with_semicolon_delimiter(db, groups):
     data = 'first_name;last_name;personnel_code;mobile;groups\nA;B;1;09120000001;"ELV;ESC"\n'
     report, rows = await analyse_personnel(db, "p.csv", data.encode())
     assert report["valid_count"] == 1 and rows[0].group_codes == ["ELV", "ESC"]
+
+
+async def test_csv_header_with_cr_only_line_endings(db, groups):
+    g = ";".join(["ELV"] * 9)
+    data = f"first_name,last_name,personnel_code,mobile,groups\rA,B,1,09120000001,{g}\r"
+    report, rows = await analyse_personnel(db, "p.csv", data.encode())
+    assert report["valid_count"] == 1 and rows[0].group_codes == ["ELV"]
+
+
+async def test_csv_quoted_commas_in_an_ignored_header_do_not_pick_the_delimiter(db, groups):
+    data = 'first_name;last_name;personnel_code;mobile;groups;"notes,,,,,,"\nA;B;1;09120000001;ELV;x\n'
+    report, rows = await analyse_personnel(db, "p.csv", data.encode())
+    assert report["valid_count"] == 1 and report["ignored_columns"] == ["notes,,,,,,"]
+
+
+async def test_csv_tab_delimiter(db, groups):
+    data = "first_name\tlast_name\tpersonnel_code\tmobile\tgroups\nA\tB\t1\t09120000001\tELV;ESC\n"
+    report, rows = await analyse_personnel(db, "p.csv", data.encode())
+    assert report["valid_count"] == 1 and rows[0].group_codes == ["ELV", "ESC"]
+
+
+async def test_row_rejected_by_the_database_claims_nothing_in_the_file(db, groups):
+    await f.person(db, "Old", "Owner", code=5, mobile="09127777777")
+    await db.commit()
+    report, rows = await run(db, [
+        ["A", "B", 5, "09120000001", ""],      # row 2: code taken in the database
+        ["C", "D", 6, "09120000001", ""],      # row 3: same mobile, but row 2 is rejected so row 3 stays valid
+        ["E", "F", 8, "09127777777", ""],      # row 4: mobile taken in the database
+        ["G", "H", 8, "09120000009", ""],      # row 5: same code as row 4, which must not have claimed it
+    ])
+    assert codes(report) == {2: "personnel_code_taken", 4: "mobile_taken"} and [r.row for r in rows] == [3, 5]

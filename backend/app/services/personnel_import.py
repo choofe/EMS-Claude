@@ -17,9 +17,9 @@ Row rules (the same canonical forms as the management API, app.core.normalize):
   A row with no group at all is valid. Repeated codes in one cell collapse to one.
 - formulas and date-typed cells are rejected (Excel silently turns some values into dates).
 
-Duplicates: the first row with a code (or mobile) wins; later rows are `duplicate_*_in_file`. A rejected row
-never claims a code or mobile. Existing people are never updated: a code or mobile already in the database
-rejects the row (`personnel_code_taken` / `mobile_taken`) without naming the owner.
+Duplicates: a code or mobile already in the database rejects the row (`personnel_code_taken` / `mobile_taken`)
+without naming the owner (existing people are never updated); among the remaining rows the first one with a code
+(or mobile) wins and later ones are `duplicate_*_in_file`. A rejected row never claims a code or mobile.
 """
 import asyncio
 import hashlib
@@ -132,33 +132,34 @@ async def analyse_personnel(db: AsyncSession, filename: str, data: bytes) -> tup
     # CPU-bound (zip + XML): keep it off the event loop so one big upload cannot stall other requests.
     parsed = await asyncio.to_thread(parse_upload, filename, data, PERSONNEL_COLUMNS)
     groups = {c: a for c, a in (await db.execute(select(Group.code, Group.is_active))).all()}
-    rows: list[PersonRow] = []
+    candidates: list[PersonRow] = []
     errors: list[dict] = []
-    code_rows: dict[int, int] = {}
-    mobile_rows: dict[str, int] = {}
     for raw in parsed.rows:
         result = _validate_row(raw, groups)
         if isinstance(result, dict):
             errors.append(result)
-        elif result.personnel_code in code_rows:
-            errors.append(_error(raw.row, str(result.personnel_code), "duplicate_personnel_code_in_file",
-                                 first_row=code_rows[result.personnel_code]))
-        elif result.mobile in mobile_rows:
-            errors.append(_error(raw.row, str(result.personnel_code), "duplicate_mobile_in_file",
-                                 first_row=mobile_rows[result.mobile]))
         else:
-            code_rows[result.personnel_code] = raw.row
-            mobile_rows[result.mobile] = raw.row
-            rows.append(result)
-    taken_codes = await _existing(db, User.personnel_code, [r.personnel_code for r in rows])
-    taken_mobiles = await _existing(db, User.mobile, [r.mobile for r in rows])
+            candidates.append(result)
+    # Database conflicts first, so that a row rejected for any reason claims no code or mobile in the file.
+    taken_codes = await _existing(db, User.personnel_code, [r.personnel_code for r in candidates])
+    taken_mobiles = await _existing(db, User.mobile, [r.mobile for r in candidates])
     kept: list[PersonRow] = []
-    for r in rows:
+    code_rows: dict[int, int] = {}
+    mobile_rows: dict[str, int] = {}
+    for r in candidates:
         if r.personnel_code in taken_codes:
             errors.append(_error(r.row, str(r.personnel_code), "personnel_code_taken"))
         elif r.mobile in taken_mobiles:
             errors.append(_error(r.row, str(r.personnel_code), "mobile_taken"))
+        elif r.personnel_code in code_rows:
+            errors.append(_error(r.row, str(r.personnel_code), "duplicate_personnel_code_in_file",
+                                 first_row=code_rows[r.personnel_code]))
+        elif r.mobile in mobile_rows:
+            errors.append(_error(r.row, str(r.personnel_code), "duplicate_mobile_in_file",
+                                 first_row=mobile_rows[r.mobile]))
         else:
+            code_rows[r.personnel_code] = r.row
+            mobile_rows[r.mobile] = r.row
             kept.append(r)
     errors.sort(key=lambda e: e["row"])
     issues = [{"row": r.row, "personnel_code": r.personnel_code, "invalid_groups": r.invalid_groups}
