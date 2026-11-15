@@ -66,7 +66,7 @@ Read side of reports: list with filters and cursor, detail, column registry, equ
 
 Sub-phase `Pa` (data foundation: optional login profile, personnel code, mobile): see `docs/personnel.md`. Run
 `alembic upgrade head` (migration `e1c7b2d9f640`). Sub-phase `Pb` (management API: new people, login profiles, personnel
-code / mobile / username changes, login on/off, «users without a group» alert): same document, migration `f2d8c3a1b750`.
+code / mobile / username changes, login on/off, «users without a group» alert): same document, migration `f2d8c3a1b750`. Sub-phase `Pc` (personnel import parsing and validation, no endpoint yet): same file.
 
 ### Management API (Phase 4a)
 

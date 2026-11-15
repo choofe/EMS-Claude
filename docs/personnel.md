@@ -76,3 +76,36 @@ success and one clean `409` (PostgreSQL tests). Audit actions: `user.create_pers
 Mobile numbers and passwords never appear in audit metadata.
 
 Note: the legacy `POST /users` (and the CLI that creates the first administrator) still accepts any role; `PATCH /users/{id}` can also change a role. Which roles the future panel (`Pf`) may create is a decision for `Pf`.
+
+## Personnel import — parsing and validation (sub-phase Pc)
+
+Service `app/services/personnel_import.py` (`analyse_personnel(db, filename, data) -> (report, rows)`); there is NO endpoint
+yet (preview / confirm / undo, the inline fixing of group codes and the CSV problem report are `Pd`). The file parser
+`app/services/import_parser.py` is shared with the equipment import: `parse_upload(filename, data, spec)` takes a
+`ColumnSpec` (`EQUIPMENT_COLUMNS` is the default, `PERSONNEL_COLUMNS` is new). CSV delimiter detection now looks at the
+HEADER line only (the `groups` cell contains `;`, which fooled data-row sniffing in principle); the equipment import
+behaves as before (its tests pass unchanged).
+
+Format (header in row 1, English column names): `first_name`, `last_name`, `personnel_code`, `mobile` (all required) and
+`groups` (optional column). Same limits as the equipment import (2 MB, 1000 rows, `.xlsx` / `.csv`). The import creates
+NEW persons only; no profile data is ever read from the file.
+
+| Rule | Row code (or report field) |
+|---|---|
+| Formula cell / date-typed cell | `formula_not_allowed` / `date_cell` (with `column`) |
+| Required cell empty | `missing_first_name`, `missing_last_name`, `missing_personnel_code`, `missing_mobile` |
+| Names (cleaned, 64 each, 128 composed) | `invalid_first_name`, `invalid_last_name`, `invalid_full_name` |
+| Code 1–9999, no leading zero (Persian digits accepted) | `invalid_personnel_code` |
+| Mobile (stored `09xxxxxxxxx`; `+98`, `98`, missing leading 0 accepted) | `invalid_mobile` |
+| More than 20 group codes in one cell | `too_many_groups` |
+| Same code / mobile earlier in the file (first row wins; a rejected row claims nothing) | `duplicate_personnel_code_in_file`, `duplicate_mobile_in_file` (+`first_row`) |
+| Code / mobile already in the database (the owner is never named) | `personnel_code_taken`, `mobile_taken` |
+
+Groups: codes separated by `;` (also `؛` and line breaks); every code must name an existing ACTIVE group. A bad code is
+never stored and does NOT reject the row: the row stays valid with its good codes and appears in `group_issues`
+(`invalid_groups`: `token` and `reason` = `unknown` / `inactive` / `malformed`), counted in `group_issue_count`; `Pd` will
+refuse confirmation while any issue is unresolved. A row without any group is valid. Repeated codes collapse to one.
+
+Report: `file_name`, `file_sha256`, `rows_total`, `valid_count` (rows that passed the row rules, including those with
+group issues), `error_count`, `group_issue_count`, `ignored_columns`, `errors`, `group_issues`, `sample`. The mobile number
+is never in the report (errors show the row number and the personnel code only). Errors and `rows` are sorted by file row.
