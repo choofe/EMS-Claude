@@ -59,6 +59,8 @@ _CLEANUP_SQL = (
     "DELETE FROM equipment_import_batches",
     "DELETE FROM user_groups",
     "UPDATE system_settings SET updated_by = NULL",
+    "UPDATE users SET import_batch_id = NULL",  # users <-> personnel_import_batches reference each other
+    "DELETE FROM personnel_import_batches",
     "DELETE FROM users",
     "DELETE FROM groups",
 )

@@ -109,3 +109,31 @@ refuse confirmation while any issue is unresolved. A row without any group is va
 Report: `file_name`, `file_sha256`, `rows_total`, `valid_count` (rows that passed the row rules, including those with
 group issues), `error_count`, `group_issue_count`, `ignored_columns`, `errors`, `group_issues`, `sample`. The mobile number
 is never in the report (errors show the row number and the personnel code only). Errors and `rows` are sorted by file row.
+
+## Personnel import — preview, corrections and commit (sub-phase Pd)
+
+Endpoints (capability `equipment.import` = MANAGEMENT only; multipart with the same size/`Content-Length` rules as the
+equipment import, shared in `app/api/upload_utils.py`):
+
+- `POST /personnel/import/preview` — `file`, optional `corrections` (JSON text). Writes nothing. Returns the `Pc` report with
+  the corrections applied: `group_issues`, `group_issue_count`, `valid_count` and `sample` are recomputed, and
+  `dropped_count` is added.
+- `POST /personnel/import/commit` — `file`, `preview_sha256` (the `file_sha256` of the preview; another file is
+  `409 file_changed`), optional `corrections`. Answers `201` with the report plus `batch_id` and `created_count`.
+
+The preview is stateless: every call re-reads the file, re-runs the `Pc` analysis and then applies `corrections`, a list of
+`{row, op, token?, to?}`: `replace` (change one invalid group code `token`, as the preview showed it, to the active group
+`to`), `remove` (drop that invalid code; the person stays) and `drop` (leave the whole row out). The server re-validates
+all of it: unknown row `correction_row_not_found`, unknown token `correction_token_not_found`, replacement that is not an
+ACTIVE group `correction_group_invalid`, a repeated correction `duplicate_correction` (all `422`); a malformed list is
+`422 invalid_corrections` (at most 2,000 items). Only rows that passed the row rules can be corrected or dropped.
+
+Commit: refused with `422 group_issues_unresolved` while any invalid group code is left, `422 nothing_to_import` when no
+row remains. Otherwise ONE transaction creates a `personnel_import_batches` row and the people (`users.import_batch_id` set;
+no username, password or role; `login_enabled = false`; active) with their groups, using the same canonical fields as
+`create_person` (a test compares both). A code or mobile that was taken since the analysis (a concurrent import) rolls
+everything back as `409 import_conflict`. Audit `personnel.import` on the batch: file name and hash, row counts, created,
+rejected, dropped; never a mobile number. Rows with errors are simply not imported (`rejected_count` = errors + dropped).
+
+Migration `a3e9d5b7c481`: table `personnel_import_batches` and `users.import_batch_id`. Not in `Pd`: undo of a batch, the
+batch list and the `CSV` problem report (sub-phase `Pg`), the import page (`Pe`).

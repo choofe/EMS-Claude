@@ -31,3 +31,20 @@ class EquipmentImportBatch(Base):
 
     group: Mapped["Group"] = relationship()
     creator: Mapped["User"] = relationship(foreign_keys=[created_by])
+
+
+class PersonnelImportBatch(Base):
+    """One row per CONFIRMED personnel import (phase-personnel, Pd). People created by it carry
+    users.import_batch_id. Like the equipment batch it is never deleted; the undo (Pg) will set undone_at/undone_by.
+    No mobile number or file content is stored here."""
+    __tablename__ = "personnel_import_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    rejected_count: Mapped[int] = mapped_column(Integer, nullable=False)  # rows not imported (errors + dropped)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    undone_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
