@@ -1,4 +1,5 @@
 """Schemas of the personnel import API (requests are multipart forms; `corrections` is a JSON text field)."""
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -72,3 +73,58 @@ class PersonnelPreviewOut(BaseModel):
 class PersonnelCommitOut(PersonnelPreviewOut):
     batch_id: int
     created_count: int
+
+
+# ---------------------------------------------------------------- history and cancel (Pg)
+class ImportBatchItem(BaseModel):
+    id: int
+    kind: str                      # PERSONNEL today; the equipment import may share the history later
+    file_name: str
+    created_at: datetime
+    created_by_name: str
+    created_count: int
+    rejected_count: int
+    removed_count: int             # people removed by cancels so far (never their names)
+    remaining_count: int           # people of the batch who still exist (counted live)
+    status: Literal["complete", "partial", "cancelled"]
+    undone_at: datetime | None     # time of the LAST cancel
+
+
+class BatchPerson(BaseModel):
+    """A person of the batch with CURRENT data; `mobile` only for holders of personnel.mobile.view."""
+    id: int
+    first_name: str | None
+    last_name: str | None
+    full_name: str
+    personnel_code: int | None
+    group_codes: list[str]
+    is_active: bool
+    has_profile: bool
+    mobile: str | None = None
+
+
+class ExemptReasons(BaseModel):
+    """People kept by each reason; one person may be counted under several."""
+    profile: int
+    reports: int
+    participation: int
+    stars: int
+
+
+class CancelPreviewOut(BaseModel):
+    batch_id: int
+    remaining_count: int
+    removable_count: int
+    exempt_count: int
+    exempt_reasons: ExemptReasons
+    fingerprint: str
+
+
+class CancelConfirmIn(BaseModel):
+    fingerprint: str = Field(min_length=64, max_length=64)
+
+
+class CancelOut(BaseModel):
+    batch_id: int
+    removed_count: int
+    kept_count: int

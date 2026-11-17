@@ -135,5 +135,39 @@ no username, password or role; `login_enabled = false`; active) with their group
 everything back as `409 import_conflict`. Audit `personnel.import` on the batch: file name and hash, row counts, created,
 rejected, dropped; never a mobile number. Rows with errors are simply not imported (`rejected_count` = errors + dropped).
 
-Migration `a3e9d5b7c481`: table `personnel_import_batches` and `users.import_batch_id`. Not in `Pd`: undo of a batch, the
-batch list and the `CSV` problem report (sub-phase `Pg`), the import page (`Pe`).
+Migration `a3e9d5b7c481`: table `personnel_import_batches` and `users.import_batch_id`. Not in `Pd`: the cancel of a batch, the
+batch list and the `CSV` problem report (sub-phase `Pg`, below), the import page (`Pe`).
+
+## Personnel import history, cancel and CSV problem report (sub-phase Pg)
+
+There is NO separate undo button. A manager opens the import history, looks at a batch and cancels it from there.
+
+Endpoints (router `app/api/personnel_import_history.py`, service `app/services/personnel_import_history.py`):
+
+- `GET /personnel/import/batches` (`limit` 1-100, `offset`): newest first; per batch `id`, `kind` (always `PERSONNEL` for now), `file_name`,
+  `created_at`, `created_by_name`, `created_count`, `rejected_count`, `removed_count`, `remaining_count` (counted live from
+  `users.import_batch_id`), `status` (`complete` = nobody removed yet, `partial`, `cancelled` = nobody left), `undone_at` (the LAST cancel).
+- `GET /personnel/import/batches/{id}/people`: the people of the batch who still exist with their CURRENT data (not the data of the import
+  day); `mobile` only for holders of `personnel.mobile.view`. Both reads need `audit.view`: MANAGEMENT and AUDITOR.
+- `POST /personnel/import/batches/{id}/cancel-preview` (writes nothing) -> `remaining_count`, `removable_count`, `exempt_count`,
+  `exempt_reasons` (`profile`, `reports`, `participation`, `stars`; one person may count under several) and a `fingerprint` (SHA-256 of the batch id
+  and the sorted ids that would be removed).
+- `POST /personnel/import/batches/{id}/cancel` with `{fingerprint}`: recomputes under a `FOR UPDATE` lock on the batch row and on the batch's
+  people (id order); a different fingerprint is `409 batch_changed` (+ the new counts) and nothing is deleted or re-run on its own;
+  nothing removable is `409 nothing_to_cancel`; unknown batch `404 import_batch_not_found`. Both cancel endpoints need `equipment.import`: MANAGEMENT
+  only, any manager for any batch; AUDITOR `403`.
+- `POST /personnel/import/problems.csv` (multipart `file`, optional `corrections`, `equipment.import`): the file is analysed again (the preview keeps
+  nothing) and the problem rows are returned as `text/csv` (`UTF-8` with `BOM`, `CRLF`, `no-store`): `row`, `personnel_code` (as typed, at most 16
+  characters), `problem_code`, `description_fa`; row errors plus the invalid group codes still left after the corrections. Never a mobile number,
+  never the owner of a duplicate. A cell that begins with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`.
+
+Cancel rules: a cancel hard-deletes (with their group memberships) every person of the batch who is still unused, and keeps everybody who has a
+reference: a login profile, a report he created, a labor row (participation) or a star given or received. This is the Master Prompt's
+«import-undo» exception to «never hard-delete history»: only rows created by that batch and referred to by nothing are deleted. The cancel can be
+repeated later for the people who were kept; there is no time limit. The batch row is never deleted: `removed_count` adds up, `undone_at` and
+`undone_by` mean the last cancel. Audit `personnel.import_cancel` on the batch with counts only (`removed`, `kept`, `remaining_before`), never names,
+codes or mobile numbers. A reference that appears at the last moment ends in the foreign key (`RESTRICT`) and the same `409 batch_changed`.
+
+Migration `b4f0e6c8d592`: `personnel_import_batches.kind` (default `PERSONNEL`, so the equipment import can share the history later; not scheduled)
+and `removed_count` (default 0). Known limits: the list of people shows the current state, so removed people are only counted; the Persian texts of the
+CSV live in the service (`PROBLEM_FA`) and must be extended with every new import problem code (a test compares them with the codes of the parser).
