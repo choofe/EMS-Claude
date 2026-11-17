@@ -1,0 +1,74 @@
+"""Schemas of the personnel import API (requests are multipart forms; `corrections` is a JSON text field)."""
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+MAX_CORRECTIONS = 2000
+MAX_CORRECTIONS_BYTES = 200_000  # the `corrections` form field, in UTF-8 bytes (the route adds it to the body budget)
+
+
+class PersonnelCorrection(BaseModel):
+    """One manager's fix, applied by the server to the same file and re-validated:
+    replace = change one invalid group code (`token`, as the preview showed it) to the group code `to`;
+    remove  = drop that invalid group code from the person (the person is kept);
+    drop    = leave the whole row out of the import."""
+    row: int = Field(ge=2, le=1_000_000)
+    op: Literal["replace", "remove", "drop"]
+    token: str | None = Field(default=None, max_length=32)
+    to: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if self.op == "drop" and (self.token is not None or self.to is not None):
+            raise ValueError("drop takes only a row")
+        if self.op == "remove" and (not self.token or self.to is not None):
+            raise ValueError("remove takes a row and a token")
+        if self.op == "replace" and (not self.token or not self.to):
+            raise ValueError("replace takes a row, a token and a target")
+        return self
+
+
+class PersonnelRowError(BaseModel):
+    row: int
+    personnel_code: str               # the code as typed (at most 16 characters); never the mobile number
+    code: str                         # stable reason; the frontend maps it to a Persian message
+    column: str | None = None         # date_cell, formula_not_allowed
+    max_groups: int | None = None     # too_many_groups
+    first_row: int | None = None      # duplicate_*_in_file
+
+
+class InvalidGroup(BaseModel):
+    token: str
+    reason: Literal["malformed", "unknown", "inactive"]
+
+
+class PersonnelGroupIssue(BaseModel):
+    row: int
+    personnel_code: int
+    invalid_groups: list[InvalidGroup]
+
+
+class PersonnelSampleRow(BaseModel):
+    row: int
+    personnel_code: int
+    full_name: str
+    group_codes: list[str]
+
+
+class PersonnelPreviewOut(BaseModel):
+    file_name: str
+    file_sha256: str
+    rows_total: int
+    valid_count: int
+    error_count: int
+    group_issue_count: int
+    dropped_count: int = 0
+    ignored_columns: list[str]
+    errors: list[PersonnelRowError]
+    group_issues: list[PersonnelGroupIssue]
+    sample: list[PersonnelSampleRow]
+
+
+class PersonnelCommitOut(PersonnelPreviewOut):
+    batch_id: int
+    created_count: int

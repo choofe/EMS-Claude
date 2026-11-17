@@ -1,7 +1,7 @@
 """
-Excel/CSV personnel import — parsing and validation only (sub-phase Pc). The preview/confirm/undo workflow
-and the transactional insert are sub-phase Pd; this module answers "which rows of this file describe a
-person we could create, and what is wrong with the others?".
+Excel/CSV personnel import. Sub-phase Pc: parsing and validation ("which rows of this file describe a person
+we could create, and what is wrong with the others?"). Sub-phase Pd: the manager's corrections of invalid group
+codes, the preview and the transactional commit (the undo and the CSV problem report come in Pg).
 
 Standard format (one sheet, header in row 1): first_name, last_name, personnel_code, mobile, groups (optional).
 `groups` holds group CODES separated by ";" (e.g. ELV;ESC). The import creates NEW persons only; there is
@@ -26,6 +26,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
@@ -33,7 +34,11 @@ from app.core.normalize import (
     canonical_group_code, canonical_mobile, canonical_personnel_code, clean_text, compose_full_name,
 )
 from app.models.group import Group
+from app.models.import_batch import PersonnelImportBatch
 from app.models.user import User
+from app.models.user_group import UserGroup
+from app.schemas.personnel_import import PersonnelCorrection
+from app.services.audit import add_audit
 from app.services.equipment_import import safe_file_name
 from app.services.import_parser import PERSONNEL_COLUMNS, RawRow, parse_upload
 
@@ -162,19 +167,115 @@ async def analyse_personnel(db: AsyncSession, filename: str, data: bytes) -> tup
             mobile_rows[r.mobile] = r.row
             kept.append(r)
     errors.sort(key=lambda e: e["row"])
-    issues = [{"row": r.row, "personnel_code": r.personnel_code, "invalid_groups": r.invalid_groups}
-              for r in kept if r.invalid_groups]
     report = {
         "file_name": safe_file_name(filename),
         "file_sha256": hashlib.sha256(data).hexdigest(),
         "rows_total": len(parsed.rows),
-        "valid_count": len(kept),
         "error_count": len(errors),
-        "group_issue_count": len(issues),
         "ignored_columns": parsed.ignored_columns,
         "errors": errors,
-        "group_issues": issues,
-        "sample": [{"row": r.row, "personnel_code": r.personnel_code, "full_name": f"{r.first_name} {r.last_name}",
-                    "group_codes": r.group_codes} for r in kept[:_SAMPLE]],
+        **_summary(kept),
     }
     return report, kept
+
+
+def _summary(rows: list[PersonRow]) -> dict:
+    """The parts of the report that depend on which rows are kept (also recomputed after corrections)."""
+    issues = [{"row": r.row, "personnel_code": r.personnel_code, "invalid_groups": r.invalid_groups}
+              for r in rows if r.invalid_groups]
+    return {
+        "valid_count": len(rows),
+        "group_issue_count": len(issues),
+        "group_issues": issues,
+        "sample": [{"row": r.row, "personnel_code": r.personnel_code, "full_name": f"{r.first_name} {r.last_name}",
+                    "group_codes": r.group_codes} for r in rows[:_SAMPLE]],
+    }
+
+
+# ------------------------------------------------------------------ corrections (Pd)
+def apply_corrections(rows: list[PersonRow], corrections: list[PersonnelCorrection],
+                      groups: dict[str, bool]) -> tuple[list[PersonRow], int]:
+    """Applies the manager's corrections to freshly analysed rows (they are changed in place) and returns
+    (remaining rows, number of dropped rows). Everything is re-validated here, never trusted: a target row or
+    token that does not exist, a repeated correction, or a replacement that is not an ACTIVE group is a 422."""
+    by_row = {r.row: r for r in rows}
+    seen: set[tuple] = set()
+    dropped: set[int] = set()
+    for c in corrections:
+        key = (c.row, c.op == "drop", c.token)
+        if key in seen:
+            raise DomainError("duplicate_correction", 422, row=c.row)
+        seen.add(key)
+        person = by_row.get(c.row)
+        if person is None:
+            raise DomainError("correction_row_not_found", 422, row=c.row)
+        if c.op == "drop":
+            dropped.add(c.row)
+            continue
+        if not any(i["token"] == c.token for i in person.invalid_groups):
+            raise DomainError("correction_token_not_found", 422, row=c.row, token=c.token)
+        if c.op == "replace":
+            try:
+                target = canonical_group_code(c.to or "")
+            except DomainError:
+                raise DomainError("correction_group_invalid", 422, row=c.row, token=c.token) from None
+            if not groups.get(target):  # unknown (None) or inactive (False)
+                raise DomainError("correction_group_invalid", 422, row=c.row, token=c.token)
+            if target not in person.group_codes:
+                person.group_codes.append(target)
+        person.invalid_groups = [i for i in person.invalid_groups if i["token"] != c.token]
+    return [r for r in rows if r.row not in dropped], len(dropped)
+
+
+async def analyse_with_corrections(db: AsyncSession, filename: str, data: bytes,
+                                   corrections: list[PersonnelCorrection]) -> tuple[dict, list[PersonRow]]:
+    report, rows = await analyse_personnel(db, filename, data)
+    groups = {c: a for c, a in (await db.execute(select(Group.code, Group.is_active))).all()}
+    rows, dropped = apply_corrections(rows, corrections, groups)
+    report.update(_summary(rows), dropped_count=dropped)
+    return report, rows
+
+
+async def preview_import(db: AsyncSession, *, filename: str, data: bytes,
+                         corrections: list[PersonnelCorrection]) -> dict:
+    return (await analyse_with_corrections(db, filename, data, corrections))[0]
+
+
+# ------------------------------------------------------------------ commit (Pd)
+async def commit_import(db: AsyncSession, *, actor_id: int, filename: str, data: bytes, expected_sha256: str,
+                        corrections: list[PersonnelCorrection]) -> dict:
+    """Creates the remaining rows as NEW people (no profile, sign-in off), all in one transaction. The file is
+    re-read and re-validated here; nothing from the preview is trusted except the file hash, which proves it is
+    the file that was previewed. Refused while any invalid group code is left."""
+    if hashlib.sha256(data).hexdigest() != (expected_sha256 or "").strip().lower():
+        raise DomainError("file_changed", 409)
+    report, rows = await analyse_with_corrections(db, filename, data, corrections)
+    if report["group_issue_count"]:
+        raise DomainError("group_issues_unresolved", 422, group_issue_count=report["group_issue_count"])
+    if not rows:
+        raise DomainError("nothing_to_import", 422, error_count=report["error_count"])
+    # Shared lock on the active groups: deactivating a group takes FOR UPDATE, so it either finishes first (the group
+    # drops out of the re-evaluated predicate and we answer import_conflict) or waits for this transaction.
+    ids = {c: i for c, i in (await db.execute(select(Group.code, Group.id).where(Group.is_active.is_(True))
+                                              .order_by(Group.id).with_for_update(read=True))).all()}
+    batch = PersonnelImportBatch(file_name=report["file_name"], file_sha256=report["file_sha256"], created_by=actor_id,
+                                 created_count=len(rows), rejected_count=report["error_count"] + report["dropped_count"])
+    db.add(batch)
+    await db.flush()
+    people = [User(full_name=compose_full_name(r.first_name, r.last_name), first_name=r.first_name,
+                   last_name=r.last_name, personnel_code=r.personnel_code, mobile=r.mobile, login_enabled=False,
+                   import_batch_id=batch.id) for r in rows]
+    db.add_all(people)
+    try:
+        await db.flush()
+        db.add_all(UserGroup(user_id=u.id, group_id=ids[code]) for u, r in zip(people, rows) for code in r.group_codes)
+        await db.flush()
+    except (IntegrityError, KeyError):  # a code/mobile taken (or a group deactivated) since our check
+        await db.rollback()
+        raise DomainError("import_conflict", 409) from None
+    add_audit(db, actor_id=actor_id, action="personnel.import", entity_type="personnel_import_batch",
+              entity_id=batch.id, metadata={"file_name": report["file_name"], "file_sha256": report["file_sha256"],
+                                            "rows_total": report["rows_total"], "created": len(rows),
+                                            "rejected": report["error_count"], "dropped": report["dropped_count"]})
+    await db.commit()
+    return {**report, "batch_id": batch.id, "created_count": len(rows)}
