@@ -235,3 +235,16 @@ async def test_an_oversized_upload_is_refused(api, world, monkeypatch):
     monkeypatch.setattr(get_settings(), "import_max_bytes", 100)
     r = await preview(api, "boss", make_xlsx(GOOD * 50))
     assert r.status_code == 413
+
+
+async def test_corrections_get_their_own_body_allowance(api, world, db, monkeypatch):
+    from app.core.config import get_settings
+    monkeypatch.setattr(get_settings(), "import_max_bytes", 50_000)
+    data = make_xlsx(GOOD)
+    big = fix(*[{"row": 2, "op": "drop"}] * 6000)  # ~150 KB: over file limit + 64 KiB, inside the corrections allowance
+    r = await preview(api, "boss", data, big)
+    assert r.status_code == 422 and code_of(r) == "invalid_corrections"  # too many items, but NOT a 413
+    r = await api.post("/equipment/import/preview", "boss",
+                       data={"group_id": str(world.elv.id), "padding": "x" * 150_000},
+                       files={"file": ("e.xlsx", data, XLSX)})
+    assert r.status_code == 413  # the allowance belongs to the personnel route only

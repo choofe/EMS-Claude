@@ -10,6 +10,9 @@ _MULTIPART_OVERHEAD = 64 * 1024
 
 
 class UploadRoute(APIRoute):
+    """`extra_body_bytes`: allowance for other form fields beside the file (a subclass sets it; default none)."""
+    extra_body_bytes = 0
+
     def get_route_handler(self):
         original = super().get_route_handler()
 
@@ -18,7 +21,7 @@ class UploadRoute(APIRoute):
             length = request.headers.get("content-length")
             if length is None or not length.isdigit():
                 raise DomainError("length_required", 411)
-            if int(length) > limit + _MULTIPART_OVERHEAD:
+            if int(length) > limit + _MULTIPART_OVERHEAD + self.extra_body_bytes:
                 raise DomainError("file_too_large", 413, max_bytes=limit)
             return await original(request)
 

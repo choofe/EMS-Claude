@@ -254,7 +254,10 @@ async def commit_import(db: AsyncSession, *, actor_id: int, filename: str, data:
         raise DomainError("group_issues_unresolved", 422, group_issue_count=report["group_issue_count"])
     if not rows:
         raise DomainError("nothing_to_import", 422, error_count=report["error_count"])
-    ids = {c: i for c, i in (await db.execute(select(Group.code, Group.id).where(Group.is_active.is_(True)))).all()}
+    # Shared lock on the active groups: deactivating a group takes FOR UPDATE, so it either finishes first (the group
+    # drops out of the re-evaluated predicate and we answer import_conflict) or waits for this transaction.
+    ids = {c: i for c, i in (await db.execute(select(Group.code, Group.id).where(Group.is_active.is_(True))
+                                              .order_by(Group.id).with_for_update(read=True))).all()}
     batch = PersonnelImportBatch(file_name=report["file_name"], file_sha256=report["file_sha256"], created_by=actor_id,
                                  created_count=len(rows), rejected_count=report["error_count"] + report["dropped_count"])
     db.add(batch)

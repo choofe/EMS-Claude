@@ -10,18 +10,26 @@ from app.api.upload_utils import UploadRoute, read_upload
 from app.core.errors import DomainError
 from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
-from app.schemas.personnel_import import MAX_CORRECTIONS, PersonnelCommitOut, PersonnelCorrection, PersonnelPreviewOut
+from app.schemas.personnel_import import (
+    MAX_CORRECTIONS, MAX_CORRECTIONS_BYTES, PersonnelCommitOut, PersonnelCorrection, PersonnelPreviewOut,
+)
 from app.services import personnel_import
 
 _import = require_capability(C.EXCEL_IMPORT)
 _corrections = TypeAdapter(list[PersonnelCorrection])
 
-router = APIRouter(prefix="/personnel/import", tags=["personnel-import"], route_class=UploadRoute)
+class PersonnelUploadRoute(UploadRoute):
+    extra_body_bytes = MAX_CORRECTIONS_BYTES  # the corrections field travels beside the file
+
+
+router = APIRouter(prefix="/personnel/import", tags=["personnel-import"], route_class=PersonnelUploadRoute)
 
 
 def _parse_corrections(text: str) -> list[PersonnelCorrection]:
     if not text.strip():
         return []
+    if len(text.encode()) > MAX_CORRECTIONS_BYTES:  # the form limit counts characters, the body budget bytes
+        raise DomainError("invalid_corrections", 422, max_bytes=MAX_CORRECTIONS_BYTES)
     try:
         items = _corrections.validate_json(text)
     except ValidationError:
@@ -32,7 +40,7 @@ def _parse_corrections(text: str) -> list[PersonnelCorrection]:
 
 
 @router.post("/preview", response_model=PersonnelPreviewOut, response_model_exclude_none=True)
-async def preview(file: UploadFile = File(...), corrections: str = Form("", max_length=200_000),
+async def preview(file: UploadFile = File(...), corrections: str = Form("", max_length=MAX_CORRECTIONS_BYTES),
                   _: Principal = Depends(_import), db: AsyncSession = Depends(get_db)) -> dict:
     return await personnel_import.preview_import(db, filename=file.filename or "", data=await read_upload(file),
                                                  corrections=_parse_corrections(corrections))
@@ -40,7 +48,7 @@ async def preview(file: UploadFile = File(...), corrections: str = Form("", max_
 
 @router.post("/commit", response_model=PersonnelCommitOut, status_code=201, response_model_exclude_none=True)
 async def commit(preview_sha256: str = Form(..., min_length=64, max_length=64), file: UploadFile = File(...),
-                 corrections: str = Form("", max_length=200_000), actor: Principal = Depends(_import),
+                 corrections: str = Form("", max_length=MAX_CORRECTIONS_BYTES), actor: Principal = Depends(_import),
                  db: AsyncSession = Depends(get_db)) -> dict:
     return await personnel_import.commit_import(
         db, actor_id=actor.user_id, filename=file.filename or "", data=await read_upload(file),

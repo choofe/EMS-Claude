@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 MAX_CORRECTIONS = 2000
+MAX_CORRECTIONS_BYTES = 200_000  # the `corrections` form field, in UTF-8 bytes (the route adds it to the body budget)
 
 
 class PersonnelCorrection(BaseModel):
