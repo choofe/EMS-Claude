@@ -35,7 +35,7 @@ class EquipmentImportBatch(Base):
 
 class PersonnelImportBatch(Base):
     """One row per CONFIRMED personnel import (phase-personnel, Pd). People created by it carry
-    users.import_batch_id. Like the equipment batch it is never deleted; the undo (Pg) will set undone_at/undone_by.
+    users.import_batch_id. Like the equipment batch it is never deleted; a cancel (Pg) sets undone_at/undone_by and adds to removed_count.
     No mobile number or file content is stored here."""
     __tablename__ = "personnel_import_batches"
 
@@ -48,3 +48,8 @@ class PersonnelImportBatch(Base):
     rejected_count: Mapped[int] = mapped_column(Integer, nullable=False)  # rows not imported (errors + dropped)
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     undone_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    # Pg: a batch can be cancelled again and again for the people who are still unused. undone_at/undone_by then
+    # mean "the LAST cancel"; removed_count adds up everybody removed so far. kind lets the equipment import share
+    # the history later (unscheduled); today it is always PERSONNEL.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="PERSONNEL", server_default="PERSONNEL")
+    removed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

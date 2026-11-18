@@ -82,7 +82,7 @@ async def test_migration_refuses_to_merge_case_clashes(pg_migrated, alembic_cfg)
     finally:
         await _exec(pg_migrated, *_WIPE)
         await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
-    assert await _scalar(pg_migrated, "SELECT version_num FROM alembic_version") == [("a3e9d5b7c481",)]
+    assert await _scalar(pg_migrated, "SELECT version_num FROM alembic_version") == [("b4f0e6c8d592",)]
 
 
 @pytest.mark.parametrize("round_", range(3))
