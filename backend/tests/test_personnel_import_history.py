@@ -254,3 +254,24 @@ async def test_service_hides_the_mobile_when_the_viewer_lacks_the_capability(api
     assert items[0]["mobile"] is None
     items, _total = await history.batch_people(db, batch_id=bid, limit=10, offset=0, with_mobile=True)
     assert items[0]["mobile"] == "09120000100"
+
+
+async def test_the_history_page_and_its_live_counts_come_from_one_statement(api, world, db):
+    """A cancel that commits between two statements would give a page whose counters disagree (CodeRabbit, Pg):
+    the page is read with exactly two statements (the total and the page with its correlated count), never a third."""
+    from sqlalchemy import event
+    await batch_of(api, db, ROWS[:2])
+    seen: list[str] = []
+    engine = db.get_bind()
+    engine = getattr(engine, "engine", engine)
+
+    def spy(conn, cursor, statement, *rest):
+        seen.append(statement)
+
+    event.listen(engine, "before_cursor_execute", spy)
+    try:
+        items, total = await history.list_batches(db, limit=10, offset=0)
+    finally:
+        event.remove(engine, "before_cursor_execute", spy)
+    assert total == 1 and items[0]["remaining_count"] == 2
+    assert len(seen) == 2 and not any("GROUP BY" in q for q in seen), seen

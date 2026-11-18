@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, exists, func, select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.errors import DomainError
 from app.models import (
@@ -55,26 +56,22 @@ def status_of(batch: PersonnelImportBatch, remaining: int) -> str:
     return "cancelled" if remaining == 0 else "partial"
 
 
-async def _remaining(db: AsyncSession, batch_ids: list[int]) -> dict[int, int]:
-    out = {i: 0 for i in batch_ids}
-    if batch_ids:
-        rows = (await db.execute(select(User.import_batch_id, func.count(User.id))
-                                 .where(User.import_batch_id.in_(batch_ids)).group_by(User.import_batch_id))).all()
-        out.update({b: n for b, n in rows})
-    return out
-
-
 async def list_batches(db: AsyncSession, *, limit: int, offset: int) -> tuple[list[dict], int]:
+    """One page of batches. The live count of remaining people is a correlated subquery of the SAME statement, so a
+    cancel that commits meanwhile can never give a page whose counters disagree with each other (CodeRabbit, Pg)."""
     total = (await db.execute(select(func.count(PersonnelImportBatch.id)))).scalar_one()
+    creator = aliased(User)
+    remaining = (select(func.count(User.id)).where(User.import_batch_id == PersonnelImportBatch.id)
+                 .correlate(PersonnelImportBatch).scalar_subquery())
     rows = (await db.execute(
-        select(PersonnelImportBatch, User.full_name).join(User, User.id == PersonnelImportBatch.created_by)
+        select(PersonnelImportBatch, creator.full_name, remaining.label("remaining"))
+        .join(creator, creator.id == PersonnelImportBatch.created_by)
         .order_by(PersonnelImportBatch.id.desc()).limit(limit).offset(offset))).all()
-    remaining = await _remaining(db, [b.id for b, _ in rows])
     items = [{
         "id": b.id, "kind": b.kind, "file_name": b.file_name, "created_at": b.created_at, "created_by_name": name,
         "created_count": b.created_count, "rejected_count": b.rejected_count, "removed_count": b.removed_count,
-        "remaining_count": remaining[b.id], "status": status_of(b, remaining[b.id]), "undone_at": b.undone_at,
-    } for b, name in rows]
+        "remaining_count": left, "status": status_of(b, left), "undone_at": b.undone_at,
+    } for b, name, left in rows]
     return items, total
 
 
