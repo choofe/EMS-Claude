@@ -1,4 +1,4 @@
-import type { PersonnelCorrection, PersonnelPreview } from "../../api/types";
+import type { PersonnelCorrection, PersonnelGroupIssue, PersonnelPreview } from "../../api/types";
 
 /** What the manager decided for one invalid group code. */
 export type TokenFix = { op: "replace"; to: string } | { op: "remove" };
@@ -12,6 +12,10 @@ export const MAX_CORRECTIONS = 2000;
 /** Token keys are prefixed so a code such as `constructor` or `__proto__` can never hit the object prototype. */
 const tk = (token: string) => `t:${token}`;
 export const tokenFix = (f: Fixes, row: number, token: string): TokenFix | undefined => f[row]?.tokens[tk(token)];
+
+/** The backend lists a repeated bad code (`XX;XX`) once per occurrence but corrects it by token, so the page works per DISTINCT token. */
+export const distinctBad = (issue: PersonnelGroupIssue) =>
+  issue.invalid_groups.filter((b, i, all) => all.findIndex((x) => x.token === b.token) === i);
 
 export function setTokenFix(f: Fixes, row: number, token: string, fix: TokenFix | null): Fixes {
   const cur = f[row] ?? { tokens: {} };
@@ -35,7 +39,7 @@ export function buildCorrections(p: PersonnelPreview, f: Fixes): PersonnelCorrec
     const fix = f[issue.row];
     if (!fix) continue;
     if (fix.drop) { out.push({ row: issue.row, op: "drop" }); continue; }
-    for (const bad of issue.invalid_groups) {
+    for (const bad of distinctBad(issue)) {
       const t = tokenFix(f, issue.row, bad.token);
       if (t?.op === "replace") out.push({ row: issue.row, op: "replace", token: bad.token, to: t.to });
       else if (t?.op === "remove") out.push({ row: issue.row, op: "remove", token: bad.token });
@@ -57,7 +61,7 @@ export function summarize(p: PersonnelPreview, f: Fixes): Summary {
   for (const issue of p.group_issues) {
     const fix = f[issue.row];
     if (fix?.drop) { dropped += 1; continue; }
-    const left = issue.invalid_groups.filter((b) => !tokenFix(f, issue.row, b.token)).length;
+    const left = distinctBad(issue).filter((b) => !tokenFix(f, issue.row, b.token)).length;
     if (left > 0) { unresolvedRows += 1; unresolvedTokens += left; }
   }
   return { importable: p.valid_count - dropped, dropped, unresolvedRows, unresolvedTokens };

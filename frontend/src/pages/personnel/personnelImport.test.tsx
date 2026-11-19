@@ -55,6 +55,14 @@ describe("personnel import state", () => {
     expect(buildCorrections(p, setTokenFix(f, 3, "XX", null))).toHaveLength(1);
   });
 
+  it("a bad code repeated in one cell (XX;XX) is ONE decision and ONE correction (CodeRabbit)", () => {
+    const p = pv({ group_issues: [{ row: 3, personnel_code: 11, invalid_groups: [{ token: "XX", reason: "unknown" }, { token: "XX", reason: "unknown" }] }] });
+    expect(summarize(p, {}).unresolvedTokens).toBe(1);
+    const f = setTokenFix({}, 3, "XX", { op: "remove" });
+    expect(summarize(p, f).unresolvedRows).toBe(0);
+    expect(buildCorrections(p, f)).toEqual([{ row: 3, op: "remove", token: "XX" }]);
+  });
+
   it("token names that exist on Object.prototype are ordinary tokens (CodeRabbit)", () => {
     const p = pv({ group_issues: [{ row: 3, personnel_code: 11, invalid_groups: [{ token: "constructor", reason: "unknown" }, { token: "__proto__", reason: "unknown" }] }] });
     const f = setTokenFix({}, 3, "__proto__", { op: "remove" });
@@ -261,6 +269,28 @@ describe("personnel import page", () => {
     await userEvent.click(screen.getByRole("button", { name: "تلاش دوباره" }));
     await waitFor(() => expect(screen.queryByText(/فهرست گروه‌ها بارگذاری نشد/)).not.toBeInTheDocument());
     expect(m.count("GET /groups")).toBe(2);
+  });
+
+  it("while the group list is reloading or failed after a restart, no cached group is offered (CodeRabbit)", async () => {
+    let calls = 0;
+    mockFetch({
+      ...session(),
+      "GET /groups": () => (++calls === 1 ? groups() : json(500, { detail: { code: "internal_error" } })),
+      "POST /personnel/import/preview": () => json(200, pv()),
+      "POST /personnel/import/commit": () => json(409, { detail: { code: "import_conflict" } }),
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await userEvent.click(await screen.findByRole("button", { name: "حذف ردیف 3" }));
+    await userEvent.click(screen.getByRole("button", { name: "حذف ردیف 4" }));
+    await userEvent.click(await screen.findByRole("button", { name: /ورود ۱ نفر/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "ورود به سامانه" }));
+    await screen.findByText(/فهرست گروه‌ها بارگذاری نشد/);          // the reload after the restart failed
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await userEvent.click((await screen.findAllByRole("combobox", { name: /جایگزینی با گروه/ }))[0]);
+    expect(screen.queryByRole("option", { name: /آسانسور/ })).not.toBeInTheDocument();
   });
 
   it("is a management-only page", async () => {

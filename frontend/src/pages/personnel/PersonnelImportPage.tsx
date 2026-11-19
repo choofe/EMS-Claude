@@ -14,7 +14,7 @@ import { toPersianDigits } from "../../lib/dates";
 import { useLoad } from "../../lib/useLoad";
 import { downloadBlob } from "../ImportPage";
 import {
-  canCommit, buildCorrections, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, SHOWN_STEP, summarize, templateCsv, tokenFix, type Fixes,
+  canCommit, buildCorrections, distinctBad, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, SHOWN_STEP, summarize, templateCsv, tokenFix, type Fixes,
 } from "./personnelImportState";
 import { groupReason, importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
@@ -90,7 +90,7 @@ function GroupFixes({ issues, fixes, groups, disabled, onChange }: FixProps) {
                   <TableCell>
                     {dropped ? <Chip size="small" label="این ردیف وارد نمی‌شود" /> : (
                       <Stack gap={1}>
-                        {issue.invalid_groups.map((bad) => {
+                        {distinctBad(issue).map((bad) => {
                           const t = tokenFix(fixes, issue.row, bad.token);
                           return (
                             <Stack key={bad.token} direction="row" gap={1} alignItems="center" flexWrap="wrap">
@@ -148,7 +148,8 @@ export function PersonnelImportPage() {
   const [confirm, setConfirm] = useState(false);
 
   const groups = useLoad(loadActiveGroups, []);
-  const activeGroups = useMemo(() => (groups.data ?? []).filter((g) => g.is_active), [groups.data]);
+  // a reload keeps the old data: while it is pending or has failed the cached groups may be stale, so offer none
+  const activeGroups = useMemo(() => (groups.loading || groups.error ? [] : (groups.data ?? []).filter((g) => g.is_active)), [groups.data, groups.loading, groups.error]);
 
   useEffect(() => { setPreview(null); setFixes({}); }, [file]);
 
