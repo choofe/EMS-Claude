@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
 import type { PersonnelPreview } from "../../api/types";
 import { ApiError } from "../../api/http";
-import { buildCorrections, canCommit, MAX_CORRECTIONS, setDrop, setTokenFix, summarize, templateCsv } from "./personnelImportState";
+import { buildCorrections, canCommit, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, summarize, templateCsv } from "./personnelImportState";
 import { importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
 beforeEach(() => resetClientState());
@@ -78,6 +78,20 @@ describe("personnel import state", () => {
     expect(text.split("\r\n")[0]).toBe("\ufeffrow,personnel_code,problem_code,description_fa");
     expect(text).toContain('"\'=1+1"');
     expect(text).not.toMatch(/mobile\b[^_]/);
+  });
+
+  it("a dropped row leaves the sample and a replaced group code joins the person's groups", () => {
+    const p = pv({ sample: [
+      { row: 2, personnel_code: 10, full_name: "علی رضایی", group_codes: ["ELV"] },
+      { row: 3, personnel_code: 11, full_name: "سارا احمدی", group_codes: ["ESC"] },
+      { row: 4, personnel_code: 14, full_name: "رضا کریمی", group_codes: [] },
+    ] });
+    expect(sampleAfterFixes(p, {})).toEqual(p.sample);
+    const f = setTokenFix({}, 3, "ELEV", { op: "replace", to: "ELV" });
+    expect(sampleAfterFixes(p, f)[1].group_codes).toEqual(["ESC", "ELV"]);
+    const dropped = sampleAfterFixes(p, setDrop(f, 4, true));
+    expect(dropped.map((s) => s.row)).toEqual([2, 3]);
+    expect(sampleAfterFixes(p, setDrop({}, 3, true)).map((s) => s.row)).toEqual([2, 4]);
   });
 
   it("the empty template is a BOM-prefixed header line with the five columns", async () => {

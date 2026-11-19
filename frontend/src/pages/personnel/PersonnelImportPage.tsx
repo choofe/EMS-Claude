@@ -14,7 +14,7 @@ import { toPersianDigits } from "../../lib/dates";
 import { useLoad } from "../../lib/useLoad";
 import { downloadBlob } from "../ImportPage";
 import {
-  canCommit, buildCorrections, MAX_CORRECTIONS, setDrop, setTokenFix, SHOWN_STEP, summarize, templateCsv, tokenFix, type Fixes,
+  canCommit, buildCorrections, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, SHOWN_STEP, summarize, templateCsv, tokenFix, type Fixes,
 } from "./personnelImportState";
 import { groupReason, importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
@@ -153,6 +153,7 @@ export function PersonnelImportPage() {
   useEffect(() => { setPreview(null); setFixes({}); }, [file]);
 
   const summary = useMemo(() => (preview ? summarize(preview, fixes) : null), [preview, fixes]);
+  const sample = useMemo(() => (preview ? sampleAfterFixes(preview, fixes) : []), [preview, fixes]);
   const corrections = useMemo(() => (preview ? buildCorrections(preview, fixes) : []), [preview, fixes]);
 
   function startOver() { setFile(null); setPreview(null); setFixes({}); }
@@ -228,14 +229,14 @@ export function PersonnelImportPage() {
           </Stack>
           {preview.ignored_columns.length > 0 && <Alert severity="info" sx={{ mb: 1 }}>ستون‌های نادیده‌گرفته‌شده: <Ltr>{preview.ignored_columns.join(", ")}</Ltr></Alert>}
 
-          {preview.sample.length > 0 && (
+          {sample.length > 0 && (
             <>
-              <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>نمونه از ردیف‌های قابل ورود ({fa(preview.sample.length)} ردیف اول از {fa(preview.valid_count)})</Typography>
+              <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>نمونه از ردیف‌های قابل ورود ({fa(sample.length)} ردیف از {fa(summary.importable)})</Typography>
               <TableContainer component={Paper} variant="outlined">
                 <Table size="small" aria-label="نمونهٔ ردیف‌های قابل ورود">
                   <TableHead><TableRow><TableCell>ردیف</TableCell><TableCell>کد پرسنلی</TableCell><TableCell>نام</TableCell><TableCell>گروه‌ها</TableCell></TableRow></TableHead>
                   <TableBody>
-                    {preview.sample.map((s) => (
+                    {sample.map((s) => (
                       <TableRow key={s.row}><TableCell>{fa(s.row)}</TableCell><TableCell><Ltr>{s.personnel_code}</Ltr></TableCell><TableCell>{s.full_name}</TableCell><TableCell>{s.group_codes.length ? <Ltr>{s.group_codes.join("، ")}</Ltr> : "—"}</TableCell></TableRow>
                     ))}
                   </TableBody>

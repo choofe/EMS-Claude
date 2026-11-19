@@ -71,3 +71,17 @@ export const TEMPLATE_HEADER = ["first_name", "last_name", "personnel_code", "gr
 export function templateCsv(): Blob {
   return new Blob(["\ufeff" + TEMPLATE_HEADER.join(",") + "\r\n"], { type: "text/csv;charset=utf-8" });
 }
+
+/**
+ * The sample as the manager's decisions leave it: a dropped row disappears, and a replaced group code joins the
+ * person's groups. (The preview is not repeated after a fix, so this is computed in the page.)
+ */
+export function sampleAfterFixes(p: PersonnelPreview, f: Fixes): PersonnelPreview["sample"] {
+  const issues = new Map(p.group_issues.map((i) => [i.row, i]));
+  return p.sample.filter((s) => !f[s.row]?.drop).map((s) => {
+    const issue = issues.get(s.row);
+    if (!issue) return s;
+    const added = issue.invalid_groups.flatMap((b) => { const t = tokenFix(f, s.row, b.token); return t?.op === "replace" ? [t.to] : []; });
+    return { ...s, group_codes: [...new Set([...s.group_codes, ...added])] };
+  });
+}
