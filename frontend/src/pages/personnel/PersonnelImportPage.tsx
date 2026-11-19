@@ -173,7 +173,7 @@ export function PersonnelImportPage() {
       setPreview(null); setFixes({});
     } catch (e) {
       setError(e);
-      if (e instanceof ApiError && RESTART_CODES.has(e.code)) startOver(); // nothing was imported; begin again
+      if (e instanceof ApiError && RESTART_CODES.has(e.code)) { startOver(); groups.reload(); } // nothing was imported; begin again with fresh group choices
       // not rethrown: the dialog would show the generic Persian text of the code, the page shows the personnel text
     }
   }
@@ -208,6 +208,11 @@ export function PersonnelImportPage() {
         <Typography variant="body2" sx={{ flexGrow: 1 }}>{file ? <Ltr>{file.name}</Ltr> : "فایلی انتخاب نشده است"}</Typography>
         <Button variant="contained" disabled={!file || busy} onClick={runPreview}>بررسی فایل</Button>
       </Stack>
+      {!!groups.error && (
+        <Alert severity="warning" sx={{ my: 1 }} action={<Button color="inherit" size="small" onClick={groups.reload}>تلاش دوباره</Button>}>
+          فهرست گروه‌ها بارگذاری نشد؛ تا بارگذاری دوباره نمی‌توان کد گروه را جایگزین کرد. {personnelErrorMessage(groups.error)}
+        </Alert>
+      )}
       {!!error && <Alert severity="error" sx={{ my: 1 }}>{personnelErrorMessage(error)}</Alert>}
       {busy && <Loading />}
 
@@ -244,7 +249,7 @@ export function PersonnelImportPage() {
 
           <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ mt: 2 }}>
             <Button variant="contained" disabled={!canCommit(summary, corrections.length)} onClick={() => setConfirm(true)}>ورود {fa(summary.importable)} نفر</Button>
-            {hasProblems && <Button startIcon={<DownloadIcon />} onClick={runProblemsCsv}>دانلود گزارش مشکلات (CSV)</Button>}
+            {hasProblems && <Button startIcon={<DownloadIcon />} disabled={tooMany} onClick={runProblemsCsv}>دانلود گزارش مشکلات (CSV)</Button>}
             <Button onClick={startOver}>انصراف و اصلاح فایل</Button>
             {summary.unresolvedRows > 0 && <Typography variant="body2" color="warning.main">ردیف تعیین‌تکلیف‌نشده دارید</Typography>}
             {tooMany && <Typography variant="body2" color="error">تعداد اصلاحات از حد مجاز ({fa(MAX_CORRECTIONS)}) بیشتر است؛ برخی ردیف‌ها را کنار بگذارید یا فایل را اصلاح کنید.</Typography>}

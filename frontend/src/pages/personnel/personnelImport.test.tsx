@@ -69,6 +69,7 @@ describe("personnel import state", () => {
     expect(canCommit(ok, MAX_CORRECTIONS + 1)).toBe(false);
     expect(RESTART_CODES.has("invalid_corrections")).toBe(false);
     expect(RESTART_CODES.has("import_conflict")).toBe(true);
+    expect(RESTART_CODES.has("group_issues_unresolved")).toBe(true);
   });
 
   it("the report of a finished import is built from the commit answer, with spreadsheet-safe cells and no mobile column", async () => {
@@ -87,7 +88,7 @@ describe("personnel import state", () => {
 
   it("maps the personnel texts of the shared codes, and row reasons carry their extras", () => {
     expect(personnelErrorMessage(new ApiError(409, "import_conflict"))).toMatch(/هیچ‌کس وارد نشد/);
-    expect(personnelErrorMessage(new ApiError(422, "group_issues_unresolved"))).toBe("ردیف تعیین‌تکلیف‌نشده دارید.");
+    expect(personnelErrorMessage(new ApiError(422, "group_issues_unresolved"))).toMatch(/هیچ‌کس وارد نشد/);
     expect(personnelErrorMessage(new ApiError(422, "too_many_rows", { max_rows: 1000 }))).toMatch(/۱۰۰۰/);
     expect(personnelRowReason({ row: 6, personnel_code: "13", code: "duplicate_personnel_code_in_file", first_row: 2 })).toMatch(/ردیف ۲/);
     expect(personnelRowReason({ row: 6, personnel_code: "", code: "too_many_groups", max_groups: 20 })).toMatch(/۲۰/);
@@ -217,6 +218,35 @@ describe("personnel import page", () => {
     expect(screen.getByText("p.xlsx")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /ورود ۳ نفر/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "بازگردانی XX ردیف 3" })).toBeInTheDocument();
+  });
+
+  it("group_issues_unresolved means the preview is stale: start over and reload the group choices (CodeRabbit)", async () => {
+    const m = mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": () => json(200, pv({ group_issues: [], group_issue_count: 0 })),
+      "POST /personnel/import/commit": () => json(422, { detail: { code: "group_issues_unresolved" } }),
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await userEvent.click(await screen.findByRole("button", { name: /ورود ۳ نفر/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "ورود به سامانه" }));
+    expect(await screen.findByText(/وضعیت گروه‌ها پس از پیش‌نمایش تغییر کرده است/)).toBeInTheDocument();
+    expect(screen.getByText("فایلی انتخاب نشده است")).toBeInTheDocument();
+    await waitFor(() => expect(m.count("GET /groups")).toBe(2));
+  });
+
+  it("a failed group list is shown with a retry action instead of an empty replacement list (CodeRabbit)", async () => {
+    let calls = 0;
+    const m = mockFetch({
+      ...session(),
+      "GET /groups": () => (++calls === 1 ? json(500, { detail: { code: "internal_error" } }) : groups()),
+    });
+    renderApp("/personnel/import");
+    await screen.findByText(/فهرست گروه‌ها بارگذاری نشد/);
+    await userEvent.click(screen.getByRole("button", { name: "تلاش دوباره" }));
+    await waitFor(() => expect(screen.queryByText(/فهرست گروه‌ها بارگذاری نشد/)).not.toBeInTheDocument());
+    expect(m.count("GET /groups")).toBe(2);
   });
 
   it("is a management-only page", async () => {
