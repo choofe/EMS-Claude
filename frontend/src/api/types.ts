@@ -241,3 +241,40 @@ export interface ReportListQuery {
   report_number?: string; q?: string; general_only?: boolean; mine?: boolean;
   sort_by?: "event_datetime" | "created_at"; order?: "asc" | "desc"; limit?: number; cursor?: string;
 }
+
+// ---- personnel import (Pe; backend: schemas/personnel_import.py). The mobile number never appears here.
+export interface PersonnelRowError {
+  row: number;
+  personnel_code: string;
+  code: string;
+  column?: string;
+  max_groups?: number;
+  first_row?: number;
+}
+export type InvalidGroupReason = "malformed" | "unknown" | "inactive";
+export interface PersonnelGroupIssue {
+  row: number;
+  personnel_code: number;
+  invalid_groups: { token: string; reason: InvalidGroupReason }[];
+}
+export interface PersonnelPreview {
+  file_name: string;
+  file_sha256: string;
+  rows_total: number;
+  valid_count: number; // includes rows that still have invalid group codes
+  error_count: number;
+  group_issue_count: number;
+  dropped_count?: number;
+  ignored_columns: string[];
+  errors: PersonnelRowError[];
+  group_issues: PersonnelGroupIssue[];
+  sample: { row: number; personnel_code: number; full_name: string; group_codes: string[] }[];
+}
+export interface PersonnelCommit extends PersonnelPreview {
+  batch_id: number;
+  created_count: number;
+}
+export type PersonnelCorrection =
+  | { row: number; op: "replace"; token: string; to: string }
+  | { row: number; op: "remove"; token: string }
+  | { row: number; op: "drop" };

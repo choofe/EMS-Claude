@@ -38,6 +38,7 @@ export function AppShell() {
     { to: "/groups", label: "گروه‌ها", icon: <GroupsIcon /> },
     { to: "/equipment", label: "تجهیزات", icon: <BuildIcon /> },
     ...(isManagement(user) ? [{ to: "/equipment/import", label: "ورود گروهی تجهیزات", icon: <ImportIcon /> }] : []),
+    ...(isManagement(user) ? [{ to: "/personnel/import", label: "ورود گروهی افراد", icon: <ImportIcon /> }] : []),
     ...(canViewAdmin(user) ? [{ to: "/report-types", label: "انواع گزارش", icon: <LabelIcon /> }] : []), // users pick a type (with its guide) in the entry form
     ...(isManagement(user) ? [{ to: "/settings", label: "تنظیمات", icon: <SettingsIcon /> }] : []),
   ];

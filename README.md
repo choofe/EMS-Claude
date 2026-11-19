@@ -68,6 +68,7 @@ Sub-phase `Pa` (data foundation: optional login profile, personnel code, mobile)
 `alembic upgrade head` (migration `e1c7b2d9f640`). Sub-phase `Pb` (management API: new people, login profiles, personnel
 code / mobile / username changes, login on/off, «users without a group» alert): same document, migration `f2d8c3a1b750`. Sub-phase `Pc` (personnel import parsing and validation): same file. Sub-phase `Pd` (`/personnel/import` preview with corrections of invalid group codes, and transactional commit): same file, migration `a3e9d5b7c481`.
 
+Sub-phase `Pe` (personnel import page `/personnel/import`, frontend only): see the «Personnel import page» section of `docs/frontend.md`.
 Sub-phase `Pg` (personnel import history: batch list, a batch's people with current data, two-step cancel that removes only unused people, `CSV` problem report): see `docs/personnel.md`; migration `b4f0e6c8d592`.
 
 ### Management API (Phase 4a)
