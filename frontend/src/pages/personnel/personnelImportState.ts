@@ -6,11 +6,17 @@ export type TokenFix = { op: "replace"; to: string } | { op: "remove" };
 export type Fixes = Record<number, { drop?: boolean; tokens: Record<string, TokenFix> }>;
 
 export const SHOWN_STEP = 50;
+/** The server refuses a longer corrections list (`invalid_corrections`); the page blocks the commit first. */
+export const MAX_CORRECTIONS = 2000;
+
+/** Token keys are prefixed so a code such as `constructor` or `__proto__` can never hit the object prototype. */
+const tk = (token: string) => `t:${token}`;
+export const tokenFix = (f: Fixes, row: number, token: string): TokenFix | undefined => f[row]?.tokens[tk(token)];
 
 export function setTokenFix(f: Fixes, row: number, token: string, fix: TokenFix | null): Fixes {
   const cur = f[row] ?? { tokens: {} };
   const tokens = { ...cur.tokens };
-  if (fix) tokens[token] = fix; else delete tokens[token];
+  if (fix) tokens[tk(token)] = fix; else delete tokens[tk(token)];
   return { ...f, [row]: { ...cur, tokens } };
 }
 
@@ -30,7 +36,7 @@ export function buildCorrections(p: PersonnelPreview, f: Fixes): PersonnelCorrec
     if (!fix) continue;
     if (fix.drop) { out.push({ row: issue.row, op: "drop" }); continue; }
     for (const bad of issue.invalid_groups) {
-      const t = fix.tokens[bad.token];
+      const t = tokenFix(f, issue.row, bad.token);
       if (t?.op === "replace") out.push({ row: issue.row, op: "replace", token: bad.token, to: t.to });
       else if (t?.op === "remove") out.push({ row: issue.row, op: "remove", token: bad.token });
     }
@@ -51,13 +57,14 @@ export function summarize(p: PersonnelPreview, f: Fixes): Summary {
   for (const issue of p.group_issues) {
     const fix = f[issue.row];
     if (fix?.drop) { dropped += 1; continue; }
-    const left = issue.invalid_groups.filter((b) => !fix?.tokens[b.token]).length;
+    const left = issue.invalid_groups.filter((b) => !tokenFix(f, issue.row, b.token)).length;
     if (left > 0) { unresolvedRows += 1; unresolvedTokens += left; }
   }
   return { importable: p.valid_count - dropped, dropped, unresolvedRows, unresolvedTokens };
 }
 
-export const canCommit = (s: Summary) => s.importable > 0 && s.unresolvedRows === 0;
+export const canCommit = (s: Summary, correctionCount = 0) =>
+  s.importable > 0 && s.unresolvedRows === 0 && correctionCount <= MAX_CORRECTIONS;
 
 /** Header row of the empty template (UTF-8 with BOM so Excel reads Persian text; no data rows). */
 export const TEMPLATE_HEADER = ["first_name", "last_name", "personnel_code", "groups", "mobile"];

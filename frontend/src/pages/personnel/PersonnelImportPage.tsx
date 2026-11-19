@@ -8,17 +8,28 @@ import DownloadIcon from "@mui/icons-material/FileDownloadOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import { ApiError } from "../../api/http";
 import { groupsApi, personnelImportApi } from "../../api/resources";
-import type { PersonnelCommit, PersonnelGroupIssue, PersonnelPreview, PersonnelRowError } from "../../api/types";
+import type { Group, PersonnelCommit, PersonnelGroupIssue, PersonnelPreview, PersonnelRowError } from "../../api/types";
 import { ConfirmDialog, Loading, Ltr, PageHeader } from "../../components/common";
 import { toPersianDigits } from "../../lib/dates";
 import { useLoad } from "../../lib/useLoad";
 import { downloadBlob } from "../ImportPage";
 import {
-  canCommit, buildCorrections, setDrop, setTokenFix, SHOWN_STEP, summarize, templateCsv, type Fixes,
+  canCommit, buildCorrections, MAX_CORRECTIONS, setDrop, setTokenFix, SHOWN_STEP, summarize, templateCsv, tokenFix, type Fixes,
 } from "./personnelImportState";
-import { groupReason, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
+import { groupReason, importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
 const fa = (n: number) => toPersianDigits(String(n));
+
+/** Every group (the page keeps only the active ones), page by page (the API returns at most 100 per page). */
+async function loadActiveGroups() {
+  const out: Group[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const page = await groupsApi.list({ limit: 100, offset });
+    out.push(...page.items);
+    if (offset + 100 >= page.total || page.items.length === 0) break;
+  }
+  return out;
+}
 
 function ShowMore({ shown, total, onMore }: { shown: number; total: number; onMore: () => void }) {
   return (
@@ -80,7 +91,7 @@ function GroupFixes({ issues, fixes, groups, disabled, onChange }: FixProps) {
                     {dropped ? <Chip size="small" label="این ردیف وارد نمی‌شود" /> : (
                       <Stack gap={1}>
                         {issue.invalid_groups.map((bad) => {
-                          const t = fix?.tokens[bad.token];
+                          const t = tokenFix(fixes, issue.row, bad.token);
                           return (
                             <Stack key={bad.token} direction="row" gap={1} alignItems="center" flexWrap="wrap">
                               {t ? (
@@ -136,8 +147,8 @@ export function PersonnelImportPage() {
   const [error, setError] = useState<unknown>(null);
   const [confirm, setConfirm] = useState(false);
 
-  const groups = useLoad(() => groupsApi.list({ limit: 100, offset: 0 }), []);
-  const activeGroups = useMemo(() => (groups.data?.items ?? []).filter((g) => g.is_active), [groups.data]);
+  const groups = useLoad(loadActiveGroups, []);
+  const activeGroups = useMemo(() => (groups.data ?? []).filter((g) => g.is_active), [groups.data]);
 
   useEffect(() => { setPreview(null); setFixes({}); }, [file]);
 
@@ -174,8 +185,9 @@ export function PersonnelImportPage() {
     catch (e) { setError(e); }
   }
 
+  const tooMany = corrections.length > MAX_CORRECTIONS;
   const hasProblems = !!preview && (preview.error_count > 0 || preview.group_issues.length > 0);
-  const resultProblems = !!result && (result.error_count > 0 || (result.dropped_count ?? 0) > 0);
+  const resultProblems = !!result && result.errors.length > 0;
 
   return (
     <>
@@ -231,10 +243,11 @@ export function PersonnelImportPage() {
           <RowErrors errors={preview.errors} label="ردیف‌های نامعتبر (وارد نمی‌شوند)" />
 
           <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ mt: 2 }}>
-            <Button variant="contained" disabled={!canCommit(summary)} onClick={() => setConfirm(true)}>ورود {fa(summary.importable)} نفر</Button>
+            <Button variant="contained" disabled={!canCommit(summary, corrections.length)} onClick={() => setConfirm(true)}>ورود {fa(summary.importable)} نفر</Button>
             {hasProblems && <Button startIcon={<DownloadIcon />} onClick={runProblemsCsv}>دانلود گزارش مشکلات (CSV)</Button>}
             <Button onClick={startOver}>انصراف و اصلاح فایل</Button>
             {summary.unresolvedRows > 0 && <Typography variant="body2" color="warning.main">ردیف تعیین‌تکلیف‌نشده دارید</Typography>}
+            {tooMany && <Typography variant="body2" color="error">تعداد اصلاحات از حد مجاز ({fa(MAX_CORRECTIONS)}) بیشتر است؛ برخی ردیف‌ها را کنار بگذارید یا فایل را اصلاح کنید.</Typography>}
           </Stack>
           {summary.importable === 0 && summary.unresolvedRows === 0 && <Alert severity="warning" sx={{ mt: 2 }}>هیچ ردیف قابل ورودی وجود ندارد. فایل را اصلاح و دوباره بررسی کنید.</Alert>}
         </Paper>
@@ -248,7 +261,7 @@ export function PersonnelImportPage() {
           </Alert>
           <RowErrors errors={result.errors} label="ردیف‌های واردنشده" />
           <Stack direction="row" gap={1} sx={{ mt: 2 }}>
-            {resultProblems && file && <Button startIcon={<DownloadIcon />} onClick={runProblemsCsv}>دانلود گزارش مشکلات (CSV)</Button>}
+            {resultProblems && result && <Button startIcon={<DownloadIcon />} onClick={() => downloadBlob(importedProblemsCsv(result.errors), "personnel-import-problems.csv")}>دانلود ردیف‌های واردنشده (CSV)</Button>}
             <Button onClick={() => { setResult(null); startOver(); }}>ورود فایل دیگر</Button>
           </Stack>
         </Paper>

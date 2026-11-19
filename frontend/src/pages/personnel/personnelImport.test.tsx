@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
 import type { PersonnelPreview } from "../../api/types";
 import { ApiError } from "../../api/http";
-import { buildCorrections, canCommit, setDrop, setTokenFix, summarize, templateCsv } from "./personnelImportState";
-import { personnelErrorMessage, personnelRowReason } from "./personnelImportMessages";
+import { buildCorrections, canCommit, MAX_CORRECTIONS, setDrop, setTokenFix, summarize, templateCsv } from "./personnelImportState";
+import { importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
 beforeEach(() => resetClientState());
 afterEach(() => resetClientState());
@@ -53,6 +53,30 @@ describe("personnel import state", () => {
     expect(buildCorrections(p, setDrop(f, 3, true))).toEqual([{ row: 3, op: "drop" }]);
     expect(buildCorrections(p, setDrop(setDrop(f, 3, true), 3, false))).toHaveLength(2);
     expect(buildCorrections(p, setTokenFix(f, 3, "XX", null))).toHaveLength(1);
+  });
+
+  it("token names that exist on Object.prototype are ordinary tokens (CodeRabbit)", () => {
+    const p = pv({ group_issues: [{ row: 3, personnel_code: 11, invalid_groups: [{ token: "constructor", reason: "unknown" }, { token: "__proto__", reason: "unknown" }] }] });
+    const f = setTokenFix({}, 3, "__proto__", { op: "remove" });
+    expect(summarize(p, f).unresolvedTokens).toBe(1);            // `constructor` is still undecided
+    expect(buildCorrections(p, f)).toEqual([{ row: 3, op: "remove", token: "__proto__" }]);
+    expect(summarize(p, setTokenFix(f, 3, "constructor", { op: "remove" })).unresolvedRows).toBe(0);
+  });
+
+  it("commit is blocked above the server's corrections limit, and invalid_corrections does not restart the page", () => {
+    const ok = { importable: 5, dropped: 0, unresolvedRows: 0, unresolvedTokens: 0 };
+    expect(canCommit(ok, MAX_CORRECTIONS)).toBe(true);
+    expect(canCommit(ok, MAX_CORRECTIONS + 1)).toBe(false);
+    expect(RESTART_CODES.has("invalid_corrections")).toBe(false);
+    expect(RESTART_CODES.has("import_conflict")).toBe(true);
+  });
+
+  it("the report of a finished import is built from the commit answer, with spreadsheet-safe cells and no mobile column", async () => {
+    const buf = await new Promise<ArrayBuffer>((res) => { const r = new FileReader(); r.onload = () => res(r.result as ArrayBuffer); r.readAsArrayBuffer(importedProblemsCsv([{ row: 5, personnel_code: "=1+1", code: "mobile_taken" }])); });
+    const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(buf);
+    expect(text.split("\r\n")[0]).toBe("\ufeffrow,personnel_code,problem_code,description_fa");
+    expect(text).toContain('"\'=1+1"');
+    expect(text).not.toMatch(/mobile\b[^_]/);
   });
 
   it("the empty template is a BOM-prefixed header line with the five columns", async () => {
@@ -116,6 +140,9 @@ describe("personnel import page", () => {
     await userEvent.click(await screen.findByRole("button", { name: "ورود به سامانه" }));
     await screen.findByText(/۲ نفر ثبت شد/);
     expect(m.count("POST /personnel/import/preview")).toBe(1);
+    URL.createObjectURL = () => "blob:x"; URL.revokeObjectURL = () => undefined;
+    await userEvent.click(await screen.findByRole("button", { name: "دانلود ردیف‌های واردنشده (CSV)" }));
+    expect(m.count("POST /personnel/import/problems.csv")).toBe(0);   // never re-analysed after the people exist
     const f = committed as unknown as FormData;
     expect(f.get("preview_sha256")).toBe(SHA);
     expect(JSON.parse(String(f.get("corrections")))).toEqual([
@@ -159,9 +186,44 @@ describe("personnel import page", () => {
     expect(JSON.parse(String((sent as unknown as FormData).get("corrections")))).toEqual([{ row: 4, op: "drop" }]);
   });
 
+  it("loads every page of groups, so an active group beyond the first 100 can be chosen (CodeRabbit)", async () => {
+    const all = Array.from({ length: 130 }, (_, i) => g(i + 1, `G${String(i + 1).padStart(3, "0")}`, `گروه ${i + 1}`));
+    const m = mockFetch({
+      ...session(),
+      "GET /groups": (c) => { const off = Number(c.query.get("offset") ?? 0); return json(200, { items: all.slice(off, off + 100), total: 130, limit: 100, offset: off }); },
+      "POST /personnel/import/preview": () => json(200, pv()),
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await waitFor(() => expect(m.count("GET /groups")).toBe(2));
+    await userEvent.click((await screen.findAllByRole("combobox", { name: /جایگزینی با گروه/ }))[0]);
+    expect(await screen.findByRole("option", { name: /G130/ })).toBeInTheDocument();
+  });
+
+  it("invalid_corrections keeps the file and the manager's decisions and explains the limit", async () => {
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": () => json(200, pv({ group_issues: [{ row: 3, personnel_code: 11, invalid_groups: [{ token: "XX", reason: "unknown" }] }], group_issue_count: 1 })),
+      "POST /personnel/import/commit": () => json(422, { detail: { code: "invalid_corrections" } }),
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await userEvent.click(await screen.findByRole("button", { name: "حذف XX ردیف 3" }));
+    await userEvent.click(screen.getByRole("button", { name: /ورود ۳ نفر/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "ورود به سامانه" }));
+    expect(await screen.findByText(/از حد مجاز بیشتر است/)).toBeInTheDocument();
+    expect(screen.getByText("p.xlsx")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /ورود ۳ نفر/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "بازگردانی XX ردیف 3" })).toBeInTheDocument();
+  });
+
   it("is a management-only page", async () => {
     mockFetch({ ...session(makeUser({ role_code: "EXPERT" })), "GET /reports": () => json(200, { items: [], next_cursor: null, other_group_reports_may_exist: false }), "GET /reports/columns": () => json(200, []) });
     renderApp("/personnel/import");
-    await waitFor(() => expect(screen.queryByText("ورود گروهی افراد")).not.toBeInTheDocument());
+    await screen.findByRole("link", { name: "گزارش‌ها" });       // the authenticated redirect destination is rendered first
+    expect(screen.queryByRole("heading", { name: "ورود گروهی افراد" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "بررسی فایل" })).not.toBeInTheDocument();
   });
 });

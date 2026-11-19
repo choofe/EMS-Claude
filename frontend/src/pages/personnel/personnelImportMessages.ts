@@ -42,7 +42,7 @@ const OVERRIDES: Record<string, string> = {
   correction_row_not_found: "اصلاحات نامعتبر است. پیش‌نمایش را دوباره بسازید.",
   correction_token_not_found: "اصلاحات نامعتبر است. پیش‌نمایش را دوباره بسازید.",
   duplicate_correction: "اصلاحات نامعتبر است. پیش‌نمایش را دوباره بسازید.",
-  invalid_corrections: "اصلاحات نامعتبر است. پیش‌نمایش را دوباره بسازید.",
+  invalid_corrections: "تعداد یا حجم اصلاحات از حد مجاز بیشتر است. برخی ردیف‌ها را کنار بگذارید یا فایل را اصلاح کنید.",
 };
 
 export function personnelErrorMessage(err: unknown): string {
@@ -50,6 +50,16 @@ export function personnelErrorMessage(err: unknown): string {
   return errorMessage(err);
 }
 
-/** After these answers nothing was imported and the preview no longer matches reality: the manager starts over. */
+/** After these answers nothing was imported and the preview no longer matches reality: the manager starts over.
+ *  `invalid_corrections` (too many or too large) is NOT here: the manager keeps the file and the decisions. */
 export const RESTART_CODES = new Set(["import_conflict", "correction_group_invalid", "file_changed", "nothing_to_import",
-  "correction_row_not_found", "correction_token_not_found", "duplicate_correction", "invalid_corrections"]);
+  "correction_row_not_found", "correction_token_not_found", "duplicate_correction"]);
+
+/** CSV of the rows that were NOT imported, built from the commit answer (the file is never re-analysed after the
+ *  people exist: the database would then report them as already taken). Spreadsheet-safe cells; no mobile numbers. */
+export function importedProblemsCsv(errors: PersonnelRowError[]): Blob {
+  const cell = (v: string | number) => { const t = String(v); const x = /^[=+\-@\t\r]/.test(t) ? `'${t}` : t; return `"${x.replace(/"/g, '""')}"`; };
+  const lines = ["row,personnel_code,problem_code,description_fa",
+    ...errors.map((e) => [e.row, e.personnel_code, e.code, personnelRowReason(e)].map(cell).join(","))];
+  return new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+}
