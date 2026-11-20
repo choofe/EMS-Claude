@@ -203,9 +203,9 @@ async def test_problem_csv_lists_problem_rows_without_mobile_or_owner(api, world
     assert "attachment" in r.headers["content-disposition"] and r.headers["cache-control"] == "no-store"
     assert r.content.startswith("\ufeff".encode())
     lines = r.content.decode("utf-8-sig").strip().split("\r\n")
-    assert lines[0] == "row,personnel_code,problem_code,description_fa"
-    assert lines[1].startswith("3,50,personnel_code_taken,") and lines[2].startswith("4,61,mobile_taken,")
-    assert lines[3].startswith("5,62,group_unknown,") and "NOPE" in lines[3] and len(lines) == 4
+    assert lines[0] == "row,first_name,last_name,personnel_code,problem_code,description_fa"
+    assert lines[1].startswith("3,Bad,Code,50,personnel_code_taken,") and lines[2].startswith("4,Bad,Mobile,61,mobile_taken,")
+    assert lines[3].startswith("5,Bad,Group,62,group_unknown,") and "NOPE" in lines[3] and len(lines) == 4
     for secret in ("0912", "09125550000", "Old", "Timer"):
         assert secret not in r.content.decode("utf-8-sig")
 
@@ -213,7 +213,7 @@ async def test_problem_csv_lists_problem_rows_without_mobile_or_owner(api, world
 async def test_problem_csv_follows_the_corrections_and_neutralises_formulas(api, world, db):
     data = make_xlsx([["A", "A", 70, "09120000070", "NOPE"], ["B", "B", "-5", "09120000071", None]])
     lines = (await csv_of(api, "boss", data)).content.decode("utf-8-sig").strip().split("\r\n")
-    assert any(l.startswith("3,'-5,invalid_personnel_code") for l in lines)  # typed «-5» cannot become a formula
+    assert any(l.startswith("3,B,B,'-5,invalid_personnel_code") for l in lines)  # typed «-5» cannot become a formula
     ops = json.dumps([{"row": 2, "op": "drop"}])
     lines = (await csv_of(api, "boss", data, ops)).content.decode("utf-8-sig").strip().split("\r\n")
     assert len(lines) == 2 and lines[1].startswith("3,")
@@ -225,7 +225,7 @@ async def test_problem_csv_is_management_only_and_validates_its_input(api, world
     assert (await csv_of(api, "ali", data)).status_code == 403
     assert (await csv_of(api, "boss", data, "not json")).status_code == 422
     r = await csv_of(api, "boss", data)
-    assert r.content.decode("utf-8-sig").strip() == "row,personnel_code,problem_code,description_fa"
+    assert r.content.decode("utf-8-sig").strip() == "row,first_name,last_name,personnel_code,problem_code,description_fa"
 
 
 def test_csv_cell_prefixes_everything_a_spreadsheet_could_run():

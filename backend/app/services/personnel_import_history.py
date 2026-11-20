@@ -166,14 +166,17 @@ async def cancel_confirm(db: AsyncSession, *, actor_id: int, batch_id: int, expe
 
 
 def problem_rows(report: dict) -> list[list]:
-    """Rows of the CSV problem report from an analysed (and corrected) report: row, personnel code as typed (at most
-    16 characters), problem code, Persian description. Never a mobile number or the owner of a duplicate."""
-    rows = [[e["row"], e["personnel_code"], e["code"], PROBLEM_FA.get(e["code"], e["code"])] for e in report["errors"]]
+    """Rows of the CSV problem report from an analysed (and corrected) report: row, first name, last name (empty when
+    the name itself is the problem), personnel code as typed (at most 16 characters), problem code, Persian
+    description. Never a mobile number or the owner of a duplicate."""
+    rows = [[e["row"], e.get("first_name") or "", e.get("last_name") or "", e["personnel_code"], e["code"],
+             PROBLEM_FA.get(e["code"], e["code"])] for e in report["errors"]]
     for g in report["group_issues"]:
         for bad in g["invalid_groups"]:
             code = f"group_{bad['reason']}"
-            rows.append([g["row"], str(g["personnel_code"]), code, f"{PROBLEM_FA.get(code, code)}: {bad['token']}"])
-    return sorted(rows, key=lambda r: (r[0], r[2]))
+            rows.append([g["row"], g["first_name"], g["last_name"], str(g["personnel_code"]), code,
+                         f"{PROBLEM_FA.get(code, code)}: {bad['token']}"])
+    return sorted(rows, key=lambda r: (r[0], r[4]))
 
 
 def csv_cell(value) -> str:
@@ -187,7 +190,7 @@ def build_problem_csv(report: dict) -> bytes:
     import io
     buf = io.StringIO(newline="")
     writer = csv.writer(buf, lineterminator="\r\n")
-    writer.writerow(["row", "personnel_code", "problem_code", "description_fa"])
+    writer.writerow(["row", "first_name", "last_name", "personnel_code", "problem_code", "description_fa"])
     for row in problem_rows(report):
         writer.writerow([csv_cell(c) for c in row])
     return ("\ufeff" + buf.getvalue()).encode("utf-8")

@@ -78,6 +78,20 @@ def canonical_mobile(raw: str) -> str:
     return value
 
 
+# Persian text folding (import headers and same-name comparison). Everything that people type differently
+# without meaning a different word is removed or unified: all whitespace and invisible marks (ZWNJ, ZWJ, direction
+# marks), tatweel, Arabic diacritics, Arabic yeh/kaf -> Persian, Persian/Arabic digits -> Latin, Latin lower case.
+_FOLD = str.maketrans({"\u064a": "\u06cc", "\u0649": "\u06cc", "\u0643": "\u06a9", **{c: None for c in
+                       "\u200c\u200d\u200e\u200f\u0640\u061c"}})
+_FOLD_DIACRITICS = re.compile("[\u064b-\u065f\u0670]")
+
+
+def fold_text(raw: str | None) -> str:
+    """Comparison key only (never stored or shown)."""
+    value = _FOLD_DIACRITICS.sub("", (raw or "").translate(_DIGITS).translate(_FOLD))
+    return "".join(value.split()).lower()
+
+
 def compose_full_name(first_name: str, last_name: str) -> str:
     """full_name is always composed from the two name columns on every write (old rows keep their full_name only)."""
     first = clean_text(first_name, max_length=64, code="invalid_first_name")

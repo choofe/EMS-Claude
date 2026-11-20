@@ -41,9 +41,10 @@ def _parse_corrections(text: str) -> list[PersonnelCorrection]:
 
 @router.post("/preview", response_model=PersonnelPreviewOut, response_model_exclude_none=True)
 async def preview(file: UploadFile = File(...), corrections: str = Form("", max_length=MAX_CORRECTIONS_BYTES),
-                  _: Principal = Depends(_import), db: AsyncSession = Depends(get_db)) -> dict:
+                  who: Principal = Depends(_import), db: AsyncSession = Depends(get_db)) -> dict:
     return await personnel_import.preview_import(db, filename=file.filename or "", data=await read_upload(file),
-                                                 corrections=_parse_corrections(corrections))
+                                                 corrections=_parse_corrections(corrections),
+                                                 include_mobile=who.can(C.PERSONNEL_MOBILE_VIEW))
 
 
 @router.post("/commit", response_model=PersonnelCommitOut, status_code=201, response_model_exclude_none=True)
