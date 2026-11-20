@@ -31,6 +31,8 @@ class PersonnelCorrection(BaseModel):
 
 class PersonnelRowError(BaseModel):
     row: int
+    first_name: str | None = None     # cleaned; None when the name itself is the problem (or the cell is a formula/date)
+    last_name: str | None = None
     personnel_code: str               # the code as typed (at most 16 characters); never the mobile number
     code: str                         # stable reason; the frontend maps it to a Persian message
     column: str | None = None         # date_cell, formula_not_allowed
@@ -45,6 +47,8 @@ class InvalidGroup(BaseModel):
 
 class PersonnelGroupIssue(BaseModel):
     row: int
+    first_name: str
+    last_name: str
     personnel_code: int
     invalid_groups: list[InvalidGroup]
 
@@ -56,7 +60,7 @@ class PersonnelSampleRow(BaseModel):
     group_codes: list[str]
 
 
-class PersonnelPreviewOut(BaseModel):
+class PersonnelReportOut(BaseModel):
     file_name: str
     file_sha256: str
     rows_total: int
@@ -70,7 +74,30 @@ class PersonnelPreviewOut(BaseModel):
     sample: list[PersonnelSampleRow]
 
 
-class PersonnelCommitOut(PersonnelPreviewOut):
+class SameNameMatch(BaseModel):
+    """An EXISTING person with the same (folded) full name. Never a mobile number, username or role."""
+    full_name: str
+    personnel_code: int | None = None  # omitted from the JSON (route uses exclude_none) for an old person without a code
+    group_codes: list[str]
+    is_active: bool
+    has_profile: bool
+
+
+class SameNameRow(BaseModel):
+    row: int
+    first_name: str
+    last_name: str
+    personnel_code: int               # the code in the file
+    matches_total: int
+    matches: list[SameNameMatch]      # at most 5, ascending personnel code (people without a code last)
+
+
+class PersonnelPreviewOut(PersonnelReportOut):
+    same_name_count: int = 0          # importable rows with at least one same-name person (complete count)
+    same_names: list[SameNameRow] = []  # at most 200 rows, in file order
+
+
+class PersonnelCommitOut(PersonnelReportOut):
     batch_id: int
     created_count: int
 

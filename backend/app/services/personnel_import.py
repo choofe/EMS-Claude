@@ -41,6 +41,7 @@ from app.schemas.personnel_import import PersonnelCorrection
 from app.services.audit import add_audit
 from app.services.equipment_import import safe_file_name
 from app.services.import_parser import PERSONNEL_COLUMNS, RawRow, parse_upload
+from app.services.personnel_same_names import find_same_names
 
 _DB_CHUNK = 500
 _SAMPLE = 10
@@ -58,9 +59,29 @@ class PersonRow:
     group_codes: list[str] = field(default_factory=list)       # valid, active, de-duplicated, in file order
     invalid_groups: list[dict] = field(default_factory=list)   # [{"token", "reason": malformed|unknown|inactive}]
 
+    @property
+    def names(self) -> tuple[str, str]:
+        return self.first_name, self.last_name
 
-def _error(row: int, personnel_code: str, code: str, **extra) -> dict:
-    return {"row": row, "personnel_code": personnel_code.strip()[:16], "code": code, **extra}
+
+def _error(row: int, personnel_code: str, code: str, names: tuple[str | None, str | None] = (None, None), **extra) -> dict:
+    """`names` = (first, last) cleaned, so the manager can recognise the person; both None when the name itself is
+    the problem (or the cell is a formula/date). Never the mobile number."""
+    return {"row": row, "first_name": names[0], "last_name": names[1], "personnel_code": personnel_code.strip()[:16],
+            "code": code, **extra}
+
+
+def _names(cells: dict) -> tuple[str | None, str | None]:
+    first, last = cells["first_name"], cells["last_name"]
+    if first.issue or last.issue:
+        return None, None
+    try:
+        first_name = clean_text(first.text, max_length=64, code="invalid_first_name")
+        last_name = clean_text(last.text, max_length=64, code="invalid_last_name")
+        compose_full_name(first_name, last_name)
+    except DomainError:
+        return None, None
+    return first_name, last_name
 
 
 def _split_groups(text: str) -> list[str]:
@@ -90,35 +111,37 @@ def _resolve_groups(tokens: list[str], groups: dict[str, bool]) -> tuple[list[st
 def _validate_row(raw: RawRow, groups: dict[str, bool]) -> PersonRow | dict:
     cells = raw.cells
     code_text = cells["personnel_code"].text
+    names = _names(cells)
     for name in ("first_name", "last_name", "personnel_code", "mobile", "groups"):
         cell = cells.get(name)
         if cell is not None and cell.issue == "formula":
-            return _error(raw.row, code_text, "formula_not_allowed", column=name)
+            return _error(raw.row, code_text, "formula_not_allowed", names, column=name)
     for name in ("first_name", "last_name", "personnel_code", "mobile", "groups"):
         cell = cells.get(name)
         if cell is not None and cell.issue == "date":
-            return _error(raw.row, code_text, "date_cell", column=name)
+            return _error(raw.row, code_text, "date_cell", names, column=name)
     for name in ("first_name", "last_name", "personnel_code", "mobile"):
         if not cells[name].text.strip():
-            return _error(raw.row, code_text, f"missing_{name}")
+            return _error(raw.row, code_text, f"missing_{name}", names)
     try:
         first = clean_text(cells["first_name"].text, max_length=64, code="invalid_first_name")
         last = clean_text(cells["last_name"].text, max_length=64, code="invalid_last_name")
         compose_full_name(first, last)
     except DomainError as exc:
         return _error(raw.row, code_text, exc.code)
+    names = (first, last)
     try:
         code = canonical_personnel_code(code_text)
     except DomainError:
-        return _error(raw.row, code_text, "invalid_personnel_code")
+        return _error(raw.row, code_text, "invalid_personnel_code", names)
     try:
         mobile = canonical_mobile(cells["mobile"].text)
     except DomainError:
-        return _error(raw.row, code_text, "invalid_mobile")
+        return _error(raw.row, code_text, "invalid_mobile", names)
     group_cell = cells.get("groups")
     tokens = _split_groups(group_cell.text) if group_cell is not None else []
     if len(tokens) > _MAX_GROUP_TOKENS:
-        return _error(raw.row, code_text, "too_many_groups", max_groups=_MAX_GROUP_TOKENS)
+        return _error(raw.row, code_text, "too_many_groups", names, max_groups=_MAX_GROUP_TOKENS)
     valid, invalid = _resolve_groups(tokens, groups)
     return PersonRow(raw.row, first, last, code, mobile, valid, invalid)
 
@@ -153,14 +176,14 @@ async def analyse_personnel(db: AsyncSession, filename: str, data: bytes) -> tup
     mobile_rows: dict[str, int] = {}
     for r in candidates:
         if r.personnel_code in taken_codes:
-            errors.append(_error(r.row, str(r.personnel_code), "personnel_code_taken"))
+            errors.append(_error(r.row, str(r.personnel_code), "personnel_code_taken", r.names))
         elif r.mobile in taken_mobiles:
-            errors.append(_error(r.row, str(r.personnel_code), "mobile_taken"))
+            errors.append(_error(r.row, str(r.personnel_code), "mobile_taken", r.names))
         elif r.personnel_code in code_rows:
-            errors.append(_error(r.row, str(r.personnel_code), "duplicate_personnel_code_in_file",
+            errors.append(_error(r.row, str(r.personnel_code), "duplicate_personnel_code_in_file", r.names,
                                  first_row=code_rows[r.personnel_code]))
         elif r.mobile in mobile_rows:
-            errors.append(_error(r.row, str(r.personnel_code), "duplicate_mobile_in_file",
+            errors.append(_error(r.row, str(r.personnel_code), "duplicate_mobile_in_file", r.names,
                                  first_row=mobile_rows[r.mobile]))
         else:
             code_rows[r.personnel_code] = r.row
@@ -181,7 +204,8 @@ async def analyse_personnel(db: AsyncSession, filename: str, data: bytes) -> tup
 
 def _summary(rows: list[PersonRow]) -> dict:
     """The parts of the report that depend on which rows are kept (also recomputed after corrections)."""
-    issues = [{"row": r.row, "personnel_code": r.personnel_code, "invalid_groups": r.invalid_groups}
+    issues = [{"row": r.row, "first_name": r.first_name, "last_name": r.last_name,
+               "personnel_code": r.personnel_code, "invalid_groups": r.invalid_groups}
               for r in rows if r.invalid_groups]
     return {
         "valid_count": len(rows),
@@ -238,7 +262,10 @@ async def analyse_with_corrections(db: AsyncSession, filename: str, data: bytes,
 
 async def preview_import(db: AsyncSession, *, filename: str, data: bytes,
                          corrections: list[PersonnelCorrection]) -> dict:
-    return (await analyse_with_corrections(db, filename, data, corrections))[0]
+    """The preview adds the non-blocking same-name notice (rows left after the corrections); the commit does not."""
+    report, rows = await analyse_with_corrections(db, filename, data, corrections)
+    report.update(await find_same_names(db, rows))
+    return report
 
 
 # ------------------------------------------------------------------ commit (Pd)

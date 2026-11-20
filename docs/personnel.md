@@ -157,7 +157,7 @@ Endpoints (router `app/api/personnel_import_history.py`, service `app/services/p
   nothing removable is `409 nothing_to_cancel`; unknown batch `404 import_batch_not_found`. Both cancel endpoints need `equipment.import`: MANAGEMENT
   only, any manager for any batch; AUDITOR `403`.
 - `POST /personnel/import/problems.csv` (multipart `file`, optional `corrections`, `equipment.import`): the file is analysed again (the preview keeps
-  nothing) and the problem rows are returned as `text/csv` (`UTF-8` with `BOM`, `CRLF`, `no-store`): `row`, `personnel_code` (as typed, at most 16
+  nothing) and the problem rows are returned as `text/csv` (`UTF-8` with `BOM`, `CRLF`, `no-store`): `row`, `first_name`, `last_name` (since `Pi`), `personnel_code` (as typed, at most 16
   characters), `problem_code`, `description_fa`; row errors plus the invalid group codes still left after the corrections. Never a mobile number,
   never the owner of a duplicate. A cell that begins with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`.
 
@@ -171,3 +171,36 @@ codes or mobile numbers. A reference that appears at the last moment ends in the
 Migration `b4f0e6c8d592`: `personnel_import_batches.kind` (default `PERSONNEL`, so the equipment import can share the history later; not scheduled)
 and `removed_count` (default 0). Known limits: the list of people shows the current state, so removed people are only counted; the Persian texts of the
 CSV live in the service (`PROBLEM_FA`) and must be extended with every new import problem code (a test compares them with the codes of the parser).
+
+## Personnel import — Persian headers, names, same-name notice, template (sub-phase Pi)
+
+Backend only, no migration. The frontend part is `Pj`.
+
+- **Header names.** `ColumnSpec` takes an optional `aliases` map (standard name → other spellings); only `PERSONNEL_COLUMNS`
+  has one, the equipment import is unchanged. Standard (English) names still match exactly as before. An alias matches in
+  FOLDED form (`app.core.normalize.fold_text`: all spaces, ZWNJ/ZWJ and direction marks, tatweel and Arabic diacritics
+  (including the hamza mark) removed; Arabic `ي`/`ى`/`ك` → `ی`/`ک`; Persian/Arabic digits → Latin; lower case). Aliases:
+  first name `نام`, `اسم`, `نام کوچک`; last name `نام خانوادگی`, `فامیلی`, `فامیل`; code `کد پرسنلی`, `کد پرسنل`,
+  `شماره پرسنلی`; groups `گروه‌های عضو`, `گروه‌ها`, `گروه`; mobile `شماره موبایل`, `موبایل`, `شماره همراه`, `همراه`,
+  `شماره تلفن همراه`, `شماره تلفن`. English and Persian names may be mixed in one file, but both names of ONE column in the
+  same file give `422 duplicate_columns`. Unknown titled columns are still listed in `ignored_columns`; blank titles are
+  ignored. The `CSV` delimiter detection (`_header_delimiter`) counts recognised names through the same lookup.
+- **Names in the preview.** Every element of `errors` and `group_issues` carries `first_name` and `last_name` (cleaned, at most
+  64 characters) beside `personnel_code`. In `errors` they are ABSENT (the route uses `exclude_none`, so `null` is not sent)
+  when the name itself is the problem (`missing_*_name`, `invalid_*_name`, `invalid_full_name`) or a name cell is a formula or
+  date. Never the mobile number.
+- **Same-name notice (preview only, non-blocking).** `same_name_count` = importable rows (after the corrections; rows with
+  a group issue included, rows with errors and dropped rows excluded) whose folded full name equals the folded `full_name` of
+  at least one EXISTING person (active or not, with or without a profile, old users included); `same_names` = at most 200 of
+  those rows in file order: `row`, `first_name`, `last_name`, `personnel_code` (the file's), `matches_total`, `matches`
+  (at most 5, ascending personnel code, people without a code last: `full_name`, `personnel_code` (absent if none),
+  `group_codes`, `is_active`, `has_profile`). Exact match only; rows of the file are not compared with each other. The commit
+  answer has none of these keys and a same name never blocks or needs a confirmation. Mobile numbers, usernames and roles are
+  never returned.
+- **`CSV` problem report** columns: `row`, `first_name`, `last_name`, `personnel_code`, `problem_code`, `description_fa`
+  (name cells empty when the name is the problem; the spreadsheet-safe prefix applies to names too).
+- **Template.** `frontend/public/personnel-import-template.xlsx` (served at the site root by Vite): Persian headers
+  `نام`، `نام خانوادگی`، `کد پرسنلی`، `گروه‌های عضو`، `شماره موبایل`; right-to-left; header frozen at `A2`; sheet protection
+  without a password with only `A2:E1001` unlocked; rows after 1001 and columns after `F` hidden; data validations and two
+  header notes; the mobile column keeps its display format. A backend test reads a copy of it (with one sample row) through the
+  real parser. Opening it in real Excel is NOT TESTED.

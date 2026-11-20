@@ -25,19 +25,43 @@ from openpyxl import load_workbook
 
 from app.core.config import get_settings
 from app.core.errors import DomainError
+from app.core.normalize import fold_text
+
 
 @dataclass(frozen=True)
 class ColumnSpec:
+    """Standard column names plus optional alternative header names (aliases: standard name -> other spellings).
+    Aliases are compared in folded form (fold_text), the standard names exactly as before (case-insensitive)."""
     required: tuple[str, ...]
     optional: tuple[str, ...] = ()
+    aliases: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def known(self) -> tuple[str, ...]:
         return self.required + self.optional
 
+    def standard_name(self, value) -> str | None:
+        """The standard column name a header cell stands for, or None."""
+        key = _header_key(value)
+        if key in self.known:
+            return key
+        folded = fold_text(key)
+        for name, others in self.aliases.items():
+            if folded in (fold_text(o) for o in others):
+                return name
+        return None
+
 
 EQUIPMENT_COLUMNS = ColumnSpec(required=("equipment_code", "group_code"), optional=("description",))
-PERSONNEL_COLUMNS = ColumnSpec(required=("first_name", "last_name", "personnel_code", "mobile"), optional=("groups",))
+PERSONNEL_COLUMNS = ColumnSpec(
+    required=("first_name", "last_name", "personnel_code", "mobile"), optional=("groups",),
+    aliases={
+        "first_name": ("نام", "اسم", "نام کوچک"),
+        "last_name": ("نام خانوادگی", "فامیلی", "فامیل"),
+        "personnel_code": ("کد پرسنلی", "کد پرسنل", "شماره پرسنلی"),
+        "groups": ("گروه‌های عضو", "گروه‌ها", "گروه"),
+        "mobile": ("شماره موبایل", "موبایل", "شماره همراه", "همراه", "شماره تلفن همراه", "شماره تلفن"),
+    })
 _MAX_PHYSICAL_ROWS = 50_000   # a sheet can declare a million blank rows; never walk more than this
 _MAX_ZIP_MEMBERS = 200
 _MAX_COMPRESSION_RATIO = 200
@@ -90,10 +114,10 @@ def _map_header(header_values, spec: ColumnSpec) -> tuple[dict[int, str], list[s
     ignored: list[str] = []
     seen: set[str] = set()
     for idx, raw in enumerate(header_values):
-        key = _header_key(raw)
-        if not key:
+        if not _header_key(raw):
             continue
-        if key in spec.known:
+        key = spec.standard_name(raw)
+        if key is not None:
             if key in seen:
                 raise DomainError("duplicate_columns", 422, column=key)
             seen.add(key)
@@ -187,7 +211,7 @@ def _header_delimiter(text: str, spec: ColumnSpec) -> str:
             first = next(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter), [])
         except csv.Error:
             continue
-        score = (sum(1 for v in first if _header_key(v) in spec.known), len(first))
+        score = (sum(1 for v in first if spec.standard_name(v) is not None), len(first))
         if score > best_score:
             best, best_score = delimiter, score
     return best
