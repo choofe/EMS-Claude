@@ -71,6 +71,7 @@ code / mobile / username changes, login on/off, «users without a group» alert)
 Sub-phase `Pe` (personnel import page `/personnel/import`, frontend only): see the «Personnel import page» section of `docs/frontend.md`.
 Sub-phase `Pg` (personnel import history: batch list, a batch's people with current data, two-step cancel that removes only unused people, `CSV` problem report): see `docs/personnel.md`; migration `b4f0e6c8d592`.
 Sub-phase `Pi` (personnel import: Persian column headers, names beside the codes in the preview and `CSV` report, same-name notice, Excel template in `frontend/public/`): see `docs/personnel.md`; no migration.
+Sub-phase `Pj` (frontend of `Pi`: names in the lists, same-name and in-file-duplicate dialogs, «قالب Excel» download): see the «Personnel import page» section of `docs/frontend.md`; no backend change.
 
 ### Management API (Phase 4a)
 

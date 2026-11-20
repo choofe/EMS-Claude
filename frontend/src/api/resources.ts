@@ -97,7 +97,8 @@ const personnelForm = (file: File, corrections: PersonnelCorrection[], extra: Re
 };
 
 export const personnelImportApi = {
-  preview: (file: File) => request<PersonnelPreview>("/personnel/import/preview", { method: "POST", form: personnelForm(file, []) }),
+  preview: (file: File, corrections: PersonnelCorrection[] = []) =>
+    request<PersonnelPreview>("/personnel/import/preview", { method: "POST", form: personnelForm(file, corrections) }),
   commit: (file: File, previewSha256: string, corrections: PersonnelCorrection[]) =>
     request<PersonnelCommit>("/personnel/import/commit", { method: "POST", form: personnelForm(file, corrections, { preview_sha256: previewSha256 }) }),
   /** the preview keeps nothing, so the file is sent again (POST; the answer is a CSV blob). */

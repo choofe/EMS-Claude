@@ -22,8 +22,8 @@ export function personnelRowReason(e: PersonnelRowError): string {
     case "too_many_groups": return `تعداد گروه‌های یک سلول از حد مجاز${e.max_groups ? ` (${fa(e.max_groups)})` : ""} بیشتر است`;
     case "personnel_code_taken": return "این کد پرسنلی از قبل در سیستم وجود دارد";
     case "mobile_taken": return "این شماره موبایل از قبل در سیستم وجود دارد";
-    case "duplicate_personnel_code_in_file": return `کد پرسنلی در ردیف دیگری از همین فایل تکرار شده است${e.first_row ? ` (ردیف ${fa(e.first_row)})` : ""}`;
-    case "duplicate_mobile_in_file": return `شماره موبایل در ردیف دیگری از همین فایل تکرار شده است${e.first_row ? ` (ردیف ${fa(e.first_row)})` : ""}`;
+    case "duplicate_personnel_code_in_file": return `کد پرسنلی در ردیف دیگری از همین فایل تکرار شده است${e.first_row ? ` (ردیف ${fa(e.first_row)})` : ""}${e.same_name ? "؛ احتمالاً یک نفر با دو شاخص" : ""}`;
+    case "duplicate_mobile_in_file": return `شماره موبایل در ردیف دیگری از همین فایل تکرار شده است${e.first_row ? ` (ردیف ${fa(e.first_row)})` : ""}${e.same_name ? "؛ احتمالاً یک نفر با دو شاخص" : ""}`;
     default: return e.code;
   }
 }
@@ -59,7 +59,7 @@ export const RESTART_CODES = new Set(["import_conflict", "correction_group_inval
  *  people exist: the database would then report them as already taken). Spreadsheet-safe cells; no mobile numbers. */
 export function importedProblemsCsv(errors: PersonnelRowError[]): Blob {
   const cell = (v: string | number) => { const t = String(v); const x = /^[=+\-@\t\r]/.test(t) ? `'${t}` : t; return `"${x.replace(/"/g, '""')}"`; };
-  const lines = ["row,personnel_code,problem_code,description_fa",
-    ...errors.map((e) => [e.row, e.personnel_code, e.code, personnelRowReason(e)].map(cell).join(","))];
+  const lines = ["row,first_name,last_name,personnel_code,problem_code,description_fa",
+    ...errors.map((e) => [e.row, e.first_name ?? "", e.last_name ?? "", e.personnel_code, e.code, personnelRowReason(e)].map(cell).join(","))];
   return new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
 }

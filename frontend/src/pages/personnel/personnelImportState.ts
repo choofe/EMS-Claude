@@ -1,4 +1,5 @@
-import type { PersonnelCorrection, PersonnelGroupIssue, PersonnelPreview } from "../../api/types";
+import type { PersonnelCorrection, PersonnelFileDuplicate, PersonnelGroupIssue, PersonnelPreview, PersonnelSameNameRow } from "../../api/types";
+import { toPersianDigits } from "../../lib/dates";
 
 /** What the manager decided for one invalid group code. */
 export type TokenFix = { op: "replace"; to: string } | { op: "remove" };
@@ -33,8 +34,8 @@ export function setDrop(f: Fixes, row: number, drop: boolean): Fixes {
  * The corrections list for the server. Only rows and tokens the preview actually reported are sent; a dropped row
  * sends the single `drop` (the server re-validates every item, nothing here is trusted).
  */
-export function buildCorrections(p: PersonnelPreview, f: Fixes): PersonnelCorrection[] {
-  const out: PersonnelCorrection[] = [];
+export function buildCorrections(p: PersonnelPreview, f: Fixes, duplicateRows: number[] = []): PersonnelCorrection[] {
+  const out: PersonnelCorrection[] = duplicateRows.map((row) => ({ row, op: "drop" as const }));
   for (const issue of p.group_issues) {
     const fix = f[issue.row];
     if (!fix) continue;
@@ -70,12 +71,6 @@ export function summarize(p: PersonnelPreview, f: Fixes): Summary {
 export const canCommit = (s: Summary, correctionCount = 0) =>
   s.importable > 0 && s.unresolvedRows === 0 && correctionCount <= MAX_CORRECTIONS;
 
-/** Header row of the empty template (UTF-8 with BOM so Excel reads Persian text; no data rows). */
-export const TEMPLATE_HEADER = ["first_name", "last_name", "personnel_code", "groups", "mobile"];
-export function templateCsv(): Blob {
-  return new Blob(["\ufeff" + TEMPLATE_HEADER.join(",") + "\r\n"], { type: "text/csv;charset=utf-8" });
-}
-
 /**
  * The sample as the manager's decisions leave it: a dropped row disappears, and a replaced group code joins the
  * person's groups. (The preview is not repeated after a fix, so this is computed in the page.)
@@ -88,4 +83,36 @@ export function sampleAfterFixes(p: PersonnelPreview, f: Fixes): PersonnelPrevie
     const added = issue.invalid_groups.flatMap((b) => { const t = tokenFix(f, s.row, b.token); return t?.op === "replace" ? [t.to] : []; });
     return { ...s, group_codes: [...new Set([...s.group_codes, ...added])] };
   });
+}
+
+/** «نام‌خانوادگی (کد پرسنلی)»; the code alone when the last name is unknown (an absent key, never `null`). */
+export function personLabel(lastName: string | null | undefined, code: string | number | null | undefined): string {
+  const c = code === null || code === undefined || code === "" ? "" : toPersianDigits(String(code));
+  if (lastName && c) return `${lastName} (${c})`;
+  return lastName || c || "—";
+}
+
+/** The same-name notice as the manager's decisions leave it: a row dropped from the list of group decisions leaves
+ *  the count and the dialog (the preview is not repeated after those decisions). */
+export function sameNamesAfterFixes(p: PersonnelPreview, f: Fixes): { count: number; rows: PersonnelSameNameRow[]; incomplete: boolean } {
+  const all = p.same_names ?? [];
+  const rows = all.filter((r) => !f[r.row]?.drop);
+  const total = p.same_name_count ?? 0;
+  return { count: Math.max(0, total - (all.length - rows.length)), rows, incomplete: total > all.length };
+}
+
+/** Rows to leave out because the manager chose the other row of an in-file duplicate pair: `keep_second` drops the
+ *  first (winning) row, `none` drops both. The preview is then re-run with these rows (the server drops them BEFORE
+ *  the analysis, so the other row becomes valid). */
+export type DuplicateChoice = "keep_second" | "none";
+export function duplicateDrops(current: number[], pair: PersonnelFileDuplicate, choice: DuplicateChoice): number[] {
+  return [...new Set([...current, pair.winner.row, ...(choice === "none" ? [pair.loser.row] : [])])];
+}
+
+/** Digits of `value` that differ from `other` at the same position (a mistyped mobile prefix is the usual error). */
+export function differingPositions(value: string, other: string | undefined): Set<number> {
+  const out = new Set<number>();
+  if (!other) return out;
+  for (let i = 0; i < value.length; i++) if (value[i] !== other[i]) out.add(i);
+  return out;
 }
