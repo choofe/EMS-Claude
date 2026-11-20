@@ -301,5 +301,111 @@ def test_template_protection_and_limits():
     assert ws.sheet_format.zeroHeight and ws.column_dimensions["G"].hidden
     assert ws["A1"].comment and "۱۰۰۰" in ws["A1"].comment.text and ws["D1"].comment and ";" in ws["D1"].comment.text
     kinds = sorted((v.type, str(v.sqref)) for v in ws.data_validations.dataValidation)
-    assert len(kinds) == 5 and all("1001" in s for _, s in kinds)
-    assert ws["E2"].number_format == "[<=9999999]###-####;0### ### ####"
+    assert len(kinds) == 4 and all("1001" in s for _, s in kinds)
+    assert ws["E2"].number_format.replace("\\", "") == "[<=9999999]###-####;0### ### ####"   # Excel escapes - and space
+
+
+# ---------------------------------------------------------------- mobile numbers in the same-name notice
+async def test_same_name_notice_shows_both_mobiles_only_with_the_capability(db, groups):
+    await f.person(db, "Ali", "Rezaei", code=1, mobile="09123214587")
+    await f.person(db, "Old", "Codeless", code=None)          # an old person without a mobile
+    await db.commit()
+    rows = [["Ali", "Rezaei", 11, "09143214587", None], ["Old", "Codeless", 12, "09120000002", None]]
+    from app.schemas.personnel_import import PersonnelCorrection  # noqa: F401
+    data = make_xlsx(rows)
+    shown = await preview_import(db, filename="p.xlsx", data=data, corrections=[], include_mobile=True)
+    first, second = shown["same_names"]
+    assert first["mobile"] == "09143214587" and first["matches"][0]["mobile"] == "09123214587"
+    assert second["matches"][0]["mobile"] is None
+    hidden = json.dumps(await preview_import(db, filename="p.xlsx", data=data, corrections=[]))
+    assert "0912321" not in hidden and "0914321" not in hidden and "mobile" not in hidden.replace("mobile_taken", "")
+
+
+async def test_mobiles_travel_over_http_for_management_but_never_on_commit_or_in_the_csv(api, world, db):
+    await f.person(db, "Ali", "Rezaei", code=1, mobile="09123214587")
+    await db.commit()
+    data = make_xlsx([["Ali", "Rezaei", 11, "09143214587", None]])
+    body = (await preview(api, "boss", data)).json()
+    assert body["same_names"][0]["mobile"] == "09143214587" and body["same_names"][0]["matches"][0]["mobile"] == "09123214587"
+    done = (await commit(api, "boss", data)).json()
+    assert "09143214587" not in json.dumps(done)
+    assert "0914321" not in (await csv_of(api, "boss", data)).content.decode("utf-8-sig")
+
+
+# ---------------------------------------------------------------- one person, two identifiers in the file
+QODRAT = [["قدرت", "شیخی", 5, "09121111111", None], ["قدرت", "شیخی", 6, "09121111111", None]]
+
+
+async def test_duplicate_pair_with_the_same_name_is_flagged_as_probably_one_person(db, groups):
+    rows = QODRAT + [["Sara", "A", 7, "09122222222", None], ["Sara", "B", 8, "09122222222", None]]
+    report, _ = await analyse_personnel(db, "p.xlsx", make_xlsx(rows))
+    flags = {e["row"]: (e["code"], e["first_row"], e.get("same_name")) for e in report["errors"]}
+    assert flags == {3: ("duplicate_mobile_in_file", 2, True), 5: ("duplicate_mobile_in_file", 4, None)}
+    same_code = [["Ali", "Same", 9, "09123333333", None], ["Ali", "Same", 9, "09124444444", None]]
+    report, _ = await analyse_personnel(db, "p.xlsx", make_xlsx(same_code))
+    assert report["errors"][0]["code"] == "duplicate_personnel_code_in_file" and report["errors"][0]["same_name"] is True
+
+
+async def test_file_duplicates_list_both_rows_with_mobiles_only_when_allowed(db, groups):
+    rows = [["قدرت", "شیخی", 5, "09121111111", "ELV"], ["قدرت", "شیخی", 6, "09121111111", "ESC"],
+            ["Ali", "A", 9, "09123333333", None], ["Bob", "B", 9, "09124444444", None]]
+    full = await preview_import(db, filename="p.xlsx", data=make_xlsx(rows), corrections=[], include_mobile=True)
+    mobile_pair, code_pair = full["file_duplicates"]
+    assert mobile_pair == {"kind": "mobile", "same_name": True,
+                           "winner": {"row": 2, "first_name": "قدرت", "last_name": "شیخی", "personnel_code": 5,
+                                      "group_codes": ["ELV"], "mobile": "09121111111"},
+                           "loser": {"row": 3, "first_name": "قدرت", "last_name": "شیخی", "personnel_code": 6,
+                                     "group_codes": ["ESC"], "mobile": "09121111111"}}
+    assert code_pair["kind"] == "personnel_code" and code_pair["same_name"] is False
+    assert (code_pair["winner"]["row"], code_pair["loser"]["row"]) == (4, 5)
+    hidden = await preview_import(db, filename="p.xlsx", data=make_xlsx(rows), corrections=[])
+    assert len(hidden["file_duplicates"]) == 2 and "0912" not in json.dumps(hidden["file_duplicates"]) and '"mobile":' not in json.dumps(hidden["file_duplicates"])
+
+
+async def test_dropping_the_first_row_lets_the_other_row_win(db, groups):
+    data = make_xlsx(QODRAT)
+    report = await preview_of(db, QODRAT, [{"row": 2, "op": "drop"}])
+    assert report["error_count"] == 0 and report["valid_count"] == 1 and report["dropped_count"] == 1
+    assert report["sample"][0]["row"] == 3 and report["file_duplicates"] == []
+    # the default (no correction) is unchanged: the first row wins
+    plain = await preview_of(db, QODRAT)
+    assert plain["sample"][0]["row"] == 2 and plain["error_count"] == 1 and len(plain["file_duplicates"]) == 1 and data
+
+
+async def test_the_chain_of_three_rows_moves_on_with_each_choice(db, groups):
+    rows = [["A", "Same", 1, "09121111111", None], ["A", "Same", 2, "09121111111", None], ["A", "Same", 3, "09121111111", None]]
+    first = await preview_of(db, rows)
+    assert [(d["winner"]["row"], d["loser"]["row"]) for d in first["file_duplicates"]] == [(2, 3), (2, 4)]
+    second = await preview_of(db, rows, [{"row": 2, "op": "drop"}])
+    assert second["sample"][0]["row"] == 3 and [(d["winner"]["row"], d["loser"]["row"]) for d in second["file_duplicates"]] == [(3, 4)]
+
+
+async def test_a_duplicate_row_can_be_dropped_and_both_can_be_dropped(db, groups):
+    one = await preview_of(db, QODRAT, [{"row": 3, "op": "drop"}])
+    assert one["valid_count"] == 1 and one["sample"][0]["row"] == 2 and one["dropped_count"] == 1 and one["error_count"] == 0
+    both = await preview_of(db, QODRAT, [{"row": 2, "op": "drop"}, {"row": 3, "op": "drop"}])
+    assert both["valid_count"] == 0 and both["dropped_count"] == 2 and both["error_count"] == 0
+
+
+async def test_a_row_rejected_for_another_reason_cannot_be_dropped_and_wins_nothing(db, groups):
+    from fastapi import HTTPException  # noqa: F401
+    await f.person(db, "Old", "Timer", code=5, mobile="09125550000")
+    await db.commit()
+    rows = [["A", "One", 5, "09121111111", None], ["A", "Two", 6, "09121111111", None]]   # row 2: code taken (error)
+    with pytest.raises(DomainError) as err:
+        await preview_of(db, rows, [{"row": 2, "op": "drop"}])
+    assert err.value.code == "correction_row_not_found"
+    report = await preview_of(db, rows)               # the rejected row claimed nothing: row 3 is valid
+    assert report["valid_count"] == 1 and report["sample"][0]["row"] == 3
+
+
+async def test_commit_with_a_drop_imports_the_other_row_and_counts_the_drop(api, world, db):
+    data = make_xlsx(QODRAT)
+    r = await commit(api, "boss", data, json.dumps([{"row": 2, "op": "drop"}]))
+    body = r.json()
+    assert r.status_code == 201 and body["created_count"] == 1 and body["error_count"] == 0 and body["dropped_count"] == 1
+    from sqlalchemy import select
+    from app.models.user import User
+    people = (await db.execute(select(User.personnel_code).where(User.personnel_code.in_([5, 6])))).scalars().all()
+    assert people == [6]
+    assert "file_duplicates" not in body and "same_names" not in body

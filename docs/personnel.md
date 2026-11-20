@@ -194,9 +194,22 @@ Backend only, no migration. The frontend part is `Pj`.
   at least one EXISTING person (active or not, with or without a profile, old users included); `same_names` = at most 200 of
   those rows in file order: `row`, `first_name`, `last_name`, `personnel_code` (the file's), `matches_total`, `matches`
   (at most 5, ascending personnel code, people without a code last: `full_name`, `personnel_code` (absent if none),
-  `group_codes`, `is_active`, `has_profile`). Exact match only; rows of the file are not compared with each other. The commit
-  answer has none of these keys and a same name never blocks or needs a confirmation. Mobile numbers, usernames and roles are
-  never returned.
+  `group_codes`, `is_active`, `has_profile`, and `mobile` (absent for an old person without one)); each row also carries the
+  file row's own `mobile`. Mobile numbers are present ONLY when the caller holds `personnel.mobile.view` (the route passes
+  `include_mobile`; the service default is off): a new person can only reach this list when BOTH his code and mobile differ
+  from the existing one's, so seeing the two numbers side by side (for example `09123214587` and `09143214587`) shows whether
+  one person was typed twice. Exact match only; rows of the file are not compared with each other. The commit answer has none
+  of these keys and a same name never blocks or needs a confirmation. Usernames and roles are never returned; a mobile number
+  is never in the commit answer, the `CSV` or the audit.
+- **One person, two identifiers in the file.** The first row with a code or mobile wins, the later one is an error
+  (`duplicate_*_in_file`; unchanged default). Such an error carries `same_name: true` (key omitted otherwise) when both rows
+  have the same name. The preview lists every such pair in `file_duplicates`: `kind` (`personnel_code`|`mobile`),
+  `same_name`, `winner`, `loser` (row, names, code, valid `group_codes`, `mobile` only with the capability). The manager
+  decides with a `drop` correction: `drop` of the winner makes the loser valid (dropped rows are known BEFORE the analysis
+  and claim nothing; with three rows the next one becomes the winner, so the list is re-read after each choice). A `drop`
+  of a duplicate (loser) row is now accepted too; dropping both is allowed. A row rejected for another reason (code or
+  mobile already in the database, invalid) claims nothing and still cannot be dropped (`correction_row_not_found`). The commit
+  re-applies the same corrections, so it imports exactly what the preview showed.
 - **`CSV` problem report** columns: `row`, `first_name`, `last_name`, `personnel_code`, `problem_code`, `description_fa`
   (name cells empty when the name is the problem; the spreadsheet-safe prefix applies to names too).
 - **Template.** `frontend/public/personnel-import-template.xlsx` (served at the site root by Vite): Persian headers

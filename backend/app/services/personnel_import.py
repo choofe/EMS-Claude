@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
 from app.core.normalize import (
+    fold_text,
     canonical_group_code, canonical_mobile, canonical_personnel_code, clean_text, compose_full_name,
 )
 from app.models.group import Group
@@ -157,6 +158,15 @@ async def _existing(db: AsyncSession, column, values: list) -> set:
 async def analyse_personnel(db: AsyncSession, filename: str, data: bytes) -> tuple[dict, list[PersonRow]]:
     """Returns (report, rows). `rows` are every row that passed the row rules (some may still carry
     `invalid_groups`); the report never contains a mobile number."""
+    report, rows, _ = await _analyse(db, filename, data, frozenset())
+    return report, rows
+
+
+async def _analyse(db: AsyncSession, filename: str, data: bytes,
+                   dropped: frozenset[int]) -> tuple[dict, list[PersonRow], list[tuple]]:
+    """`dropped` = rows the manager dropped: they stay in the result (the correction removes them) but CLAIM nothing,
+    so the other row of an in-file duplicate pair becomes valid. Third result: [(kind, winner, loser)] in-file
+    duplicates (kind = personnel_code | mobile); the people in it are kept out of the report (mobile numbers)."""
     # CPU-bound (zip + XML): keep it off the event loop so one big upload cannot stall other requests.
     parsed = await asyncio.to_thread(parse_upload, filename, data, PERSONNEL_COLUMNS)
     groups = {c: a for c, a in (await db.execute(select(Group.code, Group.is_active))).all()}
@@ -172,22 +182,29 @@ async def analyse_personnel(db: AsyncSession, filename: str, data: bytes) -> tup
     taken_codes = await _existing(db, User.personnel_code, [r.personnel_code for r in candidates])
     taken_mobiles = await _existing(db, User.mobile, [r.mobile for r in candidates])
     kept: list[PersonRow] = []
-    code_rows: dict[int, int] = {}
-    mobile_rows: dict[str, int] = {}
+    code_rows: dict[int, PersonRow] = {}
+    mobile_rows: dict[str, PersonRow] = {}
+    duplicates: list[tuple] = []
     for r in candidates:
         if r.personnel_code in taken_codes:
             errors.append(_error(r.row, str(r.personnel_code), "personnel_code_taken", r.names))
         elif r.mobile in taken_mobiles:
             errors.append(_error(r.row, str(r.personnel_code), "mobile_taken", r.names))
+        elif r.row in dropped:
+            kept.append(r)
         elif r.personnel_code in code_rows:
+            first = code_rows[r.personnel_code]
+            duplicates.append(("personnel_code", first, r))
             errors.append(_error(r.row, str(r.personnel_code), "duplicate_personnel_code_in_file", r.names,
-                                 first_row=code_rows[r.personnel_code]))
+                                 first_row=first.row, **_same_name_flag(first, r)))
         elif r.mobile in mobile_rows:
+            first = mobile_rows[r.mobile]
+            duplicates.append(("mobile", first, r))
             errors.append(_error(r.row, str(r.personnel_code), "duplicate_mobile_in_file", r.names,
-                                 first_row=mobile_rows[r.mobile]))
+                                 first_row=first.row, **_same_name_flag(first, r)))
         else:
-            code_rows[r.personnel_code] = r.row
-            mobile_rows[r.mobile] = r.row
+            code_rows[r.personnel_code] = r
+            mobile_rows[r.mobile] = r
             kept.append(r)
     errors.sort(key=lambda e: e["row"])
     report = {
@@ -199,7 +216,26 @@ async def analyse_personnel(db: AsyncSession, filename: str, data: bytes) -> tup
         "errors": errors,
         **_summary(kept),
     }
-    return report, kept
+    return report, kept, duplicates
+
+
+def _same_name_flag(first: "PersonRow", later: "PersonRow") -> dict:
+    """Only when true (the key is omitted otherwise): the two rows of a duplicate pair carry the same name, so it is
+    probably ONE person with two different identifiers (code or mobile) and the file should be corrected."""
+    same = fold_text(compose_full_name(first.first_name, first.last_name)) == fold_text(
+        compose_full_name(later.first_name, later.last_name))
+    return {"same_name": True} if same else {}
+
+
+def _file_duplicates(duplicates: list[tuple], with_mobile: bool) -> list[dict]:
+    def detail(r: "PersonRow") -> dict:
+        d = {"row": r.row, "first_name": r.first_name, "last_name": r.last_name, "personnel_code": r.personnel_code,
+             "group_codes": r.group_codes}
+        if with_mobile:
+            d["mobile"] = r.mobile
+        return d
+    return [{"kind": kind, "same_name": bool(_same_name_flag(w, l)), "winner": detail(w), "loser": detail(l)}
+            for kind, w, l in duplicates]
 
 
 def _summary(rows: list[PersonRow]) -> dict:
@@ -253,18 +289,29 @@ def apply_corrections(rows: list[PersonRow], corrections: list[PersonnelCorrecti
 
 async def analyse_with_corrections(db: AsyncSession, filename: str, data: bytes,
                                    corrections: list[PersonnelCorrection]) -> tuple[dict, list[PersonRow]]:
-    report, rows = await analyse_personnel(db, filename, data)
-    groups = {c: a for c, a in (await db.execute(select(Group.code, Group.is_active))).all()}
-    rows, dropped = apply_corrections(rows, corrections, groups)
-    report.update(_summary(rows), dropped_count=dropped)
+    report, rows, _ = await _analyse_corrected(db, filename, data, corrections)
     return report, rows
 
 
-async def preview_import(db: AsyncSession, *, filename: str, data: bytes,
-                         corrections: list[PersonnelCorrection]) -> dict:
-    """The preview adds the non-blocking same-name notice (rows left after the corrections); the commit does not."""
-    report, rows = await analyse_with_corrections(db, filename, data, corrections)
-    report.update(await find_same_names(db, rows))
+async def _analyse_corrected(db: AsyncSession, filename: str, data: bytes,
+                             corrections: list[PersonnelCorrection]) -> tuple[dict, list[PersonRow], list[tuple]]:
+    # Dropped rows are known BEFORE the analysis: they must not claim a code or mobile (a duplicate's other row wins).
+    dropped_rows = frozenset(c.row for c in corrections if c.op == "drop")
+    report, rows, duplicates = await _analyse(db, filename, data, dropped_rows)
+    groups = {c: a for c, a in (await db.execute(select(Group.code, Group.is_active))).all()}
+    rows, dropped = apply_corrections(rows, corrections, groups)
+    report.update(_summary(rows), dropped_count=dropped)
+    return report, rows, duplicates
+
+
+async def preview_import(db: AsyncSession, *, filename: str, data: bytes, corrections: list[PersonnelCorrection],
+                         include_mobile: bool = False) -> dict:
+    """The preview adds the non-blocking same-name notice (rows left after the corrections) and the in-file duplicate
+    pairs the manager may decide between; the commit does not. Mobile numbers appear only there, and only when
+    `include_mobile` (capability personnel.mobile.view, decided by the caller)."""
+    report, rows, duplicates = await _analyse_corrected(db, filename, data, corrections)
+    report.update(await find_same_names(db, rows, include_mobile=include_mobile))
+    report["file_duplicates"] = _file_duplicates(duplicates, include_mobile)
     return report
 
 
