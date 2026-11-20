@@ -245,15 +245,20 @@ export interface ReportListQuery {
 // ---- personnel import (Pe; backend: schemas/personnel_import.py). The mobile number never appears here.
 export interface PersonnelRowError {
   row: number;
+  first_name?: string;   // absent (never null) when the name itself is the problem
+  last_name?: string;
   personnel_code: string;
   code: string;
   column?: string;
   max_groups?: number;
   first_row?: number;
+  same_name?: boolean;   // duplicate_*_in_file: both rows carry the same name (probably one person)
 }
 export type InvalidGroupReason = "malformed" | "unknown" | "inactive";
 export interface PersonnelGroupIssue {
   row: number;
+  first_name?: string;
+  last_name?: string;
   personnel_code: number;
   invalid_groups: { token: string; reason: InvalidGroupReason }[];
 }
@@ -269,6 +274,41 @@ export interface PersonnelPreview {
   errors: PersonnelRowError[];
   group_issues: PersonnelGroupIssue[];
   sample: { row: number; personnel_code: number; full_name: string; group_codes: string[] }[];
+  // preview only (Pi); absent keys mean «none». `mobile` keys exist only for holders of personnel.mobile.view.
+  file_duplicates?: PersonnelFileDuplicate[];
+  same_name_count?: number;
+  same_names?: PersonnelSameNameRow[];
+}
+export interface PersonnelSameNameMatch {
+  full_name: string;
+  personnel_code?: number;     // absent for an old person without a code
+  group_codes: string[];
+  is_active: boolean;
+  has_profile: boolean;
+  mobile?: string;
+}
+export interface PersonnelSameNameRow {
+  row: number;
+  first_name: string;
+  last_name: string;
+  personnel_code: number;
+  mobile?: string;
+  matches_total: number;
+  matches: PersonnelSameNameMatch[];
+}
+export interface PersonnelFileDuplicateRow {
+  row: number;
+  first_name: string;
+  last_name: string;
+  personnel_code: number;
+  group_codes: string[];
+  mobile?: string;
+}
+export interface PersonnelFileDuplicate {
+  kind: "personnel_code" | "mobile";
+  same_name: boolean;
+  winner: PersonnelFileDuplicateRow;
+  loser: PersonnelFileDuplicateRow;
 }
 export interface PersonnelCommit extends PersonnelPreview {
   batch_id: number;

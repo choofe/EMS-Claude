@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
-import type { PersonnelPreview } from "../../api/types";
+import type { PersonnelFileDuplicate, PersonnelPreview } from "../../api/types";
 import { ApiError } from "../../api/http";
-import { buildCorrections, canCommit, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, summarize, templateCsv } from "./personnelImportState";
+import { buildCorrections, canCommit, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, summarize, personLabel, sameNamesAfterFixes, duplicateDrops, differingPositions } from "./personnelImportState";
 import { importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
 beforeEach(() => resetClientState());
@@ -81,10 +81,11 @@ describe("personnel import state", () => {
   });
 
   it("the report of a finished import is built from the commit answer, with spreadsheet-safe cells and no mobile column", async () => {
-    const buf = await new Promise<ArrayBuffer>((res) => { const r = new FileReader(); r.onload = () => res(r.result as ArrayBuffer); r.readAsArrayBuffer(importedProblemsCsv([{ row: 5, personnel_code: "=1+1", code: "mobile_taken" }])); });
+    const buf = await new Promise<ArrayBuffer>((res) => { const r = new FileReader(); r.onload = () => res(r.result as ArrayBuffer); r.readAsArrayBuffer(importedProblemsCsv([{ row: 5, first_name: "=cmd", last_name: "نظری", personnel_code: "=1+1", code: "mobile_taken" }])); });
     const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(buf);
-    expect(text.split("\r\n")[0]).toBe("\ufeffrow,personnel_code,problem_code,description_fa");
+    expect(text.split("\r\n")[0]).toBe("\ufeffrow,first_name,last_name,personnel_code,problem_code,description_fa");
     expect(text).toContain('"\'=1+1"');
+    expect(text).toContain('"\'=cmd","نظری"');   // names get the spreadsheet-safe prefix too
     expect(text).not.toMatch(/mobile\b[^_]/);
   });
 
@@ -102,10 +103,38 @@ describe("personnel import state", () => {
     expect(sampleAfterFixes(p, setDrop({}, 3, true)).map((s) => s.row)).toEqual([2, 4]);
   });
 
-  it("the empty template is a BOM-prefixed header line with the five columns", async () => {
-    const buf = await new Promise<ArrayBuffer>((res) => { const r = new FileReader(); r.onload = () => res(r.result as ArrayBuffer); r.readAsArrayBuffer(templateCsv()); });
-    const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(buf);
-    expect(text).toBe("\ufefffirst_name,last_name,personnel_code,groups,mobile\r\n");
+  it("a person is shown as «last name (code)», the code alone when the name is absent", () => {
+    expect(personLabel("نظری", 1321)).toBe("نظری (۱۳۲۱)");
+    expect(personLabel(undefined, "12")).toBe("۱۲");
+    expect(personLabel(null, null)).toBe("—");
+    expect(personLabel("نظری", "")).toBe("نظری");
+  });
+
+  it("same-name rows dropped by a group decision leave the count; a truncated list is flagged", () => {
+    const row = (r: number) => ({ row: r, first_name: "علی", last_name: "نظری", personnel_code: 20 + r, matches_total: 1, matches: [] });
+    const p = pv({ same_name_count: 3, same_names: [row(3), row(4)] });
+    expect(sameNamesAfterFixes(p, {})).toMatchObject({ count: 3, incomplete: true });
+    const a = sameNamesAfterFixes(p, setDrop({}, 3, true));
+    expect(a.count).toBe(2);
+    expect(a.rows.map((r) => r.row)).toEqual([4]);
+    expect(sameNamesAfterFixes(pv(), {})).toEqual({ count: 0, rows: [], incomplete: false });
+  });
+
+  it("choosing the second row drops the first; «neither» drops both; repeated rows are sent once; they come first in the corrections", () => {
+    const pair = (w: number, l: number): PersonnelFileDuplicate => ({
+      kind: "mobile", same_name: false,
+      winner: { row: w, first_name: "الف", last_name: "ب", personnel_code: 1, group_codes: [] },
+      loser: { row: l, first_name: "الف", last_name: "ب", personnel_code: 2, group_codes: [] },
+    });
+    expect(duplicateDrops([], pair(2, 3), "keep_second")).toEqual([2]);
+    expect(duplicateDrops([2], pair(2, 4), "keep_second")).toEqual([2]);
+    expect(duplicateDrops([], pair(2, 3), "none")).toEqual([2, 3]);
+    expect(buildCorrections(pv(), setDrop({}, 4, true), [2])).toEqual([{ row: 2, op: "drop" }, { row: 4, op: "drop" }]);
+  });
+
+  it("marks the mobile digits that differ at the same position", () => {
+    expect([...differingPositions("09123214587", "09143214587")]).toEqual([3]);
+    expect(differingPositions("0912", undefined).size).toBe(0);
   });
 
   it("maps the personnel texts of the shared codes, and row reasons carry their extras", () => {
@@ -114,6 +143,8 @@ describe("personnel import state", () => {
     expect(personnelErrorMessage(new ApiError(422, "too_many_rows", { max_rows: 1000 }))).toMatch(/۱۰۰۰/);
     expect(personnelRowReason({ row: 6, personnel_code: "13", code: "duplicate_personnel_code_in_file", first_row: 2 })).toMatch(/ردیف ۲/);
     expect(personnelRowReason({ row: 6, personnel_code: "", code: "too_many_groups", max_groups: 20 })).toMatch(/۲۰/);
+    expect(personnelRowReason({ row: 6, personnel_code: "13", code: "duplicate_mobile_in_file", first_row: 2, same_name: true })).toMatch(/احتمالاً یک نفر با دو شاخص/);
+    expect(personnelRowReason({ row: 6, personnel_code: "13", code: "duplicate_mobile_in_file", first_row: 2 })).not.toMatch(/احتمالاً/);
   });
 });
 
@@ -291,6 +322,88 @@ describe("personnel import page", () => {
     await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
     await userEvent.click((await screen.findAllByRole("combobox", { name: /جایگزینی با گروه/ }))[0]);
     expect(screen.queryByRole("option", { name: /آسانسور/ })).not.toBeInTheDocument();
+  });
+
+  it("lists show «last name (code)»; the Excel template is a plain link and the CSV template button is gone", async () => {
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": () => json(200, pv({
+        errors: [{ row: 5, first_name: "علی", last_name: "نظری", personnel_code: "1321", code: "mobile_taken" }, { row: 7, personnel_code: "", code: "missing_first_name" }],
+        group_issues: [{ row: 3, first_name: "سارا", last_name: "احمدی", personnel_code: 11, invalid_groups: [{ token: "XX", reason: "unknown" }] }],
+      })),
+    });
+    const { container } = renderApp("/personnel/import");
+    const link = await screen.findByRole("link", { name: "قالب Excel" });
+    expect(link.getAttribute("href")).toMatch(/personnel-import-template\.xlsx$/);
+    expect(screen.queryByRole("button", { name: "قالب CSV" })).not.toBeInTheDocument();
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    const bad = await screen.findByRole("table", { name: /ردیف‌های نامعتبر/ });
+    expect(within(bad).getByText("نظری (۱۳۲۱)")).toBeInTheDocument();
+    expect(within(bad).getAllByText("—").length).toBeGreaterThan(0);        // no name, no code: nothing to show
+    expect(within(screen.getByRole("table", { name: "ردیف‌های نیازمند تعیین‌تکلیف" })).getByText("احمدی (۱۱)")).toBeInTheDocument();
+  });
+
+  it("the same-name notice does not block, opens a dialog with both mobile numbers, and a dropped row leaves it", async () => {
+    const sn = { row: 3, first_name: "سارا", last_name: "احمدی", personnel_code: 11, mobile: "09123214587", matches_total: 7,
+      matches: [{ full_name: "سارا احمدی", personnel_code: 9, group_codes: ["ELV"], is_active: true, has_profile: true, mobile: "09143214587" }] };
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": () => json(200, pv({ same_name_count: 1, same_names: [sn] })),
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await screen.findByText(/۱ ردیف قابل ورود با فردی که از قبل در سیستم است هم‌نام است/);
+    await userEvent.click(screen.getByRole("button", { name: "هم‌نام‌های موجود" }));
+    const dlg = await screen.findByRole("dialog", { name: "هم‌نام‌های موجود" });
+    expect(within(dlg).getByText(/ردیف ۳: سارا احمدی/)).toBeInTheDocument();
+    expect(dlg.querySelectorAll("b").length).toBe(2);                 // the differing digit is marked on BOTH numbers
+    expect(dlg.textContent).toContain("09123214587");
+    expect(dlg.textContent).toContain("09143214587");
+    expect(within(dlg).getByText("دارای پروفایل")).toBeInTheDocument();
+    expect(within(dlg).getByText("و ۶ مورد دیگر")).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole("button", { name: "بستن" }));
+    await userEvent.click(await screen.findByRole("button", { name: "حذف ردیف 3" }));          // the row leaves the notice
+    await waitFor(() => expect(screen.queryByText(/هم‌نام است/)).not.toBeInTheDocument());
+  });
+
+  it("choosing the second row of an in-file duplicate re-runs the preview with a drop of the first and keeps group decisions", async () => {
+    const pair: PersonnelFileDuplicate = { kind: "mobile", same_name: true,
+      winner: { row: 2, first_name: "علی", last_name: "رضایی", personnel_code: 10, group_codes: ["ELV"], mobile: "09121111111" },
+      loser: { row: 4, first_name: "علی", last_name: "رضایی", personnel_code: 12, group_codes: [], mobile: "09121111111" } };
+    const sent: (string | null)[] = [];
+    let committed: FormData | null = null;
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": (c) => {
+        const corr = (c.body as FormData).get("corrections"); sent.push(corr === null ? null : String(corr));
+        return json(200, corr === null ? pv({ file_duplicates: [pair] }) : pv({ valid_count: 3, dropped_count: 1, file_duplicates: [], errors: [] }));
+      },
+      "POST /personnel/import/commit": (c) => { committed = c.body as FormData; return json(201, { ...pv(), batch_id: 1, created_count: 2 }); },
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await userEvent.click(await screen.findByRole("button", { name: "حذف XX ردیف 3" }));      // a group decision made BEFORE the choice
+    await userEvent.click(screen.getByRole("button", { name: "انتخاب ردیف" }));
+    const dlg = await screen.findByRole("dialog", { name: "ردیف‌های تکراری در فایل" });
+    expect(within(dlg).getByText("احتمالاً یک نفر با دو شاخص")).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole("button", { name: "ورود ردیف 4 به‌جای ردیف 2" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(JSON.parse(sent[1] as string)).toEqual([{ row: 2, op: "drop" }]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "انتخاب ردیف" })).not.toBeInTheDocument());
+    expect(await screen.findByRole("button", { name: "بازگردانی XX ردیف 3" })).toBeInTheDocument();   // the earlier decision survived
+    expect(screen.getByText("کنار گذاشته‌شده: ۱")).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("combobox", { name: /جایگزینی با گروه/ })[0]);
+    await userEvent.click(await screen.findByRole("option", { name: /آسانسور/ }));
+    await userEvent.click(screen.getByRole("button", { name: "حذف ردیف 4" }));
+    await userEvent.click(await screen.findByRole("button", { name: /ورود ۲ نفر/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "ورود به سامانه" }));
+    await screen.findByText(/۲ نفر ثبت شد/);
+    expect(JSON.parse(String((committed as unknown as FormData).get("corrections")))).toEqual([
+      { row: 2, op: "drop" }, { row: 3, op: "replace", token: "ELEV", to: "ELV" }, { row: 3, op: "remove", token: "XX" }, { row: 4, op: "drop" },
+    ]);
   });
 
   it("is a management-only page", async () => {

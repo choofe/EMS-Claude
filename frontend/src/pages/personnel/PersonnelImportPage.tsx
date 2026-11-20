@@ -8,14 +8,16 @@ import DownloadIcon from "@mui/icons-material/FileDownloadOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import { ApiError } from "../../api/http";
 import { groupsApi, personnelImportApi } from "../../api/resources";
-import type { Group, PersonnelCommit, PersonnelGroupIssue, PersonnelPreview, PersonnelRowError } from "../../api/types";
+import type { Group, PersonnelCommit, PersonnelFileDuplicate, PersonnelGroupIssue, PersonnelPreview, PersonnelRowError } from "../../api/types";
 import { ConfirmDialog, Loading, Ltr, PageHeader } from "../../components/common";
 import { toPersianDigits } from "../../lib/dates";
 import { useLoad } from "../../lib/useLoad";
 import { downloadBlob } from "../ImportPage";
 import {
-  canCommit, buildCorrections, distinctBad, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, SHOWN_STEP, summarize, templateCsv, tokenFix, type Fixes,
+  canCommit, buildCorrections, distinctBad, duplicateDrops, MAX_CORRECTIONS, personLabel, sameNamesAfterFixes, sampleAfterFixes, setDrop, setTokenFix,
+  SHOWN_STEP, summarize, tokenFix, type DuplicateChoice, type Fixes,
 } from "./personnelImportState";
+import { DuplicateDialog, DuplicateNotice, SameNameDialog, SameNameNotice } from "./PersonnelNotices";
 import { groupReason, importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
 const fa = (n: number) => toPersianDigits(String(n));
@@ -48,10 +50,10 @@ function RowErrors({ errors, label }: { errors: PersonnelRowError[]; label: stri
       <Typography variant="subtitle1" sx={{ mt: 2, mb: 1 }}>{label} ({fa(errors.length)})</Typography>
       <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 360 }}>
         <Table size="small" stickyHeader aria-label={label}>
-          <TableHead><TableRow><TableCell>ردیف</TableCell><TableCell>کد پرسنلی</TableCell><TableCell>دلیل</TableCell></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>ردیف</TableCell><TableCell>فرد</TableCell><TableCell>دلیل</TableCell></TableRow></TableHead>
           <TableBody>
             {errors.slice(0, shown).map((e, i) => (
-              <TableRow key={`${e.row}-${e.code}-${i}`}><TableCell>{fa(e.row)}</TableCell><TableCell><Ltr>{e.personnel_code || "—"}</Ltr></TableCell><TableCell>{personnelRowReason(e)}</TableCell></TableRow>
+              <TableRow key={`${e.row}-${e.code}-${i}`}><TableCell>{fa(e.row)}</TableCell><TableCell>{personLabel(e.last_name, e.personnel_code)}</TableCell><TableCell>{personnelRowReason(e)}</TableCell></TableRow>
             ))}
           </TableBody>
         </Table>
@@ -78,7 +80,7 @@ function GroupFixes({ issues, fixes, groups, disabled, onChange }: FixProps) {
       <Typography variant="subtitle1" sx={{ mt: 2, mb: 1 }}>ردیف‌های نیازمند تعیین‌تکلیف کد گروه ({fa(issues.length)})</Typography>
       <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420 }}>
         <Table size="small" stickyHeader aria-label="ردیف‌های نیازمند تعیین‌تکلیف">
-          <TableHead><TableRow><TableCell>ردیف</TableCell><TableCell>کد پرسنلی</TableCell><TableCell>کد گروه نامعتبر و اقدام</TableCell><TableCell /></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>ردیف</TableCell><TableCell>فرد</TableCell><TableCell>کد گروه نامعتبر و اقدام</TableCell><TableCell /></TableRow></TableHead>
           <TableBody>
             {issues.slice(0, shown).map((issue) => {
               const fix = fixes[issue.row];
@@ -86,7 +88,7 @@ function GroupFixes({ issues, fixes, groups, disabled, onChange }: FixProps) {
               return (
                 <TableRow key={issue.row} sx={dropped ? { opacity: 0.55 } : undefined}>
                   <TableCell>{fa(issue.row)}</TableCell>
-                  <TableCell><Ltr>{issue.personnel_code}</Ltr></TableCell>
+                  <TableCell>{personLabel(issue.last_name, issue.personnel_code)}</TableCell>
                   <TableCell>
                     {dropped ? <Chip size="small" label="این ردیف وارد نمی‌شود" /> : (
                       <Stack gap={1}>
@@ -146,24 +148,41 @@ export function PersonnelImportPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [confirm, setConfirm] = useState(false);
+  const [dupRows, setDupRows] = useState<number[]>([]);      // rows left out by the manager's choice between in-file duplicates
+  const [dialog, setDialog] = useState<"same" | "dup" | null>(null);
 
   const groups = useLoad(loadActiveGroups, []);
   // a reload keeps the old data: while it is pending or has failed the cached groups may be stale, so offer none
   const activeGroups = useMemo(() => (groups.loading || groups.error ? [] : (groups.data ?? []).filter((g) => g.is_active)), [groups.data, groups.loading, groups.error]);
 
-  useEffect(() => { setPreview(null); setFixes({}); }, [file]);
+  useEffect(() => { setPreview(null); setFixes({}); setDupRows([]); setDialog(null); }, [file]);
 
   const summary = useMemo(() => (preview ? summarize(preview, fixes) : null), [preview, fixes]);
   const sample = useMemo(() => (preview ? sampleAfterFixes(preview, fixes) : []), [preview, fixes]);
-  const corrections = useMemo(() => (preview ? buildCorrections(preview, fixes) : []), [preview, fixes]);
+  const corrections = useMemo(() => (preview ? buildCorrections(preview, fixes, dupRows) : []), [preview, fixes, dupRows]);
+  const sameNames = useMemo(() => (preview ? sameNamesAfterFixes(preview, fixes) : null), [preview, fixes]);
 
-  function startOver() { setFile(null); setPreview(null); setFixes({}); }
+  function startOver() { setFile(null); setPreview(null); setFixes({}); setDupRows([]); setDialog(null); }
 
   async function runPreview() {
     if (!file) return;
     setBusy(true); setError(null); setResult(null);
-    try { setPreview(await personnelImportApi.preview(file)); setFixes({}); }
+    try { setPreview(await personnelImportApi.preview(file)); setFixes({}); setDupRows([]); }
     catch (e) { setError(e); setPreview(null); }
+    finally { setBusy(false); }
+  }
+
+  /** The manager chose between the two rows of an in-file duplicate pair: re-run the preview with the rows left out
+   *  (the server drops them before the analysis). The decisions about group codes are kept (they are keyed by row and
+   *  code); on a failure the page keeps what it shows. */
+  async function chooseDuplicate(pair: PersonnelFileDuplicate, choice: DuplicateChoice) {
+    if (!file) return;
+    const rows = duplicateDrops(dupRows, pair, choice);
+    setBusy(true); setError(null); setDialog(null);
+    try {
+      setPreview(await personnelImportApi.preview(file, rows.map((row) => ({ row, op: "drop" as const }))));
+      setDupRows(rows);
+    } catch (e) { setError(e); }
     finally { setBusy(false); }
   }
 
@@ -194,11 +213,12 @@ export function PersonnelImportPage() {
   return (
     <>
       <PageHeader title="ورود گروهی افراد" actions={
-        <Button variant="outlined" startIcon={<DownloadIcon />} onClick={() => downloadBlob(templateCsv(), "personnel-import-template.csv")}>قالب CSV</Button>
+        <Button variant="outlined" startIcon={<DownloadIcon />} component="a" href={`${import.meta.env.BASE_URL}personnel-import-template.xlsx`} download>قالب Excel</Button>
       } />
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        فایل باید یک برگه (Sheet) با سرستون‌های <Ltr>first_name</Ltr>، <Ltr>last_name</Ltr>، <Ltr>personnel_code</Ltr> و <Ltr>mobile</Ltr> و (اختیاری) <Ltr>groups</Ltr> باشد.
-        در ستون <Ltr>groups</Ltr> کد گروه‌ها با «؛» یا <Ltr>;</Ltr> جدا می‌شوند (مثلاً <Ltr>ELV;ESC</Ltr>). ستون موبایل را با قالب «متن» (Text) بسازید تا صفر ابتدایی حفظ شود.
+        فایل باید یک برگه (Sheet) باشد؛ بهتر است از «قالب Excel» استفاده کنید. سرستون‌ها فارسی (نام، نام خانوادگی، کد پرسنلی، گروه‌های عضو، شماره موبایل)
+        یا انگلیسی (<Ltr>first_name</Ltr>، <Ltr>last_name</Ltr>، <Ltr>personnel_code</Ltr>، <Ltr>groups</Ltr>، <Ltr>mobile</Ltr>) پذیرفته می‌شوند و ستون گروه اختیاری است.
+        کد گروه‌ها در یک سلول با «؛» یا <Ltr>;</Ltr> جدا می‌شوند (مثلاً <Ltr>ELV;ESC</Ltr>). موبایل با یا بدون صفر ابتدایی پذیرفته می‌شود.
         این ورود فقط افراد جدید می‌سازد؛ فرد موجود هرگز تغییر نمی‌کند و پروفایل ورود ساخته نمی‌شود.
       </Typography>
 
@@ -225,10 +245,13 @@ export function PersonnelImportPage() {
             <Chip color="success" label={`قابل ورود: ${fa(summary.importable)}`} />
             <Chip color={summary.unresolvedRows ? "warning" : "default"} label={`نیازمند تعیین‌تکلیف: ${fa(summary.unresolvedRows)}`} />
             <Chip color={preview.error_count ? "error" : "default"} label={`نامعتبر: ${fa(preview.error_count)}`} />
-            {summary.dropped > 0 && <Chip variant="outlined" label={`کنار گذاشته‌شده: ${fa(summary.dropped)}`} />}
+            {summary.dropped + dupRows.length > 0 && <Chip variant="outlined" label={`کنار گذاشته‌شده: ${fa(summary.dropped + dupRows.length)}`} />}
             <Chip variant="outlined" label={`کل ردیف‌ها: ${fa(preview.rows_total)}`} />
           </Stack>
           {preview.ignored_columns.length > 0 && <Alert severity="info" sx={{ mb: 1 }}>ستون‌های نادیده‌گرفته‌شده: <Ltr>{preview.ignored_columns.join(", ")}</Ltr></Alert>}
+
+          <DuplicateNotice count={(preview.file_duplicates ?? []).length} onOpen={() => setDialog("dup")} />
+          <SameNameNotice count={sameNames?.count ?? 0} onOpen={() => setDialog("same")} />
 
           {sample.length > 0 && (
             <>
@@ -274,6 +297,8 @@ export function PersonnelImportPage() {
         </Paper>
       )}
 
+      <DuplicateDialog open={dialog === "dup"} onClose={() => setDialog(null)} pairs={preview?.file_duplicates ?? []} busy={busy} onChoose={chooseDuplicate} />
+      <SameNameDialog open={dialog === "same"} onClose={() => setDialog(null)} rows={sameNames?.rows ?? []} incomplete={sameNames?.incomplete ?? false} />
       <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} confirmLabel="ورود به سامانه" title="تأیید ورود گروهی افراد"
         text={summary ? `${fa(summary.importable)} نفر به‌عنوان فرد جدید ثبت شود؟ این افراد پروفایل ورود ندارند.${preview && preview.error_count ? ` ${fa(preview.error_count)} ردیف نامعتبر وارد نمی‌شود.` : ""}` : ""}
         onConfirm={runCommit} />
