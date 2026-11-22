@@ -299,7 +299,7 @@ async def test_template_is_read_by_the_real_parser_with_its_five_persian_headers
 def test_template_protection_and_limits():
     ws = load_workbook(TEMPLATE).active
     assert not ws.protection.sheet and ws.sheet_view.rightToLeft            # rows must be insertable and deletable
-    assert not ws.sheet_format.zeroHeight and ws.column_dimensions["G"].hidden
+    assert ws.sheet_format.zeroHeight and ws.column_dimensions["F"].hidden      # rows after 201 and columns after E are hidden
     assert ws["A1"].comment and "۲۰۰" in ws["A1"].comment.text and "۱۰۰۰" not in ws["A1"].comment.text and ws["D1"].comment and ";" in ws["D1"].comment.text
     kinds = sorted((v.type, str(v.sqref)) for v in ws.data_validations.dataValidation)
     assert len(kinds) == 4 and all("201" in s for _, s in kinds)

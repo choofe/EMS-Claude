@@ -136,6 +136,14 @@ describe("personnel import state", () => {
     expect(summarize(fixed, f, [3])).toMatchObject({ dropped: 0, importable: 3 });   // already dropped by a conflict choice: counted once
   });
 
+  it("a remembered drop is neither sent nor counted while the preview reports the row as an error", () => {
+    const p = pv({ valid_count: 3, group_issues: [], errors: [{ row: 4, personnel_code: "5", code: "personnel_code_taken" }] });
+    const f = setDrop(setDrop({}, 4, true), 6, true);
+    expect(buildCorrections(p, f)).toEqual([{ row: 6, op: "drop" }]);
+    expect(summarize(p, f)).toMatchObject({ dropped: 1, importable: 2 });
+    expect(buildCorrections({ ...p, errors: [] }, f)).toEqual([{ row: 4, op: "drop" }, { row: 6, op: "drop" }]);   // eligible again
+  });
+
   it("the commit waits for open conflict clusters", () => {
     const s = summarize(pv({ group_issues: [] }), {});
     expect(canCommit(s, 0, 0)).toBe(true);

@@ -30,17 +30,19 @@ export function setDrop(f: Fixes, row: number, drop: boolean): Fixes {
   return { ...f, [row]: { ...cur, drop } };
 }
 
-/** Rows the manager dropped through a group decision, other than rows already dropped by a conflict choice. A drop
- *  stays a drop even when a repeated preview no longer lists the row as a group issue (the row is still in the file). */
-export const droppedByFix = (f: Fixes, conflictRows: number[] = []): number[] =>
-  Object.keys(f).map(Number).filter((row) => f[row].drop && !conflictRows.includes(row));
+/** Rows the manager dropped (in the group decisions or the same-name dialog), other than rows already dropped by a conflict
+ *  choice. A drop stays a drop even when a repeated preview no longer lists the row as a group issue (the row is still in
+ *  the file). The decision is REMEMBERED but not sent or counted while the preview reports the row as an error (a code
+ *  taken meanwhile): the server already left such a row out, and a drop for it would be refused. */
+export const droppedByFix = (p: PersonnelPreview, f: Fixes, conflictRows: number[] = []): number[] =>
+  Object.keys(f).map(Number).filter((row) => f[row].drop && !conflictRows.includes(row) && !p.errors.some((e) => e.row === row));
 
 /**
  * The corrections list for the server: the rows dropped by conflict choices, the dropped group-decision rows, and the
  * token decisions of rows that still hold an invalid group code (the server re-validates every item).
  */
 export function buildCorrections(p: PersonnelPreview, f: Fixes, conflictRows: number[] = []): PersonnelCorrection[] {
-  const out: PersonnelCorrection[] = [...conflictRows, ...droppedByFix(f, conflictRows)].map((row) => ({ row, op: "drop" as const }));
+  const out: PersonnelCorrection[] = [...conflictRows, ...droppedByFix(p, f, conflictRows)].map((row) => ({ row, op: "drop" as const }));
   for (const issue of p.group_issues) {
     const fix = f[issue.row];
     if (!fix || fix.drop) continue;
@@ -62,7 +64,7 @@ export interface Summary {
 
 /** Counts shown on the page. The preview is not repeated after a fix; the server re-validates at commit. */
 export function summarize(p: PersonnelPreview, f: Fixes, conflictRows: number[] = []): Summary {
-  const dropped = droppedByFix(f, conflictRows).length;
+  const dropped = droppedByFix(p, f, conflictRows).length;
   let unresolvedRows = 0, unresolvedTokens = 0;
   for (const issue of p.group_issues) {
     const fix = f[issue.row];
