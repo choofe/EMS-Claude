@@ -1,4 +1,4 @@
-import type { PersonnelCorrection, PersonnelFileDuplicate, PersonnelGroupIssue, PersonnelPreview, PersonnelSameNameRow } from "../../api/types";
+import type { PersonnelCorrection, PersonnelFileConflict, PersonnelGroupIssue, PersonnelPreview, PersonnelSameNameInFile, PersonnelSameNameRow } from "../../api/types";
 import { toPersianDigits } from "../../lib/dates";
 
 /** What the manager decided for one invalid group code. */
@@ -30,16 +30,20 @@ export function setDrop(f: Fixes, row: number, drop: boolean): Fixes {
   return { ...f, [row]: { ...cur, drop } };
 }
 
+/** Rows the manager dropped through a group decision, other than rows already dropped by a conflict choice. A drop
+ *  stays a drop even when a repeated preview no longer lists the row as a group issue (the row is still in the file). */
+export const droppedByFix = (f: Fixes, conflictRows: number[] = []): number[] =>
+  Object.keys(f).map(Number).filter((row) => f[row].drop && !conflictRows.includes(row));
+
 /**
- * The corrections list for the server. Only rows and tokens the preview actually reported are sent; a dropped row
- * sends the single `drop` (the server re-validates every item, nothing here is trusted).
+ * The corrections list for the server: the rows dropped by conflict choices, the dropped group-decision rows, and the
+ * token decisions of rows that still hold an invalid group code (the server re-validates every item).
  */
-export function buildCorrections(p: PersonnelPreview, f: Fixes, duplicateRows: number[] = []): PersonnelCorrection[] {
-  const out: PersonnelCorrection[] = duplicateRows.map((row) => ({ row, op: "drop" as const }));
+export function buildCorrections(p: PersonnelPreview, f: Fixes, conflictRows: number[] = []): PersonnelCorrection[] {
+  const out: PersonnelCorrection[] = [...conflictRows, ...droppedByFix(f, conflictRows)].map((row) => ({ row, op: "drop" as const }));
   for (const issue of p.group_issues) {
     const fix = f[issue.row];
-    if (!fix) continue;
-    if (fix.drop) { out.push({ row: issue.row, op: "drop" }); continue; }
+    if (!fix || fix.drop) continue;
     for (const bad of distinctBad(issue)) {
       const t = tokenFix(f, issue.row, bad.token);
       if (t?.op === "replace") out.push({ row: issue.row, op: "replace", token: bad.token, to: t.to });
@@ -57,19 +61,21 @@ export interface Summary {
 }
 
 /** Counts shown on the page. The preview is not repeated after a fix; the server re-validates at commit. */
-export function summarize(p: PersonnelPreview, f: Fixes): Summary {
-  let dropped = 0, unresolvedRows = 0, unresolvedTokens = 0;
+export function summarize(p: PersonnelPreview, f: Fixes, conflictRows: number[] = []): Summary {
+  const dropped = droppedByFix(f, conflictRows).length;
+  let unresolvedRows = 0, unresolvedTokens = 0;
   for (const issue of p.group_issues) {
     const fix = f[issue.row];
-    if (fix?.drop) { dropped += 1; continue; }
+    if (fix?.drop) continue;
     const left = distinctBad(issue).filter((b) => !tokenFix(f, issue.row, b.token)).length;
     if (left > 0) { unresolvedRows += 1; unresolvedTokens += left; }
   }
   return { importable: p.valid_count - dropped, dropped, unresolvedRows, unresolvedTokens };
 }
 
-export const canCommit = (s: Summary, correctionCount = 0) =>
-  s.importable > 0 && s.unresolvedRows === 0 && correctionCount <= MAX_CORRECTIONS;
+/** The commit waits for every group decision AND for every conflict cluster (the server refuses it otherwise). */
+export const canCommit = (s: Summary, correctionCount = 0, openConflicts = 0) =>
+  s.importable > 0 && s.unresolvedRows === 0 && openConflicts === 0 && correctionCount <= MAX_CORRECTIONS;
 
 /**
  * The sample as the manager's decisions leave it: a dropped row disappears, and a replaced group code joins the
@@ -101,12 +107,15 @@ export function sameNamesAfterFixes(p: PersonnelPreview, f: Fixes): { count: num
   return { count: Math.max(0, total - (all.length - rows.length)), rows, incomplete: total > all.length };
 }
 
-/** Rows to leave out because the manager chose the other row of an in-file duplicate pair: `keep_second` drops the
- *  first (winning) row, `none` drops both. The preview is then re-run with these rows (the server drops them BEFORE
- *  the analysis, so the other row becomes valid). */
-export type DuplicateChoice = "keep_second" | "none";
-export function duplicateDrops(current: number[], pair: PersonnelFileDuplicate, choice: DuplicateChoice): number[] {
-  return [...new Set([...current, pair.winner.row, ...(choice === "none" ? [pair.loser.row] : [])])];
+/** The rows to drop when the manager keeps ONE row of a conflict cluster (`keep`) or none (`null`): every other row.
+ *  The preview is then re-run with these rows (the server drops them BEFORE the analysis, so the kept row is valid). */
+export function conflictDrops(current: number[], cluster: PersonnelFileConflict, keep: number | null): number[] {
+  return [...new Set([...current, ...cluster.rows.map((r) => r.row).filter((row) => row !== keep)])];
+}
+
+/** The same-name-in-file warnings as the group decisions leave them: dropped rows leave, a group needs two rows. */
+export function sameNamesInFileAfterFixes(p: PersonnelPreview, f: Fixes): PersonnelSameNameInFile[] {
+  return (p.same_name_in_file ?? []).map((g) => ({ rows: g.rows.filter((r) => !f[r.row]?.drop) })).filter((g) => g.rows.length > 1);
 }
 
 /** Digits of `value` that differ from `other` at the same position (a mistyped mobile prefix is the usual error). */

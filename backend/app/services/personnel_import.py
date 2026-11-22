@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.errors import DomainError
 from app.core.normalize import (
     fold_text,
@@ -163,12 +164,12 @@ async def analyse_personnel(db: AsyncSession, filename: str, data: bytes) -> tup
 
 
 async def _analyse(db: AsyncSession, filename: str, data: bytes,
-                   dropped: frozenset[int]) -> tuple[dict, list[PersonRow], list[tuple]]:
+                   dropped: frozenset[int]) -> tuple[dict, list[PersonRow], list[list[PersonRow]]]:
     """`dropped` = rows the manager dropped: they stay in the result (the correction removes them) but CLAIM nothing,
-    so the other row of an in-file duplicate pair becomes valid. Third result: [(kind, winner, loser)] in-file
-    duplicates (kind = personnel_code | mobile); the people in it are kept out of the report (mobile numbers)."""
+    so the other row of an in-file duplicate pair becomes valid. Third result: the conflict clusters (rows that
+    share a code or a mobile); their rows are NOT in the second result."""
     # CPU-bound (zip + XML): keep it off the event loop so one big upload cannot stall other requests.
-    parsed = await asyncio.to_thread(parse_upload, filename, data, PERSONNEL_COLUMNS)
+    parsed = await asyncio.to_thread(parse_upload, filename, data, PERSONNEL_COLUMNS, get_settings().personnel_import_max_rows)
     groups = {c: a for c, a in (await db.execute(select(Group.code, Group.is_active))).all()}
     candidates: list[PersonRow] = []
     errors: list[dict] = []
@@ -181,31 +182,19 @@ async def _analyse(db: AsyncSession, filename: str, data: bytes,
     # Database conflicts first, so that a row rejected for any reason claims no code or mobile in the file.
     taken_codes = await _existing(db, User.personnel_code, [r.personnel_code for r in candidates])
     taken_mobiles = await _existing(db, User.mobile, [r.mobile for r in candidates])
-    kept: list[PersonRow] = []
-    code_rows: dict[int, PersonRow] = {}
-    mobile_rows: dict[str, PersonRow] = {}
-    duplicates: list[tuple] = []
+    free: list[PersonRow] = []
     for r in candidates:
         if r.personnel_code in taken_codes:
             errors.append(_error(r.row, str(r.personnel_code), "personnel_code_taken", r.names))
         elif r.mobile in taken_mobiles:
             errors.append(_error(r.row, str(r.personnel_code), "mobile_taken", r.names))
-        elif r.row in dropped:
-            kept.append(r)
-        elif r.personnel_code in code_rows:
-            first = code_rows[r.personnel_code]
-            duplicates.append(("personnel_code", first, r))
-            errors.append(_error(r.row, str(r.personnel_code), "duplicate_personnel_code_in_file", r.names,
-                                 first_row=first.row, **_same_name_flag(first, r)))
-        elif r.mobile in mobile_rows:
-            first = mobile_rows[r.mobile]
-            duplicates.append(("mobile", first, r))
-            errors.append(_error(r.row, str(r.personnel_code), "duplicate_mobile_in_file", r.names,
-                                 first_row=first.row, **_same_name_flag(first, r)))
         else:
-            code_rows[r.personnel_code] = r
-            mobile_rows[r.mobile] = r
-            kept.append(r)
+            free.append(r)
+    # Rows that share a code or a mobile form clusters that NOBODY wins by default: the manager keeps one row of a
+    # cluster (the others are dropped) or drops them all. Dropped rows claim nothing, so they never form a cluster.
+    clusters = _conflict_clusters([r for r in free if r.row not in dropped])
+    clustered = {r.row for c in clusters for r in c}
+    kept = [r for r in free if r.row not in clustered]
     errors.sort(key=lambda e: e["row"])
     report = {
         "file_name": safe_file_name(filename),
@@ -214,28 +203,67 @@ async def _analyse(db: AsyncSession, filename: str, data: bytes,
         "error_count": len(errors),
         "ignored_columns": parsed.ignored_columns,
         "errors": errors,
+        "file_conflict_count": len(clusters),
+        "file_conflicts": _file_conflicts(clusters, with_mobile=False),
         **_summary(kept),
     }
-    return report, kept, duplicates
+    return report, kept, clusters
 
 
-def _same_name_flag(first: "PersonRow", later: "PersonRow") -> dict:
-    """Only when true (the key is omitted otherwise): the two rows of a duplicate pair carry the same name, so it is
-    probably ONE person with two different identifiers (code or mobile) and the file should be corrected."""
-    same = fold_text(compose_full_name(first.first_name, first.last_name)) == fold_text(
+def _same_name(first: PersonRow, later: PersonRow) -> bool:
+    return fold_text(compose_full_name(first.first_name, first.last_name)) == fold_text(
         compose_full_name(later.first_name, later.last_name))
-    return {"same_name": True} if same else {}
 
 
-def _file_duplicates(duplicates: list[tuple], with_mobile: bool) -> list[dict]:
-    def detail(r: "PersonRow") -> dict:
-        d = {"row": r.row, "first_name": r.first_name, "last_name": r.last_name, "personnel_code": r.personnel_code,
-             "group_codes": r.group_codes}
-        if with_mobile:
-            d["mobile"] = r.mobile
-        return d
-    return [{"kind": kind, "same_name": bool(_same_name_flag(w, l)), "winner": detail(w), "loser": detail(l)}
-            for kind, w, l in duplicates]
+def _conflict_clusters(rows: list[PersonRow]) -> list[list[PersonRow]]:
+    """Connected components (size >= 2) of the rows linked by a shared personnel code or mobile, each in file order,
+    the clusters ordered by their first row."""
+    parent = {r.row: r.row for r in rows}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    seen: dict[tuple, int] = {}
+    for r in rows:
+        for key in (("code", r.personnel_code), ("mobile", r.mobile)):
+            if key in seen:
+                parent[find(r.row)] = find(seen[key])
+            else:
+                seen[key] = r.row
+    groups: dict[int, list[PersonRow]] = {}
+    for r in rows:
+        groups.setdefault(find(r.row), []).append(r)
+    return sorted((g for g in groups.values() if len(g) > 1), key=lambda g: g[0].row)
+
+
+def _file_row(r: PersonRow, with_mobile: bool) -> dict:
+    d = {"row": r.row, "first_name": r.first_name, "last_name": r.last_name, "personnel_code": r.personnel_code,
+         "group_codes": r.group_codes}
+    if with_mobile:
+        d["mobile"] = r.mobile
+    return d
+
+
+def _file_conflicts(clusters: list[list[PersonRow]], with_mobile: bool) -> list[dict]:
+    out = []
+    for c in clusters:
+        shared = [k for k, vals in (("personnel_code", [r.personnel_code for r in c]), ("mobile", [r.mobile for r in c]))
+                  if len(set(vals)) < len(vals)]
+        out.append({"shared": shared, "same_name": all(_same_name(c[0], r) for r in c[1:]),
+                    "rows": [_file_row(r, with_mobile) for r in c]})
+    return out
+
+
+def _same_names_in_file(rows: list[PersonRow], with_mobile: bool) -> list[dict]:
+    """Importable rows that carry the same name (their codes and mobiles differ, or they would be a conflict): a plain
+    warning, the manager decides nothing."""
+    by_name: dict[str, list[PersonRow]] = {}
+    for r in rows:
+        by_name.setdefault(fold_text(compose_full_name(r.first_name, r.last_name)), []).append(r)
+    return [{"rows": [_file_row(r, with_mobile) for r in g]} for g in by_name.values() if len(g) > 1]
 
 
 def _summary(rows: list[PersonRow]) -> dict:
@@ -294,14 +322,14 @@ async def analyse_with_corrections(db: AsyncSession, filename: str, data: bytes,
 
 
 async def _analyse_corrected(db: AsyncSession, filename: str, data: bytes,
-                             corrections: list[PersonnelCorrection]) -> tuple[dict, list[PersonRow], list[tuple]]:
+                             corrections: list[PersonnelCorrection]) -> tuple[dict, list[PersonRow], list[list[PersonRow]]]:
     # Dropped rows are known BEFORE the analysis: they must not claim a code or mobile (a duplicate's other row wins).
     dropped_rows = frozenset(c.row for c in corrections if c.op == "drop")
-    report, rows, duplicates = await _analyse(db, filename, data, dropped_rows)
+    report, rows, clusters = await _analyse(db, filename, data, dropped_rows)
     groups = {c: a for c, a in (await db.execute(select(Group.code, Group.is_active))).all()}
     rows, dropped = apply_corrections(rows, corrections, groups)
     report.update(_summary(rows), dropped_count=dropped)
-    return report, rows, duplicates
+    return report, rows, clusters
 
 
 async def preview_import(db: AsyncSession, *, filename: str, data: bytes, corrections: list[PersonnelCorrection],
@@ -309,9 +337,10 @@ async def preview_import(db: AsyncSession, *, filename: str, data: bytes, correc
     """The preview adds the non-blocking same-name notice (rows left after the corrections) and the in-file duplicate
     pairs the manager may decide between; the commit does not. Mobile numbers appear only there, and only when
     `include_mobile` (capability personnel.mobile.view, decided by the caller)."""
-    report, rows, duplicates = await _analyse_corrected(db, filename, data, corrections)
+    report, rows, clusters = await _analyse_corrected(db, filename, data, corrections)
     report.update(await find_same_names(db, rows, include_mobile=include_mobile))
-    report["file_duplicates"] = _file_duplicates(duplicates, include_mobile)
+    report["file_conflicts"] = _file_conflicts(clusters, include_mobile)
+    report["same_name_in_file"] = _same_names_in_file(rows, include_mobile)
     return report
 
 
@@ -326,6 +355,8 @@ async def commit_import(db: AsyncSession, *, actor_id: int, filename: str, data:
     report, rows = await analyse_with_corrections(db, filename, data, corrections)
     if report["group_issue_count"]:
         raise DomainError("group_issues_unresolved", 422, group_issue_count=report["group_issue_count"])
+    if report["file_conflict_count"]:
+        raise DomainError("file_conflicts_unresolved", 422, file_conflict_count=report["file_conflict_count"])
     if not rows:
         raise DomainError("nothing_to_import", 422, error_count=report["error_count"])
     # Shared lock on the active groups: deactivating a group takes FOR UPDATE, so it either finishes first (the group

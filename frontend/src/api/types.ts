@@ -251,8 +251,6 @@ export interface PersonnelRowError {
   code: string;
   column?: string;
   max_groups?: number;
-  first_row?: number;
-  same_name?: boolean;   // duplicate_*_in_file: both rows carry the same name (probably one person)
 }
 export type InvalidGroupReason = "malformed" | "unknown" | "inactive";
 export interface PersonnelGroupIssue {
@@ -274,8 +272,10 @@ export interface PersonnelPreview {
   errors: PersonnelRowError[];
   group_issues: PersonnelGroupIssue[];
   sample: { row: number; personnel_code: number; full_name: string; group_codes: string[] }[];
+  file_conflict_count?: number;   // clusters still undecided: none of their rows is importable, the commit is refused
+  file_conflicts?: PersonnelFileConflict[];
   // preview only (Pi); absent keys mean «none». `mobile` keys exist only for holders of personnel.mobile.view.
-  file_duplicates?: PersonnelFileDuplicate[];
+  same_name_in_file?: PersonnelSameNameInFile[];
   same_name_count?: number;
   same_names?: PersonnelSameNameRow[];
 }
@@ -296,7 +296,7 @@ export interface PersonnelSameNameRow {
   matches_total: number;
   matches: PersonnelSameNameMatch[];
 }
-export interface PersonnelFileDuplicateRow {
+export interface PersonnelFileRow {
   row: number;
   first_name: string;
   last_name: string;
@@ -304,12 +304,14 @@ export interface PersonnelFileDuplicateRow {
   group_codes: string[];
   mobile?: string;
 }
-export interface PersonnelFileDuplicate {
-  kind: "personnel_code" | "mobile";
+/** Rows linked by a shared code or mobile; the manager keeps ONE row (the others are dropped) or drops them all. */
+export interface PersonnelFileConflict {
+  shared: ("personnel_code" | "mobile")[];
   same_name: boolean;
-  winner: PersonnelFileDuplicateRow;
-  loser: PersonnelFileDuplicateRow;
+  rows: PersonnelFileRow[];
 }
+/** Importable rows with one name but different code AND mobile: a plain warning. */
+export interface PersonnelSameNameInFile { rows: PersonnelFileRow[] }
 export interface PersonnelCommit extends PersonnelPreview {
   batch_id: number;
   created_count: number;

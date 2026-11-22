@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
-import type { PersonnelFileDuplicate, PersonnelPreview } from "../../api/types";
+import type { PersonnelFileConflict, PersonnelPreview } from "../../api/types";
 import { ApiError } from "../../api/http";
-import { buildCorrections, canCommit, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, summarize, personLabel, sameNamesAfterFixes, duplicateDrops, differingPositions } from "./personnelImportState";
+import { buildCorrections, canCommit, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, summarize, personLabel, sameNamesAfterFixes, sameNamesInFileAfterFixes, conflictDrops, differingPositions } from "./personnelImportState";
 import { importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
 beforeEach(() => resetClientState());
@@ -17,7 +17,7 @@ const pv = (o: Partial<PersonnelPreview> = {}): PersonnelPreview => ({
   file_name: "p.xlsx", file_sha256: SHA, rows_total: 5, valid_count: 3, error_count: 2, group_issue_count: 2, ignored_columns: [],
   errors: [
     { row: 5, personnel_code: "12", code: "mobile_taken" },
-    { row: 6, personnel_code: "13", code: "duplicate_personnel_code_in_file", first_row: 2 },
+    { row: 6, personnel_code: "13", code: "invalid_mobile" },
   ],
   group_issues: [
     { row: 3, personnel_code: 11, invalid_groups: [{ token: "ELEV", reason: "unknown" }, { token: "XX", reason: "unknown" }] },
@@ -120,16 +120,34 @@ describe("personnel import state", () => {
     expect(sameNamesAfterFixes(pv(), {})).toEqual({ count: 0, rows: [], incomplete: false });
   });
 
-  it("choosing the second row drops the first; «neither» drops both; repeated rows are sent once; they come first in the corrections", () => {
-    const pair = (w: number, l: number): PersonnelFileDuplicate => ({
-      kind: "mobile", same_name: false,
-      winner: { row: w, first_name: "الف", last_name: "ب", personnel_code: 1, group_codes: [] },
-      loser: { row: l, first_name: "الف", last_name: "ب", personnel_code: 2, group_codes: [] },
-    });
-    expect(duplicateDrops([], pair(2, 3), "keep_second")).toEqual([2]);
-    expect(duplicateDrops([2], pair(2, 4), "keep_second")).toEqual([2]);
-    expect(duplicateDrops([], pair(2, 3), "none")).toEqual([2, 3]);
+  it("keeping one row of a cluster drops every other row; keeping none drops all; rows are sent once and come first", () => {
+    const cluster: PersonnelFileConflict = { shared: ["mobile"], same_name: false, rows: [2, 3, 4].map((row) => ({ row, first_name: "الف", last_name: "ب", personnel_code: row, group_codes: [] })) };
+    expect(conflictDrops([], cluster, 3)).toEqual([2, 4]);
+    expect(conflictDrops([2], cluster, 3)).toEqual([2, 4]);
+    expect(conflictDrops([], cluster, null)).toEqual([2, 3, 4]);
     expect(buildCorrections(pv(), setDrop({}, 4, true), [2])).toEqual([{ row: 2, op: "drop" }, { row: 4, op: "drop" }]);
+  });
+
+  it("a dropped group-decision row stays dropped when a repeated preview no longer lists it as a group issue", () => {
+    const fixed = pv({ valid_count: 3, group_issues: [] });
+    const f = setDrop({}, 3, true);
+    expect(buildCorrections(fixed, f)).toEqual([{ row: 3, op: "drop" }]);
+    expect(summarize(fixed, f)).toMatchObject({ dropped: 1, importable: 2 });
+    expect(summarize(fixed, f, [3])).toMatchObject({ dropped: 0, importable: 3 });   // already dropped by a conflict choice: counted once
+  });
+
+  it("the commit waits for open conflict clusters", () => {
+    const s = summarize(pv({ group_issues: [] }), {});
+    expect(canCommit(s, 0, 0)).toBe(true);
+    expect(canCommit(s, 0, 1)).toBe(false);
+  });
+
+  it("same-name-in-file groups lose dropped rows and need two rows to stay", () => {
+    const row = (r: number) => ({ row: r, first_name: "علی", last_name: "نظری", personnel_code: r, group_codes: [] });
+    const p = pv({ same_name_in_file: [{ rows: [row(2), row(3)] }, { rows: [row(5), row(6), row(7)] }] });
+    expect(sameNamesInFileAfterFixes(p, {}).length).toBe(2);
+    const after = sameNamesInFileAfterFixes(p, setDrop(setDrop({}, 3, true), 6, true));
+    expect(after.map((g) => g.rows.map((r) => r.row))).toEqual([[5, 7]]);
   });
 
   it("marks the mobile digits that differ at the same position", () => {
@@ -140,11 +158,9 @@ describe("personnel import state", () => {
   it("maps the personnel texts of the shared codes, and row reasons carry their extras", () => {
     expect(personnelErrorMessage(new ApiError(409, "import_conflict"))).toMatch(/هیچ‌کس وارد نشد/);
     expect(personnelErrorMessage(new ApiError(422, "group_issues_unresolved"))).toMatch(/هیچ‌کس وارد نشد/);
-    expect(personnelErrorMessage(new ApiError(422, "too_many_rows", { max_rows: 1000 }))).toMatch(/۱۰۰۰/);
-    expect(personnelRowReason({ row: 6, personnel_code: "13", code: "duplicate_personnel_code_in_file", first_row: 2 })).toMatch(/ردیف ۲/);
+    expect(personnelErrorMessage(new ApiError(422, "too_many_rows", { max_rows: 200 }))).toMatch(/۲۰۰/);
+    expect(personnelErrorMessage(new ApiError(422, "file_conflicts_unresolved"))).toMatch(/هیچ‌کس وارد نشد/);
     expect(personnelRowReason({ row: 6, personnel_code: "", code: "too_many_groups", max_groups: 20 })).toMatch(/۲۰/);
-    expect(personnelRowReason({ row: 6, personnel_code: "13", code: "duplicate_mobile_in_file", first_row: 2, same_name: true })).toMatch(/احتمالاً یک نفر با دو شاخص/);
-    expect(personnelRowReason({ row: 6, personnel_code: "13", code: "duplicate_mobile_in_file", first_row: 2 })).not.toMatch(/احتمالاً/);
   });
 });
 
@@ -171,7 +187,7 @@ describe("personnel import page", () => {
 
     const bad = await screen.findByRole("table", { name: /ردیف‌های نامعتبر/ });
     expect(within(bad).getByText(/این شماره موبایل از قبل در سیستم وجود دارد/)).toBeInTheDocument();
-    expect(within(bad).getByText(/ردیف ۲\)/)).toBeInTheDocument();
+    expect(within(bad).getByText(/شماره موبایل نامعتبر است/)).toBeInTheDocument();
     expect(screen.getByText("قابل ورود: ۳")).toBeInTheDocument();
     expect(screen.getByText("نیازمند تعیین‌تکلیف: ۲")).toBeInTheDocument();
     const commit = screen.getByRole("button", { name: /ورود ۳ نفر/ });
@@ -200,9 +216,9 @@ describe("personnel import page", () => {
     const f = committed as unknown as FormData;
     expect(f.get("preview_sha256")).toBe(SHA);
     expect(JSON.parse(String(f.get("corrections")))).toEqual([
+      { row: 4, op: "drop" },                                   // drops come first, then the token decisions
       { row: 3, op: "replace", token: "ELEV", to: "ELV" },
       { row: 3, op: "remove", token: "XX" },
-      { row: 4, op: "drop" },
     ]);
     expect((f.get("file") as File).name).toBe("p.xlsx");
   });
@@ -368,17 +384,17 @@ describe("personnel import page", () => {
     await waitFor(() => expect(screen.queryByText(/هم‌نام است/)).not.toBeInTheDocument());
   });
 
-  it("choosing the second row of an in-file duplicate re-runs the preview with a drop of the first and keeps group decisions", async () => {
-    const pair: PersonnelFileDuplicate = { kind: "mobile", same_name: true,
-      winner: { row: 2, first_name: "علی", last_name: "رضایی", personnel_code: 10, group_codes: ["ELV"], mobile: "09121111111" },
-      loser: { row: 4, first_name: "علی", last_name: "رضایی", personnel_code: 12, group_codes: [], mobile: "09121111111" } };
+  it("conflict clusters block the import until one row is kept; the choice drops the others, re-runs the preview and keeps group decisions", async () => {
+    const mk = (row: number, code: number, mobile: string) => ({ row, first_name: "علی", last_name: "رضایی", personnel_code: code, group_codes: [], mobile });
+    const cluster: PersonnelFileConflict = { shared: ["personnel_code", "mobile"], same_name: true,
+      rows: [mk(2, 7533, "09121111111"), mk(3, 7533, "09141111111"), mk(7, 7534, "09121111111")] };
     const sent: (string | null)[] = [];
     let committed: FormData | null = null;
     mockFetch({
       ...session(), "GET /groups": groups,
       "POST /personnel/import/preview": (c) => {
         const corr = (c.body as FormData).get("corrections"); sent.push(corr === null ? null : String(corr));
-        return json(200, corr === null ? pv({ file_duplicates: [pair] }) : pv({ valid_count: 3, dropped_count: 1, file_duplicates: [], errors: [] }));
+        return json(200, corr === null ? pv({ file_conflict_count: 1, file_conflicts: [cluster] }) : pv({ valid_count: 3, dropped_count: 2, file_conflict_count: 0, file_conflicts: [], errors: [] }));
       },
       "POST /personnel/import/commit": (c) => { committed = c.body as FormData; return json(201, { ...pv(), batch_id: 1, created_count: 2 }); },
     });
@@ -386,15 +402,18 @@ describe("personnel import page", () => {
     await pick(container);
     await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
     await userEvent.click(await screen.findByRole("button", { name: "حذف XX ردیف 3" }));      // a group decision made BEFORE the choice
-    await userEvent.click(screen.getByRole("button", { name: "انتخاب ردیف" }));
-    const dlg = await screen.findByRole("dialog", { name: "ردیف‌های تکراری در فایل" });
-    expect(within(dlg).getByText("احتمالاً یک نفر با دو شاخص")).toBeInTheDocument();
-    await userEvent.click(within(dlg).getByRole("button", { name: "ورود ردیف 4 به‌جای ردیف 2" }));
+    expect(screen.getByRole("button", { name: /ورود/ })).toBeDisabled();                       // a conflict is open
+    await userEvent.click(screen.getByRole("button", { name: "تعیین‌تکلیف" }));
+    const dlg = await screen.findByRole("dialog", { name: "ردیف‌های دارای کد یا موبایل مشترک" });
+    expect(within(dlg).getByText("احتمالاً یک نفر با شاخص‌های اشتباه")).toBeInTheDocument();
+    expect(within(dlg).getByText(/مشترک: کد پرسنلی و شمارهٔ موبایل/)).toBeInTheDocument();
+    expect(dlg.querySelectorAll("b").length).toBeGreaterThan(0);                                // differing digits are marked
+    await userEvent.click(within(dlg).getByRole("button", { name: "نگه داشتن ردیف 3" }));
     await waitFor(() => expect(sent).toHaveLength(2));
-    expect(JSON.parse(sent[1] as string)).toEqual([{ row: 2, op: "drop" }]);
-    await waitFor(() => expect(screen.queryByRole("button", { name: "انتخاب ردیف" })).not.toBeInTheDocument());
+    expect(JSON.parse(sent[1] as string)).toEqual([{ row: 2, op: "drop" }, { row: 7, op: "drop" }]);
     expect(await screen.findByRole("button", { name: "بازگردانی XX ردیف 3" })).toBeInTheDocument();   // the earlier decision survived
-    expect(screen.getByText("کنار گذاشته‌شده: ۱")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "تعیین‌تکلیف" })).not.toBeInTheDocument();
+    expect(screen.getByText("کنار گذاشته‌شده: ۲")).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole("combobox", { name: /جایگزینی با گروه/ })[0]);
     await userEvent.click(await screen.findByRole("option", { name: /آسانسور/ }));
     await userEvent.click(screen.getByRole("button", { name: "حذف ردیف 4" }));
@@ -402,8 +421,39 @@ describe("personnel import page", () => {
     await userEvent.click(await screen.findByRole("button", { name: "ورود به سامانه" }));
     await screen.findByText(/۲ نفر ثبت شد/);
     expect(JSON.parse(String((committed as unknown as FormData).get("corrections")))).toEqual([
-      { row: 2, op: "drop" }, { row: 3, op: "replace", token: "ELEV", to: "ELV" }, { row: 3, op: "remove", token: "XX" }, { row: 4, op: "drop" },
+      { row: 2, op: "drop" }, { row: 7, op: "drop" }, { row: 4, op: "drop" }, { row: 3, op: "replace", token: "ELEV", to: "ELV" }, { row: 3, op: "remove", token: "XX" },
     ]);
+  });
+
+  it("«none of them» drops the whole cluster; a same-name-in-file group is only a warning", async () => {
+    const mk = (row: number, code: number) => ({ row, first_name: "سارا", last_name: "احمدی", personnel_code: code, group_codes: ["ELV"], mobile: `0912000000${code}` });
+    const sent: (string | null)[] = [];
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": (c) => {
+        const corr = (c.body as FormData).get("corrections"); sent.push(corr === null ? null : String(corr));
+        return json(200, corr === null
+          ? pv({ group_issues: [], valid_count: 2, file_conflict_count: 1, file_conflicts: [{ shared: ["mobile"], same_name: false, rows: [mk(2, 1), mk(3, 2)] }],
+                 same_name_in_file: [{ rows: [mk(5, 5), mk(6, 6)] }] })
+          : pv({ group_issues: [], valid_count: 2, file_conflicts: [], same_name_in_file: [{ rows: [mk(5, 5), mk(6, 6)] }] }));
+      },
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    expect(await screen.findByRole("button", { name: /^ورود ۲ نفر/ })).toBeDisabled();       // nothing but the open cluster blocks it
+    await userEvent.click(await screen.findByRole("button", { name: "مشاهده" }));              // the warning dialog is read-only
+    const warn = await screen.findByRole("dialog", { name: "نام‌های تکراری در فایل" });
+    expect(within(warn).queryByRole("button", { name: /نگه داشتن/ })).not.toBeInTheDocument();
+    await userEvent.click(within(warn).getByRole("button", { name: "بستن" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "نام‌های تکراری در فایل" })).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "تعیین‌تکلیف" }));
+    await userEvent.click(await screen.findByRole("button", { name: /کنار گذاشتن همهٔ ردیف‌های/ }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(JSON.parse(sent[1] as string)).toEqual([{ row: 2, op: "drop" }, { row: 3, op: "drop" }]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "تعیین‌تکلیف" })).not.toBeInTheDocument());
+    expect(await screen.findByRole("button", { name: "مشاهده" })).toBeInTheDocument();         // still only a warning
+    expect(screen.getByRole("button", { name: /^ورود ۲ نفر/ })).toBeEnabled();
   });
 
   it("is a management-only page", async () => {

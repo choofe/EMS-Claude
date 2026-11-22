@@ -8,16 +8,16 @@ import DownloadIcon from "@mui/icons-material/FileDownloadOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import { ApiError } from "../../api/http";
 import { groupsApi, personnelImportApi } from "../../api/resources";
-import type { Group, PersonnelCommit, PersonnelFileDuplicate, PersonnelGroupIssue, PersonnelPreview, PersonnelRowError } from "../../api/types";
+import type { Group, PersonnelCommit, PersonnelFileConflict, PersonnelGroupIssue, PersonnelPreview, PersonnelRowError } from "../../api/types";
 import { ConfirmDialog, Loading, Ltr, PageHeader } from "../../components/common";
 import { toPersianDigits } from "../../lib/dates";
 import { useLoad } from "../../lib/useLoad";
 import { downloadBlob } from "../ImportPage";
 import {
-  canCommit, buildCorrections, distinctBad, duplicateDrops, MAX_CORRECTIONS, personLabel, sameNamesAfterFixes, sampleAfterFixes, setDrop, setTokenFix,
-  SHOWN_STEP, summarize, tokenFix, type DuplicateChoice, type Fixes,
+  canCommit, buildCorrections, conflictDrops, distinctBad, MAX_CORRECTIONS, personLabel, sameNamesAfterFixes, sameNamesInFileAfterFixes, sampleAfterFixes, setDrop, setTokenFix,
+  SHOWN_STEP, summarize, tokenFix, type Fixes,
 } from "./personnelImportState";
-import { DuplicateDialog, DuplicateNotice, SameNameDialog, SameNameNotice } from "./PersonnelNotices";
+import { ConflictDialog, ConflictNotice, SameNameDialog, SameNameInFileDialog, SameNameInFileNotice, SameNameNotice } from "./PersonnelNotices";
 import { groupReason, importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
 const fa = (n: number) => toPersianDigits(String(n));
@@ -148,8 +148,8 @@ export function PersonnelImportPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [confirm, setConfirm] = useState(false);
-  const [dupRows, setDupRows] = useState<number[]>([]);      // rows left out by the manager's choice between in-file duplicates
-  const [dialog, setDialog] = useState<"same" | "dup" | null>(null);
+  const [dupRows, setDupRows] = useState<number[]>([]);      // rows left out by the manager's choices in the conflict clusters
+  const [dialog, setDialog] = useState<"same" | "conflict" | "sameFile" | null>(null);
 
   const groups = useLoad(loadActiveGroups, []);
   // a reload keeps the old data: while it is pending or has failed the cached groups may be stale, so offer none
@@ -157,9 +157,10 @@ export function PersonnelImportPage() {
 
   useEffect(() => { setPreview(null); setFixes({}); setDupRows([]); setDialog(null); }, [file]);
 
-  const summary = useMemo(() => (preview ? summarize(preview, fixes) : null), [preview, fixes]);
+  const summary = useMemo(() => (preview ? summarize(preview, fixes, dupRows) : null), [preview, fixes, dupRows]);
   const sample = useMemo(() => (preview ? sampleAfterFixes(preview, fixes) : []), [preview, fixes]);
   const corrections = useMemo(() => (preview ? buildCorrections(preview, fixes, dupRows) : []), [preview, fixes, dupRows]);
+  const sameFile = useMemo(() => (preview ? sameNamesInFileAfterFixes(preview, fixes) : []), [preview, fixes]);
   const sameNames = useMemo(() => (preview ? sameNamesAfterFixes(preview, fixes) : null), [preview, fixes]);
 
   function startOver() { setFile(null); setPreview(null); setFixes({}); setDupRows([]); setDialog(null); }
@@ -172,12 +173,12 @@ export function PersonnelImportPage() {
     finally { setBusy(false); }
   }
 
-  /** The manager chose between the two rows of an in-file duplicate pair: re-run the preview with the rows left out
-   *  (the server drops them before the analysis). The decisions about group codes are kept (they are keyed by row and
+  /** The manager kept ONE row of a conflict cluster (or none): every other row of the cluster is dropped and the
+   *  preview is re-run with the rows chosen so far. The decisions about group codes are kept (they are keyed by row and
    *  code); on a failure the page keeps what it shows. */
-  async function chooseDuplicate(pair: PersonnelFileDuplicate, choice: DuplicateChoice) {
+  async function resolveConflict(cluster: PersonnelFileConflict, keep: number | null) {
     if (!file) return;
-    const rows = duplicateDrops(dupRows, pair, choice);
+    const rows = conflictDrops(dupRows, cluster, keep);
     setBusy(true); setError(null); setDialog(null);
     try {
       setPreview(await personnelImportApi.preview(file, rows.map((row) => ({ row, op: "drop" as const }))));
@@ -250,7 +251,8 @@ export function PersonnelImportPage() {
           </Stack>
           {preview.ignored_columns.length > 0 && <Alert severity="info" sx={{ mb: 1 }}>ستون‌های نادیده‌گرفته‌شده: <Ltr>{preview.ignored_columns.join(", ")}</Ltr></Alert>}
 
-          <DuplicateNotice count={(preview.file_duplicates ?? []).length} onOpen={() => setDialog("dup")} />
+          <ConflictNotice count={(preview.file_conflicts ?? []).length} onOpen={() => setDialog("conflict")} />
+          <SameNameInFileNotice count={sameFile.length} onOpen={() => setDialog("sameFile")} />
           <SameNameNotice count={sameNames?.count ?? 0} onOpen={() => setDialog("same")} />
 
           {sample.length > 0 && (
@@ -273,7 +275,7 @@ export function PersonnelImportPage() {
           <RowErrors errors={preview.errors} label="ردیف‌های نامعتبر (وارد نمی‌شوند)" />
 
           <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ mt: 2 }}>
-            <Button variant="contained" disabled={!canCommit(summary, corrections.length)} onClick={() => setConfirm(true)}>ورود {fa(summary.importable)} نفر</Button>
+            <Button variant="contained" disabled={!canCommit(summary, corrections.length, (preview.file_conflicts ?? []).length)} onClick={() => setConfirm(true)}>ورود {fa(summary.importable)} نفر</Button>
             {hasProblems && <Button startIcon={<DownloadIcon />} disabled={tooMany} onClick={runProblemsCsv}>دانلود گزارش مشکلات (CSV)</Button>}
             <Button onClick={startOver}>انصراف و اصلاح فایل</Button>
             {summary.unresolvedRows > 0 && <Typography variant="body2" color="warning.main">ردیف تعیین‌تکلیف‌نشده دارید</Typography>}
@@ -297,7 +299,8 @@ export function PersonnelImportPage() {
         </Paper>
       )}
 
-      <DuplicateDialog open={dialog === "dup"} onClose={() => setDialog(null)} pairs={preview?.file_duplicates ?? []} busy={busy} onChoose={chooseDuplicate} />
+      <ConflictDialog open={dialog === "conflict"} onClose={() => setDialog(null)} clusters={preview?.file_conflicts ?? []} busy={busy} onResolve={resolveConflict} />
+      <SameNameInFileDialog open={dialog === "sameFile"} onClose={() => setDialog(null)} groups={sameFile} />
       <SameNameDialog open={dialog === "same"} onClose={() => setDialog(null)} rows={sameNames?.rows ?? []} incomplete={sameNames?.incomplete ?? false} />
       <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} confirmLabel="ورود به سامانه" title="تأیید ورود گروهی افراد"
         text={summary ? `${fa(summary.importable)} نفر به‌عنوان فرد جدید ثبت شود؟ این افراد پروفایل ورود ندارند.${preview && preview.error_count ? ` ${fa(preview.error_count)} ردیف نامعتبر وارد نمی‌شود.` : ""}` : ""}

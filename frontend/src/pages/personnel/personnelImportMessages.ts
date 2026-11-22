@@ -22,8 +22,6 @@ export function personnelRowReason(e: PersonnelRowError): string {
     case "too_many_groups": return `تعداد گروه‌های یک سلول از حد مجاز${e.max_groups ? ` (${fa(e.max_groups)})` : ""} بیشتر است`;
     case "personnel_code_taken": return "این کد پرسنلی از قبل در سیستم وجود دارد";
     case "mobile_taken": return "این شماره موبایل از قبل در سیستم وجود دارد";
-    case "duplicate_personnel_code_in_file": return `کد پرسنلی در ردیف دیگری از همین فایل تکرار شده است${e.first_row ? ` (ردیف ${fa(e.first_row)})` : ""}${e.same_name ? "؛ احتمالاً یک نفر با دو شاخص" : ""}`;
-    case "duplicate_mobile_in_file": return `شماره موبایل در ردیف دیگری از همین فایل تکرار شده است${e.first_row ? ` (ردیف ${fa(e.first_row)})` : ""}${e.same_name ? "؛ احتمالاً یک نفر با دو شاخص" : ""}`;
     default: return e.code;
   }
 }
@@ -36,6 +34,7 @@ export function groupReason(r: InvalidGroupReason): string {
 const OVERRIDES: Record<string, string> = {
   correction_group_invalid: "برخی کد گروه‌ها دیگر وجود ندارند. گروه‌ها را بررسی کنید و دوباره وارد کنید.",
   import_conflict: "در فاصلهٔ پیش‌نمایش و ثبت، کد پرسنلی، موبایل یا گروهی تغییر کرده است. هیچ‌کس وارد نشد. فایل را دوباره بارگذاری کنید.",
+  file_conflicts_unresolved: "ردیف‌هایی با کد یا موبایل مشترک هنوز تعیین‌تکلیف نشده‌اند. هیچ‌کس وارد نشد. فایل را دوباره بارگذاری کنید.",
   group_issues_unresolved: "وضعیت گروه‌ها پس از پیش‌نمایش تغییر کرده است. هیچ‌کس وارد نشد. فایل را دوباره بارگذاری کنید.",
   file_changed: "فایل با پیش‌نمایش تفاوت دارد. دوباره بارگذاری کنید.",
   nothing_to_import: "ردیف قابل ورودی باقی نمانده است.",
@@ -53,7 +52,7 @@ export function personnelErrorMessage(err: unknown): string {
 /** After these answers nothing was imported and the preview no longer matches reality: the manager starts over.
  *  `invalid_corrections` (too many or too large) is NOT here: the manager keeps the file and the decisions. */
 export const RESTART_CODES = new Set(["import_conflict", "correction_group_invalid", "file_changed", "nothing_to_import",
-  "correction_row_not_found", "correction_token_not_found", "duplicate_correction", "group_issues_unresolved"]);
+  "correction_row_not_found", "correction_token_not_found", "duplicate_correction", "group_issues_unresolved", "file_conflicts_unresolved"]);
 
 /** CSV of the rows that were NOT imported, built from the commit answer (the file is never re-analysed after the
  *  people exist: the database would then report them as already taken). Spreadsheet-safe cells; no mobile numbers. */

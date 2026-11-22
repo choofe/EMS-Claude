@@ -41,8 +41,7 @@ PROBLEM_FA = {
     "too_many_groups": "تعداد گروه‌های یک سلول از حد مجاز بیشتر است",
     "personnel_code_taken": "این کد پرسنلی از قبل در سیستم وجود دارد",
     "mobile_taken": "این شماره موبایل از قبل در سیستم وجود دارد",
-    "duplicate_personnel_code_in_file": "کد پرسنلی در ردیف دیگری از همین فایل تکرار شده است",
-    "duplicate_mobile_in_file": "شماره موبایل در ردیف دیگری از همین فایل تکرار شده است",
+    "file_conflict": "کد پرسنلی یا شماره موبایل با ردیف دیگری از همین فایل مشترک است؛ باید یکی را نگه دارید یا همه را کنار بگذارید",
     "group_malformed": "کد گروه نامعتبر است",
     "group_unknown": "کد گروه در سیستم وجود ندارد",
     "group_inactive": "گروه غیرفعال است",
@@ -176,6 +175,10 @@ def problem_rows(report: dict) -> list[list]:
             code = f"group_{bad['reason']}"
             rows.append([g["row"], g["first_name"], g["last_name"], str(g["personnel_code"]), code,
                          f"{PROBLEM_FA.get(code, code)}: {bad['token']}"])
+    for cluster in report.get("file_conflicts", []):
+        for r in cluster["rows"]:
+            rows.append([r["row"], r["first_name"], r["last_name"], str(r["personnel_code"]), "file_conflict",
+                         PROBLEM_FA["file_conflict"]])
     return sorted(rows, key=lambda r: (r[0], r[4]))
 
 
