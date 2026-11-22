@@ -133,8 +133,8 @@ async def test_errors_and_group_issues_carry_names_but_never_the_mobile(db, grou
         ["Sara", "Three", 50, "09120000003", None],                    # 4 code taken
         ["Sara", "Four", 62, "09125550000", None],                     # 5 mobile taken
         ["Sara", "Five", 63, "09120000005", None],                     # 6 valid
-        ["Sara", "Six", 63, "09120000006", None],                      # 7 duplicate code in file
-        ["Sara", "Seven", 64, "09120000005", None],                    # 8 duplicate mobile in file
+        ["Sara", "Six", 63, "09120000006", None],                      # 7 same code as row 6 (cluster)
+        ["Sara", "Seven", 64, "09120000005", None],                    # 8 same mobile as row 6 (cluster)
         ["Sara", "Eight", "-5", "09120000008", None],                  # 9 invalid code
         [None, "Nine", 65, "09120000009", None],                       # 10 missing first name: no names
         [long, long, 66, "09120000010", None],                         # 11 full name too long: no names
@@ -142,8 +142,10 @@ async def test_errors_and_group_issues_carry_names_but_never_the_mobile(db, grou
         ["Sara", "Thirteen", 68, "09120000013", "NOPE"],               # 13 valid with a group issue
     ]))
     by_row = {e["row"]: e for e in report["errors"]}
-    for row, last in {2: "One", 3: "Two", 4: "Three", 5: "Four", 7: "Six", 8: "Seven", 9: "Eight"}.items():
+    for row, last in {2: "One", 3: "Two", 4: "Three", 5: "Four", 9: "Eight"}.items():
         assert (by_row[row]["first_name"], by_row[row]["last_name"]) == ("Sara", last), row
+    cluster = report["file_conflicts"][0]["rows"]           # the cluster rows carry names too, never a mobile
+    assert [(r["row"], r["last_name"]) for r in cluster] == [(6, "Five"), (7, "Six"), (8, "Seven")] and "mobile" not in cluster[0]
     for row, code in {10: "missing_first_name", 11: "invalid_full_name", 12: "formula_not_allowed"}.items():
         assert by_row[row]["code"] == code and by_row[row]["first_name"] is None and by_row[row]["last_name"] is None, row
     assert report["group_issues"] == [{"row": 13, "first_name": "Sara", "last_name": "Thirteen", "personnel_code": 68,
@@ -296,12 +298,11 @@ async def test_template_is_read_by_the_real_parser_with_its_five_persian_headers
 @pytest.mark.skipif(not TEMPLATE.exists(), reason="template file not in this checkout")
 def test_template_protection_and_limits():
     ws = load_workbook(TEMPLATE).active
-    assert ws.protection.sheet and not ws.protection.password and ws.sheet_view.rightToLeft
-    assert ws["A1"].protection.locked and not ws["A2"].protection.locked and not ws["E1001"].protection.locked
-    assert ws.sheet_format.zeroHeight and ws.column_dimensions["G"].hidden
-    assert ws["A1"].comment and "۱۰۰۰" in ws["A1"].comment.text and ws["D1"].comment and ";" in ws["D1"].comment.text
+    assert not ws.protection.sheet and ws.sheet_view.rightToLeft            # rows must be insertable and deletable
+    assert ws.sheet_format.zeroHeight and ws.column_dimensions["F"].hidden      # rows after 201 and columns after E are hidden
+    assert ws["A1"].comment and "۲۰۰" in ws["A1"].comment.text and "۱۰۰۰" not in ws["A1"].comment.text and ws["D1"].comment and ";" in ws["D1"].comment.text
     kinds = sorted((v.type, str(v.sqref)) for v in ws.data_validations.dataValidation)
-    assert len(kinds) == 4 and all("1001" in s for _, s in kinds)
+    assert len(kinds) == 4 and all("201" in s for _, s in kinds)
     assert ws["E2"].number_format.replace("\\", "") == "[<=9999999]###-####;0### ### ####"   # Excel escapes - and space
 
 
@@ -336,55 +337,61 @@ async def test_mobiles_travel_over_http_for_management_but_never_on_commit_or_in
 QODRAT = [["قدرت", "شیخی", 5, "09121111111", None], ["قدرت", "شیخی", 6, "09121111111", None]]
 
 
-async def test_duplicate_pair_with_the_same_name_is_flagged_as_probably_one_person(db, groups):
-    rows = QODRAT + [["Sara", "A", 7, "09122222222", None], ["Sara", "B", 8, "09122222222", None]]
+async def test_cluster_is_flagged_as_probably_one_person_only_when_every_row_has_the_same_name(db, groups):
+    rows = QODRAT + [["Sara", "A", 7, "09122222222", None], ["Sara", "B", 7, "09123333333", None]]
     report, _ = await analyse_personnel(db, "p.xlsx", make_xlsx(rows))
-    flags = {e["row"]: (e["code"], e["first_row"], e.get("same_name")) for e in report["errors"]}
-    assert flags == {3: ("duplicate_mobile_in_file", 2, True), 5: ("duplicate_mobile_in_file", 4, None)}
-    same_code = [["Ali", "Same", 9, "09123333333", None], ["Ali", "Same", 9, "09124444444", None]]
-    report, _ = await analyse_personnel(db, "p.xlsx", make_xlsx(same_code))
-    assert report["errors"][0]["code"] == "duplicate_personnel_code_in_file" and report["errors"][0]["same_name"] is True
+    first, second = report["file_conflicts"]
+    assert (first["same_name"], first["shared"]) == (True, ["mobile"])
+    assert (second["same_name"], second["shared"]) == (False, ["personnel_code"])
+    assert report["error_count"] == 0 and report["valid_count"] == 0
+    mixed = [["Ali", "X", 1, "09121111111", None], ["Ali", "X", 2, "09121111111", None], ["Bob", "Y", 2, "09122222222", None]]
+    report, _ = await analyse_personnel(db, "p.xlsx", make_xlsx(mixed))     # one cluster; one different name = not "one person"
+    assert len(report["file_conflicts"]) == 1 and report["file_conflicts"][0]["same_name"] is False
 
 
-async def test_file_duplicates_list_both_rows_with_mobiles_only_when_allowed(db, groups):
+async def test_preview_lists_every_cluster_row_with_mobiles_only_when_allowed(db, groups):
     rows = [["قدرت", "شیخی", 5, "09121111111", "ELV"], ["قدرت", "شیخی", 6, "09121111111", "ESC"],
             ["Ali", "A", 9, "09123333333", None], ["Bob", "B", 9, "09124444444", None]]
     full = await preview_import(db, filename="p.xlsx", data=make_xlsx(rows), corrections=[], include_mobile=True)
-    mobile_pair, code_pair = full["file_duplicates"]
-    assert mobile_pair == {"kind": "mobile", "same_name": True,
-                           "winner": {"row": 2, "first_name": "قدرت", "last_name": "شیخی", "personnel_code": 5,
-                                      "group_codes": ["ELV"], "mobile": "09121111111"},
-                           "loser": {"row": 3, "first_name": "قدرت", "last_name": "شیخی", "personnel_code": 6,
-                                     "group_codes": ["ESC"], "mobile": "09121111111"}}
-    assert code_pair["kind"] == "personnel_code" and code_pair["same_name"] is False
-    assert (code_pair["winner"]["row"], code_pair["loser"]["row"]) == (4, 5)
+    mobile_cluster, code_cluster = full["file_conflicts"]
+    assert mobile_cluster == {"shared": ["mobile"], "same_name": True, "rows": [
+        {"row": 2, "first_name": "قدرت", "last_name": "شیخی", "personnel_code": 5, "group_codes": ["ELV"], "mobile": "09121111111"},
+        {"row": 3, "first_name": "قدرت", "last_name": "شیخی", "personnel_code": 6, "group_codes": ["ESC"], "mobile": "09121111111"}]}
+    assert code_cluster["shared"] == ["personnel_code"] and code_cluster["same_name"] is False
     hidden = await preview_import(db, filename="p.xlsx", data=make_xlsx(rows), corrections=[])
-    assert len(hidden["file_duplicates"]) == 2 and "0912" not in json.dumps(hidden["file_duplicates"]) and '"mobile":' not in json.dumps(hidden["file_duplicates"])
+    assert len(hidden["file_conflicts"]) == 2 and '"mobile":' not in json.dumps(hidden["file_conflicts"])
 
 
-async def test_dropping_the_first_row_lets_the_other_row_win(db, groups):
-    data = make_xlsx(QODRAT)
-    report = await preview_of(db, QODRAT, [{"row": 2, "op": "drop"}])
-    assert report["error_count"] == 0 and report["valid_count"] == 1 and report["dropped_count"] == 1
-    assert report["sample"][0]["row"] == 3 and report["file_duplicates"] == []
-    # the default (no correction) is unchanged: the first row wins
-    plain = await preview_of(db, QODRAT)
-    assert plain["sample"][0]["row"] == 2 and plain["error_count"] == 1 and len(plain["file_duplicates"]) == 1 and data
-
-
-async def test_the_chain_of_three_rows_moves_on_with_each_choice(db, groups):
+async def test_keeping_one_row_of_a_cluster_means_dropping_the_others_in_one_step(db, groups):
     rows = [["A", "Same", 1, "09121111111", None], ["A", "Same", 2, "09121111111", None], ["A", "Same", 3, "09121111111", None]]
     first = await preview_of(db, rows)
-    assert [(d["winner"]["row"], d["loser"]["row"]) for d in first["file_duplicates"]] == [(2, 3), (2, 4)]
-    second = await preview_of(db, rows, [{"row": 2, "op": "drop"}])
-    assert second["sample"][0]["row"] == 3 and [(d["winner"]["row"], d["loser"]["row"]) for d in second["file_duplicates"]] == [(3, 4)]
+    assert first["file_conflict_count"] == 1 and first["valid_count"] == 0 and len(first["file_conflicts"][0]["rows"]) == 3
+    kept = await preview_of(db, rows, [{"row": 2, "op": "drop"}, {"row": 4, "op": "drop"}])     # keep row 3
+    assert kept["file_conflict_count"] == 0 and kept["valid_count"] == 1 and kept["sample"][0]["row"] == 3
+    assert kept["dropped_count"] == 2 and kept["error_count"] == 0
+    partial = await preview_of(db, rows, [{"row": 2, "op": "drop"}])    # two rows still clash: still undecided
+    assert partial["file_conflict_count"] == 1 and [r["row"] for r in partial["file_conflicts"][0]["rows"]] == [3, 4]
 
 
-async def test_a_duplicate_row_can_be_dropped_and_both_can_be_dropped(db, groups):
-    one = await preview_of(db, QODRAT, [{"row": 3, "op": "drop"}])
-    assert one["valid_count"] == 1 and one["sample"][0]["row"] == 2 and one["dropped_count"] == 1 and one["error_count"] == 0
+async def test_dropping_all_rows_of_a_cluster_leaves_nothing_to_decide(db, groups):
     both = await preview_of(db, QODRAT, [{"row": 2, "op": "drop"}, {"row": 3, "op": "drop"}])
-    assert both["valid_count"] == 0 and both["dropped_count"] == 2 and both["error_count"] == 0
+    assert both["valid_count"] == 0 and both["dropped_count"] == 2 and both["file_conflict_count"] == 0
+
+
+async def test_same_name_rows_without_a_conflict_are_only_a_warning(db, groups):
+    rows = [["Ali", "Rezaei", 1, "09121111111", None], ["Ali", "Rezaei", 2, "09122222222", None], ["Sara", "X", 3, "09123333333", None]]
+    report = await preview_import(db, filename="p.xlsx", data=make_xlsx(rows), corrections=[], include_mobile=True)
+    assert report["file_conflict_count"] == 0 and report["valid_count"] == 3
+    assert [[(r["row"], r["mobile"]) for r in g["rows"]] for g in report["same_name_in_file"]] == [[(2, "09121111111"), (3, "09122222222")]]
+    plain = await preview_import(db, filename="p.xlsx", data=make_xlsx(rows), corrections=[])
+    assert '"mobile":' not in json.dumps(plain["same_name_in_file"])
+    dropped = await preview_of(db, rows, [{"row": 3, "op": "drop"}])
+    assert dropped["same_name_in_file"] == []                   # one row left: nothing to warn about
+
+
+async def test_a_valid_row_without_any_problem_can_be_dropped(db, groups):
+    report = await preview_of(db, [["A", "One", 1, "09121111111", None], ["B", "Two", 2, "09122222222", None]], [{"row": 2, "op": "drop"}])
+    assert report["valid_count"] == 1 and report["dropped_count"] == 1 and report["sample"][0]["row"] == 3
 
 
 async def test_a_row_rejected_for_another_reason_cannot_be_dropped_and_wins_nothing(db, groups):
@@ -395,8 +402,8 @@ async def test_a_row_rejected_for_another_reason_cannot_be_dropped_and_wins_noth
     with pytest.raises(DomainError) as err:
         await preview_of(db, rows, [{"row": 2, "op": "drop"}])
     assert err.value.code == "correction_row_not_found"
-    report = await preview_of(db, rows)               # the rejected row claimed nothing: row 3 is valid
-    assert report["valid_count"] == 1 and report["sample"][0]["row"] == 3
+    report = await preview_of(db, rows)               # the rejected row claimed nothing: no cluster, row 3 is valid
+    assert report["valid_count"] == 1 and report["sample"][0]["row"] == 3 and report["file_conflict_count"] == 0
 
 
 async def test_commit_with_a_drop_imports_the_other_row_and_counts_the_drop(api, world, db):
@@ -409,3 +416,26 @@ async def test_commit_with_a_drop_imports_the_other_row_and_counts_the_drop(api,
     people = (await db.execute(select(User.personnel_code).where(User.personnel_code.in_([5, 6])))).scalars().all()
     assert people == [6]
     assert "file_duplicates" not in body and "same_names" not in body
+
+
+# ---------------------------------------------------------------- the commit waits for the manager's decision
+async def test_commit_is_refused_while_a_cluster_is_undecided_and_works_after_the_choice(api, world, db):
+    from tests.test_personnel_import_api import fix
+    rows = QODRAT + [["Sara", "Ok", 9, "09129999999", None]]
+    data = make_xlsx(rows)
+    refused = await commit(api, "boss", data)
+    assert refused.status_code == 422 and refused.json()["detail"]["code"] == "file_conflicts_unresolved"
+    assert refused.json()["detail"]["file_conflict_count"] == 1
+    from sqlalchemy import func, select
+    from app.models.user import User
+    assert (await db.execute(select(func.count()).select_from(User).where(User.import_batch_id.is_not(None)))).scalar() == 0
+    done = await commit(api, "boss", data, fix({"row": 2, "op": "drop"}))             # keep row 3
+    assert done.status_code == 201 and done.json()["created_count"] == 2
+    assert (await db.execute(select(User.personnel_code).where(User.import_batch_id.is_not(None)).order_by(User.personnel_code))).scalars().all() == [6, 9]
+
+
+async def test_problem_csv_lists_cluster_rows_without_mobiles(api, world, db):
+    text = (await csv_of(api, "boss", make_xlsx(QODRAT))).content.decode("utf-8-sig")
+    lines = list(csv.reader(io.StringIO(text)))
+    assert [(l[0], l[4]) for l in lines[1:]] == [("2", "file_conflict"), ("3", "file_conflict")]
+    assert "0912111" not in text and lines[1][1:3] == ["قدرت", "شیخی"]

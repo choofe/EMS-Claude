@@ -87,7 +87,7 @@ HEADER line only (the `groups` cell contains `;`, which fooled data-row sniffing
 behaves as before (its tests pass unchanged).
 
 Format (header in row 1, English column names): `first_name`, `last_name`, `personnel_code`, `mobile` (all required) and
-`groups` (optional column). Same limits as the equipment import (2 MB, 1000 rows, `.xlsx` / `.csv`). The import creates
+`groups` (optional column). Same limits as the equipment import (2 MB, `.xlsx` / `.csv`; 200 rows for people). The import creates
 NEW persons only; no profile data is ever read from the file.
 
 | Rule | Row code (or report field) |
@@ -98,7 +98,7 @@ NEW persons only; no profile data is ever read from the file.
 | Code 1–9999, no leading zero (Persian digits accepted) | `invalid_personnel_code` |
 | Mobile (stored `09xxxxxxxxx`; `+98`, `98`, missing leading 0 accepted) | `invalid_mobile` |
 | More than 20 group codes in one cell | `too_many_groups` |
-| Same code / mobile earlier in the file (first row wins; a rejected row claims nothing) | `duplicate_personnel_code_in_file`, `duplicate_mobile_in_file` (+`first_row`) |
+| Same code / mobile in several rows of the file | not an error: a conflict cluster (see below), commit refused with `file_conflicts_unresolved` |
 | Code / mobile already in the database (the owner is never named) | `personnel_code_taken`, `mobile_taken` |
 
 Groups: codes separated by `;` (also `؛` and line breaks); every code must name an existing ACTIVE group. A bad code is
@@ -201,19 +201,23 @@ Backend only, no migration. The frontend part is `Pj`.
   one person was typed twice. Exact match only; rows of the file are not compared with each other. The commit answer has none
   of these keys and a same name never blocks or needs a confirmation. Usernames and roles are never returned; a mobile number
   is never in the commit answer, the `CSV` or the audit.
-- **One person, two identifiers in the file.** The first row with a code or mobile wins, the later one is an error
-  (`duplicate_*_in_file`; unchanged default). Such an error carries `same_name: true` (key omitted otherwise) when both rows
-  have the same name. The preview lists every such pair in `file_duplicates`: `kind` (`personnel_code`|`mobile`),
-  `same_name`, `winner`, `loser` (row, names, code, valid `group_codes`, `mobile` only with the capability). The manager
-  decides with a `drop` correction: `drop` of the winner makes the loser valid (dropped rows are known BEFORE the analysis
-  and claim nothing; with three rows the next one becomes the winner, so the list is re-read after each choice). A `drop`
-  of a duplicate (loser) row is now accepted too; dropping both is allowed. A row rejected for another reason (code or
-  mobile already in the database, invalid) claims nothing and still cannot be dropped (`correction_row_not_found`). The commit
-  re-applies the same corrections, so it imports exactly what the preview showed.
+- **Conflict clusters in the file (changed in `Pj`, Amin 2026-11-21).** Rows that share a personnel code or a mobile form a
+  cluster (connected components, so a chain of rows is one cluster). NOBODY wins by default: no row of a cluster is
+  importable, none is an error, and they are counted in `file_conflict_count` / listed in `file_conflicts` (`shared`,
+  `same_name` = every row has the same name, `rows` with row, names, code, valid `group_codes`; `mobile` only in the preview
+  and only with the capability). The manager keeps ONE row (the page sends a `drop` for every other row) or drops them all;
+  dropped rows are known BEFORE the analysis and claim nothing, so one preview re-run shows the result. The commit is refused
+  with `422 file_conflicts_unresolved` while a cluster is left. Any row that passed the row rules may be dropped; a row
+  rejected for another reason (code or mobile already in the database, invalid) still cannot (`correction_row_not_found`).
+  The codes `duplicate_personnel_code_in_file` and `duplicate_mobile_in_file` no longer exist.
+- **Same name twice in the file** (different code AND mobile, so no cluster): the preview lists them in `same_name_in_file`
+  (`rows`; mobile only with the capability) as a plain warning; nothing is decided or blocked.
+- **Row limit.** A personnel file holds at most 200 data rows (`PERSONNEL_IMPORT_MAX_ROWS`, default 200; `422 too_many_rows` with
+  `max_rows`); the equipment import keeps 1000. Every row can therefore be listed and decided.
 - **`CSV` problem report** columns: `row`, `first_name`, `last_name`, `personnel_code`, `problem_code`, `description_fa`
   (name cells empty when the name is the problem; the spreadsheet-safe prefix applies to names too).
 - **Template.** `frontend/public/personnel-import-template.xlsx` (served at the site root by Vite): Persian headers
-  `نام`، `نام خانوادگی`، `کد پرسنلی`، `گروه‌های عضو`، `شماره موبایل`; right-to-left; header frozen at `A2`; sheet protection
-  without a password with only `A2:E1001` unlocked; rows after 1001 and columns after `F` hidden; data validations and two
-  header notes; the mobile column keeps its display format. A backend test reads a copy of it (with one sample row) through the
+  `نام`، `نام خانوادگی`، `کد پرسنلی`، `گروه‌های عضو`، `شماره موبایل`; right-to-left; header frozen at `A2`; NO sheet protection
+  (rows can be inserted and deleted); columns after `F` hidden; data validations on `A2:E201`; two header notes (the first
+  names the 200-row limit); the mobile column keeps its display format. A backend test reads a copy of it (with one sample row) through the
   real parser. Opening it in real Excel is NOT TESTED.

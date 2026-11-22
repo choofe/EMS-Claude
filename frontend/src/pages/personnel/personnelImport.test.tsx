@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
-import type { PersonnelPreview } from "../../api/types";
+import type { PersonnelFileConflict, PersonnelPreview } from "../../api/types";
 import { ApiError } from "../../api/http";
-import { buildCorrections, canCommit, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, summarize, templateCsv } from "./personnelImportState";
+import { buildCorrections, canCommit, MAX_CORRECTIONS, sampleAfterFixes, setDrop, setTokenFix, summarize, personLabel, sameNamesAfterFixes, sameNamesInFileAfterFixes, conflictDrops, differingPositions } from "./personnelImportState";
 import { importedProblemsCsv, personnelErrorMessage, personnelRowReason, RESTART_CODES } from "./personnelImportMessages";
 
 beforeEach(() => resetClientState());
@@ -17,7 +17,7 @@ const pv = (o: Partial<PersonnelPreview> = {}): PersonnelPreview => ({
   file_name: "p.xlsx", file_sha256: SHA, rows_total: 5, valid_count: 3, error_count: 2, group_issue_count: 2, ignored_columns: [],
   errors: [
     { row: 5, personnel_code: "12", code: "mobile_taken" },
-    { row: 6, personnel_code: "13", code: "duplicate_personnel_code_in_file", first_row: 2 },
+    { row: 6, personnel_code: "13", code: "invalid_mobile" },
   ],
   group_issues: [
     { row: 3, personnel_code: 11, invalid_groups: [{ token: "ELEV", reason: "unknown" }, { token: "XX", reason: "unknown" }] },
@@ -81,10 +81,11 @@ describe("personnel import state", () => {
   });
 
   it("the report of a finished import is built from the commit answer, with spreadsheet-safe cells and no mobile column", async () => {
-    const buf = await new Promise<ArrayBuffer>((res) => { const r = new FileReader(); r.onload = () => res(r.result as ArrayBuffer); r.readAsArrayBuffer(importedProblemsCsv([{ row: 5, personnel_code: "=1+1", code: "mobile_taken" }])); });
+    const buf = await new Promise<ArrayBuffer>((res) => { const r = new FileReader(); r.onload = () => res(r.result as ArrayBuffer); r.readAsArrayBuffer(importedProblemsCsv([{ row: 5, first_name: "=cmd", last_name: "نظری", personnel_code: "=1+1", code: "mobile_taken" }])); });
     const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(buf);
-    expect(text.split("\r\n")[0]).toBe("\ufeffrow,personnel_code,problem_code,description_fa");
+    expect(text.split("\r\n")[0]).toBe("\ufeffrow,first_name,last_name,personnel_code,problem_code,description_fa");
     expect(text).toContain('"\'=1+1"');
+    expect(text).toContain('"\'=cmd","نظری"');   // names get the spreadsheet-safe prefix too
     expect(text).not.toMatch(/mobile\b[^_]/);
   });
 
@@ -102,17 +103,71 @@ describe("personnel import state", () => {
     expect(sampleAfterFixes(p, setDrop({}, 3, true)).map((s) => s.row)).toEqual([2, 4]);
   });
 
-  it("the empty template is a BOM-prefixed header line with the five columns", async () => {
-    const buf = await new Promise<ArrayBuffer>((res) => { const r = new FileReader(); r.onload = () => res(r.result as ArrayBuffer); r.readAsArrayBuffer(templateCsv()); });
-    const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(buf);
-    expect(text).toBe("\ufefffirst_name,last_name,personnel_code,groups,mobile\r\n");
+  it("a person is shown as «last name (code)», the code alone when the name is absent", () => {
+    expect(personLabel("نظری", 1321)).toBe("نظری (۱۳۲۱)");
+    expect(personLabel(undefined, "12")).toBe("۱۲");
+    expect(personLabel(null, null)).toBe("—");
+    expect(personLabel("نظری", "")).toBe("نظری");
+  });
+
+  it("same-name rows dropped by a group decision leave the count; a truncated list is flagged", () => {
+    const row = (r: number) => ({ row: r, first_name: "علی", last_name: "نظری", personnel_code: 20 + r, matches_total: 1, matches: [] });
+    const p = pv({ same_name_count: 3, same_names: [row(3), row(4)] });
+    expect(sameNamesAfterFixes(p, {})).toMatchObject({ count: 3, incomplete: true });
+    const a = sameNamesAfterFixes(p, setDrop({}, 3, true));
+    expect(a.count).toBe(2);
+    expect(a.rows.map((r) => r.row)).toEqual([3, 4]);       // still listed, so the drop can be undone
+    expect(sameNamesAfterFixes(pv(), {})).toEqual({ count: 0, rows: [], incomplete: false });
+  });
+
+  it("keeping one row of a cluster drops every other row; keeping none drops all; rows are sent once and come first", () => {
+    const cluster: PersonnelFileConflict = { shared: ["mobile"], same_name: false, rows: [2, 3, 4].map((row) => ({ row, first_name: "الف", last_name: "ب", personnel_code: row, group_codes: [] })) };
+    expect(conflictDrops([], cluster, 3)).toEqual([2, 4]);
+    expect(conflictDrops([2], cluster, 3)).toEqual([2, 4]);
+    expect(conflictDrops([], cluster, null)).toEqual([2, 3, 4]);
+    expect(buildCorrections(pv(), setDrop({}, 4, true), [2])).toEqual([{ row: 2, op: "drop" }, { row: 4, op: "drop" }]);
+  });
+
+  it("a dropped group-decision row stays dropped when a repeated preview no longer lists it as a group issue", () => {
+    const fixed = pv({ valid_count: 3, group_issues: [] });
+    const f = setDrop({}, 3, true);
+    expect(buildCorrections(fixed, f)).toEqual([{ row: 3, op: "drop" }]);
+    expect(summarize(fixed, f)).toMatchObject({ dropped: 1, importable: 2 });
+    expect(summarize(fixed, f, [3])).toMatchObject({ dropped: 0, importable: 3 });   // already dropped by a conflict choice: counted once
+  });
+
+  it("a remembered drop is neither sent nor counted while the preview reports the row as an error", () => {
+    const p = pv({ valid_count: 3, group_issues: [], errors: [{ row: 4, personnel_code: "5", code: "personnel_code_taken" }] });
+    const f = setDrop(setDrop({}, 4, true), 6, true);
+    expect(buildCorrections(p, f)).toEqual([{ row: 6, op: "drop" }]);
+    expect(summarize(p, f)).toMatchObject({ dropped: 1, importable: 2 });
+    expect(buildCorrections({ ...p, errors: [] }, f)).toEqual([{ row: 4, op: "drop" }, { row: 6, op: "drop" }]);   // eligible again
+  });
+
+  it("the commit waits for open conflict clusters", () => {
+    const s = summarize(pv({ group_issues: [] }), {});
+    expect(canCommit(s, 0, 0)).toBe(true);
+    expect(canCommit(s, 0, 1)).toBe(false);
+  });
+
+  it("same-name-in-file groups lose dropped rows and need two rows to stay", () => {
+    const row = (r: number) => ({ row: r, first_name: "علی", last_name: "نظری", personnel_code: r, group_codes: [] });
+    const p = pv({ same_name_in_file: [{ rows: [row(2), row(3)] }, { rows: [row(5), row(6), row(7)] }] });
+    expect(sameNamesInFileAfterFixes(p, {}).length).toBe(2);
+    const after = sameNamesInFileAfterFixes(p, setDrop(setDrop({}, 3, true), 6, true));
+    expect(after.map((g) => g.rows.map((r) => r.row))).toEqual([[5, 7]]);
+  });
+
+  it("marks the mobile digits that differ at the same position", () => {
+    expect([...differingPositions("09123214587", "09143214587")]).toEqual([3]);
+    expect(differingPositions("0912", undefined).size).toBe(0);
   });
 
   it("maps the personnel texts of the shared codes, and row reasons carry their extras", () => {
     expect(personnelErrorMessage(new ApiError(409, "import_conflict"))).toMatch(/هیچ‌کس وارد نشد/);
     expect(personnelErrorMessage(new ApiError(422, "group_issues_unresolved"))).toMatch(/هیچ‌کس وارد نشد/);
-    expect(personnelErrorMessage(new ApiError(422, "too_many_rows", { max_rows: 1000 }))).toMatch(/۱۰۰۰/);
-    expect(personnelRowReason({ row: 6, personnel_code: "13", code: "duplicate_personnel_code_in_file", first_row: 2 })).toMatch(/ردیف ۲/);
+    expect(personnelErrorMessage(new ApiError(422, "too_many_rows", { max_rows: 200 }))).toMatch(/۲۰۰/);
+    expect(personnelErrorMessage(new ApiError(422, "file_conflicts_unresolved"))).toMatch(/هیچ‌کس وارد نشد/);
     expect(personnelRowReason({ row: 6, personnel_code: "", code: "too_many_groups", max_groups: 20 })).toMatch(/۲۰/);
   });
 });
@@ -140,7 +195,7 @@ describe("personnel import page", () => {
 
     const bad = await screen.findByRole("table", { name: /ردیف‌های نامعتبر/ });
     expect(within(bad).getByText(/این شماره موبایل از قبل در سیستم وجود دارد/)).toBeInTheDocument();
-    expect(within(bad).getByText(/ردیف ۲\)/)).toBeInTheDocument();
+    expect(within(bad).getByText(/شماره موبایل نامعتبر است/)).toBeInTheDocument();
     expect(screen.getByText("قابل ورود: ۳")).toBeInTheDocument();
     expect(screen.getByText("نیازمند تعیین‌تکلیف: ۲")).toBeInTheDocument();
     const commit = screen.getByRole("button", { name: /ورود ۳ نفر/ });
@@ -169,9 +224,9 @@ describe("personnel import page", () => {
     const f = committed as unknown as FormData;
     expect(f.get("preview_sha256")).toBe(SHA);
     expect(JSON.parse(String(f.get("corrections")))).toEqual([
+      { row: 4, op: "drop" },                                   // drops come first, then the token decisions
       { row: 3, op: "replace", token: "ELEV", to: "ELV" },
       { row: 3, op: "remove", token: "XX" },
-      { row: 4, op: "drop" },
     ]);
     expect((f.get("file") as File).name).toBe("p.xlsx");
   });
@@ -291,6 +346,126 @@ describe("personnel import page", () => {
     await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
     await userEvent.click((await screen.findAllByRole("combobox", { name: /جایگزینی با گروه/ }))[0]);
     expect(screen.queryByRole("option", { name: /آسانسور/ })).not.toBeInTheDocument();
+  });
+
+  it("lists show «last name (code)»; the Excel template is a plain link and the CSV template button is gone", async () => {
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": () => json(200, pv({
+        errors: [{ row: 5, first_name: "علی", last_name: "نظری", personnel_code: "1321", code: "mobile_taken" }, { row: 7, personnel_code: "", code: "missing_first_name" }],
+        group_issues: [{ row: 3, first_name: "سارا", last_name: "احمدی", personnel_code: 11, invalid_groups: [{ token: "XX", reason: "unknown" }] }],
+      })),
+    });
+    const { container } = renderApp("/personnel/import");
+    const link = await screen.findByRole("link", { name: "قالب Excel" });
+    expect(link.getAttribute("href")).toMatch(/personnel-import-template\.xlsx$/);
+    expect(screen.queryByRole("button", { name: "قالب CSV" })).not.toBeInTheDocument();
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    const bad = await screen.findByRole("table", { name: /ردیف‌های نامعتبر/ });
+    expect(within(bad).getByText("نظری (۱۳۲۱)")).toBeInTheDocument();
+    expect(within(bad).getAllByText("—").length).toBeGreaterThan(0);        // no name, no code: nothing to show
+    expect(within(screen.getByRole("table", { name: "ردیف‌های نیازمند تعیین‌تکلیف" })).getByText("احمدی (۱۱)")).toBeInTheDocument();
+  });
+
+  it("the same-name notice does not block, opens a dialog with both mobile numbers, and a dropped row leaves it", async () => {
+    const sn = { row: 3, first_name: "سارا", last_name: "احمدی", personnel_code: 11, mobile: "09123214587", matches_total: 7,
+      matches: [{ full_name: "سارا احمدی", personnel_code: 9, group_codes: ["ELV"], is_active: true, has_profile: true, mobile: "09143214587" }] };
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": () => json(200, pv({ same_name_count: 1, same_names: [sn] })),
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await screen.findByText(/۱ ردیف قابل ورود با فردی که از قبل در سیستم است هم‌نام است/);
+    await userEvent.click(screen.getByRole("button", { name: "هم‌نام‌های موجود" }));
+    const dlg = await screen.findByRole("dialog", { name: "هم‌نام‌های موجود" });
+    expect(within(dlg).getByText(/ردیف ۳: سارا احمدی/)).toBeInTheDocument();
+    expect(dlg.querySelectorAll("b").length).toBe(2);                 // the differing digit is marked on BOTH numbers
+    expect(dlg.textContent).toContain("09123214587");
+    expect(dlg.textContent).toContain("09143214587");
+    expect(within(dlg).getByText("دارای پروفایل")).toBeInTheDocument();
+    expect(within(dlg).getByText("و ۶ مورد دیگر")).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole("button", { name: "کنار گذاشتن ردیف 3 (هم‌نام)" }));   // the file row is the existing person
+    await waitFor(() => expect(screen.queryByText(/هم‌نام است/)).not.toBeInTheDocument());          // the notice goes ...
+    await userEvent.click(within(dlg).getByRole("button", { name: "بازگردانی ردیف 3 (هم‌نام)" }));    // ... and the drop can be undone
+    await screen.findByText(/۱ ردیف قابل ورود با فردی که از قبل در سیستم است هم‌نام است/);
+    await userEvent.click(within(dlg).getByRole("button", { name: "کنار گذاشتن ردیف 3 (هم‌نام)" }));
+    await userEvent.click(within(dlg).getByRole("button", { name: "بستن" }));
+    expect(await screen.findByText("کنار گذاشته‌شده: ۱")).toBeInTheDocument();                       // it is not imported
+  });
+
+  it("conflict clusters block the import until one row is kept; the choice drops the others, re-runs the preview and keeps group decisions", async () => {
+    const mk = (row: number, code: number, mobile: string) => ({ row, first_name: "علی", last_name: "رضایی", personnel_code: code, group_codes: [], mobile });
+    const cluster: PersonnelFileConflict = { shared: ["personnel_code", "mobile"], same_name: true,
+      rows: [mk(2, 7533, "09121111111"), mk(3, 7533, "09141111111"), mk(7, 7534, "09121111111")] };
+    const sent: (string | null)[] = [];
+    let committed: FormData | null = null;
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": (c) => {
+        const corr = (c.body as FormData).get("corrections"); sent.push(corr === null ? null : String(corr));
+        return json(200, corr === null ? pv({ file_conflict_count: 1, file_conflicts: [cluster] }) : pv({ valid_count: 3, dropped_count: 2, file_conflict_count: 0, file_conflicts: [], errors: [] }));
+      },
+      "POST /personnel/import/commit": (c) => { committed = c.body as FormData; return json(201, { ...pv(), batch_id: 1, created_count: 2 }); },
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    await userEvent.click(await screen.findByRole("button", { name: "حذف XX ردیف 3" }));      // a group decision made BEFORE the choice
+    expect(screen.getByRole("button", { name: /ورود/ })).toBeDisabled();                       // a conflict is open
+    await userEvent.click(screen.getByRole("button", { name: "تعیین‌تکلیف" }));
+    const dlg = await screen.findByRole("dialog", { name: "ردیف‌های دارای کد یا موبایل مشترک" });
+    expect(within(dlg).getByText("احتمالاً یک نفر با شاخص‌های اشتباه")).toBeInTheDocument();
+    expect(within(dlg).getByText(/مشترک: کد پرسنلی و شمارهٔ موبایل/)).toBeInTheDocument();
+    expect(dlg.querySelectorAll("b").length).toBeGreaterThan(0);                                // differing digits are marked
+    await userEvent.click(within(dlg).getByRole("button", { name: "نگه داشتن ردیف 3" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(JSON.parse(sent[1] as string)).toEqual([{ row: 2, op: "drop" }, { row: 7, op: "drop" }]);
+    expect(await screen.findByRole("button", { name: "بازگردانی XX ردیف 3" })).toBeInTheDocument();   // the earlier decision survived
+    expect(screen.queryByRole("button", { name: "تعیین‌تکلیف" })).not.toBeInTheDocument();
+    expect(screen.getByText("کنار گذاشته‌شده: ۲")).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("combobox", { name: /جایگزینی با گروه/ })[0]);
+    await userEvent.click(await screen.findByRole("option", { name: /آسانسور/ }));
+    await userEvent.click(screen.getByRole("button", { name: "حذف ردیف 4" }));
+    await userEvent.click(await screen.findByRole("button", { name: /ورود ۲ نفر/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "ورود به سامانه" }));
+    await screen.findByText(/۲ نفر ثبت شد/);
+    expect(JSON.parse(String((committed as unknown as FormData).get("corrections")))).toEqual([
+      { row: 2, op: "drop" }, { row: 7, op: "drop" }, { row: 4, op: "drop" }, { row: 3, op: "replace", token: "ELEV", to: "ELV" }, { row: 3, op: "remove", token: "XX" },
+    ]);
+  });
+
+  it("«none of them» drops the whole cluster; a same-name-in-file group is only a warning", async () => {
+    const mk = (row: number, code: number) => ({ row, first_name: "سارا", last_name: "احمدی", personnel_code: code, group_codes: ["ELV"], mobile: `0912000000${code}` });
+    const sent: (string | null)[] = [];
+    mockFetch({
+      ...session(), "GET /groups": groups,
+      "POST /personnel/import/preview": (c) => {
+        const corr = (c.body as FormData).get("corrections"); sent.push(corr === null ? null : String(corr));
+        return json(200, corr === null
+          ? pv({ group_issues: [], valid_count: 2, file_conflict_count: 1, file_conflicts: [{ shared: ["mobile"], same_name: false, rows: [mk(2, 1), mk(3, 2)] }],
+                 same_name_in_file: [{ rows: [mk(5, 5), mk(6, 6)] }] })
+          : pv({ group_issues: [], valid_count: 2, file_conflicts: [], same_name_in_file: [{ rows: [mk(5, 5), mk(6, 6)] }] }));
+      },
+    });
+    const { container } = renderApp("/personnel/import");
+    await pick(container);
+    await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
+    expect(await screen.findByRole("button", { name: /^ورود ۲ نفر/ })).toBeDisabled();       // nothing but the open cluster blocks it
+    await userEvent.click(await screen.findByRole("button", { name: "مشاهده" }));              // the warning dialog is read-only
+    const warn = await screen.findByRole("dialog", { name: "نام‌های تکراری در فایل" });
+    expect(within(warn).queryByRole("button", { name: /نگه داشتن/ })).not.toBeInTheDocument();
+    await userEvent.click(within(warn).getByRole("button", { name: "بستن" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "نام‌های تکراری در فایل" })).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "تعیین‌تکلیف" }));
+    await userEvent.click(await screen.findByRole("button", { name: /کنار گذاشتن همهٔ ردیف‌های/ }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(JSON.parse(sent[1] as string)).toEqual([{ row: 2, op: "drop" }, { row: 3, op: "drop" }]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "تعیین‌تکلیف" })).not.toBeInTheDocument());
+    expect(await screen.findByRole("button", { name: "مشاهده" })).toBeInTheDocument();         // still only a warning
+    expect(screen.getByRole("button", { name: /^ورود ۲ نفر/ })).toBeEnabled();
   });
 
   it("is a management-only page", async () => {

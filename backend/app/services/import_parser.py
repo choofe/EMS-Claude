@@ -231,15 +231,16 @@ def _parse_csv(data: bytes, max_rows: int, spec: ColumnSpec) -> ParsedFile:
         raise DomainError("file_corrupt", 422)
 
 
-def parse_upload(filename: str, data: bytes, spec: ColumnSpec = EQUIPMENT_COLUMNS) -> ParsedFile:
+def parse_upload(filename: str, data: bytes, spec: ColumnSpec = EQUIPMENT_COLUMNS, max_rows: int | None = None) -> ParsedFile:
     settings = get_settings()
+    max_rows = settings.import_max_rows if max_rows is None else max_rows
     if len(data) > settings.import_max_bytes:
         raise DomainError("file_too_large", 413, max_bytes=settings.import_max_bytes)
     if not data:
         raise DomainError("empty_file", 422)
     name = (filename or "").lower()
     if name.endswith(".xlsx"):
-        return _parse_xlsx(data, settings.import_max_rows, settings.import_max_uncompressed_bytes, spec)
+        return _parse_xlsx(data, max_rows, settings.import_max_uncompressed_bytes, spec)
     if name.endswith(".csv"):
-        return _parse_csv(data, settings.import_max_rows, spec)
+        return _parse_csv(data, max_rows, spec)
     raise DomainError("unsupported_file_type", 422)  # .xls / .xlsm / anything else

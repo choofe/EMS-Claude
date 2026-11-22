@@ -125,17 +125,27 @@ async def test_mobile_is_not_echoed_in_errors(db, groups):
 
 
 # ---------------------------------------------------------------- duplicates
-async def test_duplicates_in_file_first_row_wins_and_rejected_rows_claim_nothing(db, groups):
+async def test_rows_sharing_a_code_or_mobile_form_a_cluster_nobody_wins_and_rejected_rows_claim_nothing(db, groups):
     report, rows = await run(db, [
-        ["A", "B", 1, "09120000001", ""],      # row 2: wins
-        ["C", "D", 1, "09120000002", ""],      # row 3: same code
+        ["A", "B", 1, "09120000001", ""],      # row 2: cluster (code 1, mobile ...01)
+        ["C", "D", 1, "09120000002", ""],      # row 3: same code as row 2
         ["E", "F", 2, "09120000001", ""],      # row 4: same mobile as row 2
         ["G", "H", 3, "0912", ""],             # row 5: invalid mobile, must not claim code 3
         ["I", "J", 3, "09120000003", ""],      # row 6: fine
     ])
-    assert codes(report) == {3: "duplicate_personnel_code_in_file", 4: "duplicate_mobile_in_file", 5: "invalid_mobile"}
-    assert report["errors"][0]["first_row"] == 2 and report["errors"][1]["first_row"] == 2
-    assert [r.row for r in rows] == [2, 6]
+    assert codes(report) == {5: "invalid_mobile"}
+    assert [r.row for r in rows] == [6]        # no default winner: every row of the cluster waits for the manager
+    assert report["file_conflict_count"] == 1
+    cluster = report["file_conflicts"][0]
+    assert cluster["shared"] == ["personnel_code", "mobile"] and [r["row"] for r in cluster["rows"]] == [2, 3, 4]
+    assert "mobile" not in cluster["rows"][0] and report["valid_count"] == 1
+
+
+async def test_a_cluster_is_connected_through_rows_that_share_nothing_directly(db, groups):
+    report, rows = await run(db, [["A", "B", 1, "09120000001", ""], ["C", "D", 1, "09120000002", ""],
+                                  ["E", "F", 2, "09120000002", ""]])      # row 4 shares a mobile only with row 3
+    assert report["file_conflict_count"] == 1 and [r["row"] for r in report["file_conflicts"][0]["rows"]] == [2, 3, 4]
+    assert rows == []
 
 
 async def test_existing_people_block_code_and_mobile_without_naming_them(db, groups):
@@ -148,13 +158,14 @@ async def test_existing_people_block_code_and_mobile_without_naming_them(db, gro
     assert "Owner" not in json.dumps(report)
 
 
-async def test_database_lookup_works_across_chunks(db, groups):
+async def test_database_lookup_works_across_chunks(db, groups, monkeypatch):
+    monkeypatch.setattr("app.services.personnel_import._DB_CHUNK", 50)     # the file holds at most 200 rows
     for n in range(1, 601):
         db.add(f.m.User(full_name=f"P{n}", first_name="P", last_name=str(n), personnel_code=n,
                         mobile=f"0912{n:07d}", login_enabled=False))
     await db.commit()
-    report, rows = await run(db, [["A", "B", n, f"0913{n:07d}", ""] for n in range(1, 801)])
-    assert report["error_count"] == 600 and report["valid_count"] == 200
+    report, rows = await run(db, [["A", "B", n, f"0913{n:07d}", ""] for n in range(101, 301)])
+    assert report["error_count"] == 200 and report["valid_count"] == 0
     assert {e["code"] for e in report["errors"]} == {"personnel_code_taken"}
 
 
@@ -173,11 +184,13 @@ async def test_file_level_errors(db, groups):
     assert report["ignored_columns"] == ["notes"]
 
 
-async def test_row_limit_applies(db, groups):
-    rows = [["A", "B", 1 + n % 9000, f"0912{n:07d}", ""] for n in range(1001)]
+async def test_row_limit_is_200_for_people_and_exactly_200_passes(db, groups):
+    ok = [["A", "B", 1 + n, f"0912{n:07d}", ""] for n in range(200)]
+    report, _ = await run(db, ok)
+    assert report["valid_count"] == 200
     with pytest.raises(DomainError) as exc:
-        await run(db, rows)
-    assert exc.value.code == "too_many_rows"
+        await run(db, ok + [["A", "B", 500, "09129999999", ""]])
+    assert exc.value.code == "too_many_rows" and exc.value.extra["max_rows"] == 200
 
 
 # ---------------------------------------------------------------- csv: ";" inside a cell must not change the delimiter
