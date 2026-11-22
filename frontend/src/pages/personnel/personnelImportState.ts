@@ -98,13 +98,13 @@ export function personLabel(lastName: string | null | undefined, code: string | 
   return lastName || c || "—";
 }
 
-/** The same-name notice as the manager's decisions leave it: a row dropped from the list of group decisions leaves
- *  the count and the dialog (the preview is not repeated after those decisions). */
+/** The same-name notice as the manager's decisions leave it: a row he dropped (here or in the group decisions) leaves the
+ *  COUNT but stays in the dialog, so the drop can be undone (the preview is not repeated after those decisions). */
 export function sameNamesAfterFixes(p: PersonnelPreview, f: Fixes): { count: number; rows: PersonnelSameNameRow[]; incomplete: boolean } {
-  const all = p.same_names ?? [];
-  const rows = all.filter((r) => !f[r.row]?.drop);
+  const rows = p.same_names ?? [];
+  const droppedRows = rows.filter((r) => f[r.row]?.drop).length;
   const total = p.same_name_count ?? 0;
-  return { count: Math.max(0, total - (all.length - rows.length)), rows, incomplete: total > all.length };
+  return { count: Math.max(0, total - droppedRows), rows, incomplete: total > rows.length };
 }
 
 /** The rows to drop when the manager keeps ONE row of a conflict cluster (`keep`) or none (`null`): every other row.

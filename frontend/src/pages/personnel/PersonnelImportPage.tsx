@@ -301,7 +301,8 @@ export function PersonnelImportPage() {
 
       <ConflictDialog open={dialog === "conflict"} onClose={() => setDialog(null)} clusters={preview?.file_conflicts ?? []} busy={busy} onResolve={resolveConflict} />
       <SameNameInFileDialog open={dialog === "sameFile"} onClose={() => setDialog(null)} groups={sameFile} />
-      <SameNameDialog open={dialog === "same"} onClose={() => setDialog(null)} rows={sameNames?.rows ?? []} incomplete={sameNames?.incomplete ?? false} />
+      <SameNameDialog open={dialog === "same"} onClose={() => setDialog(null)} rows={sameNames?.rows ?? []} incomplete={sameNames?.incomplete ?? false}
+        isDropped={(row) => !!fixes[row]?.drop} onToggleDrop={(row) => setFixes((f) => setDrop(f, row, !f[row]?.drop))} />
       <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} confirmLabel="ورود به سامانه" title="تأیید ورود گروهی افراد"
         text={summary ? `${fa(summary.importable)} نفر به‌عنوان فرد جدید ثبت شود؟ این افراد پروفایل ورود ندارند.${preview && preview.error_count ? ` ${fa(preview.error_count)} ردیف نامعتبر وارد نمی‌شود.` : ""}` : ""}
         onConfirm={runCommit} />

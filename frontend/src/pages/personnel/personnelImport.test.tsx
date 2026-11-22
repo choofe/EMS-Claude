@@ -116,7 +116,7 @@ describe("personnel import state", () => {
     expect(sameNamesAfterFixes(p, {})).toMatchObject({ count: 3, incomplete: true });
     const a = sameNamesAfterFixes(p, setDrop({}, 3, true));
     expect(a.count).toBe(2);
-    expect(a.rows.map((r) => r.row)).toEqual([4]);
+    expect(a.rows.map((r) => r.row)).toEqual([3, 4]);       // still listed, so the drop can be undone
     expect(sameNamesAfterFixes(pv(), {})).toEqual({ count: 0, rows: [], incomplete: false });
   });
 
@@ -379,9 +379,13 @@ describe("personnel import page", () => {
     expect(dlg.textContent).toContain("09143214587");
     expect(within(dlg).getByText("دارای پروفایل")).toBeInTheDocument();
     expect(within(dlg).getByText("و ۶ مورد دیگر")).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole("button", { name: "کنار گذاشتن ردیف 3 (هم‌نام)" }));   // the file row is the existing person
+    await waitFor(() => expect(screen.queryByText(/هم‌نام است/)).not.toBeInTheDocument());          // the notice goes ...
+    await userEvent.click(within(dlg).getByRole("button", { name: "بازگردانی ردیف 3 (هم‌نام)" }));    // ... and the drop can be undone
+    await screen.findByText(/۱ ردیف قابل ورود با فردی که از قبل در سیستم است هم‌نام است/);
+    await userEvent.click(within(dlg).getByRole("button", { name: "کنار گذاشتن ردیف 3 (هم‌نام)" }));
     await userEvent.click(within(dlg).getByRole("button", { name: "بستن" }));
-    await userEvent.click(await screen.findByRole("button", { name: "حذف ردیف 3" }));          // the row leaves the notice
-    await waitFor(() => expect(screen.queryByText(/هم‌نام است/)).not.toBeInTheDocument());
+    expect(await screen.findByText("کنار گذاشته‌شده: ۱")).toBeInTheDocument();                       // it is not imported
   });
 
   it("conflict clusters block the import until one row is kept; the choice drops the others, re-runs the preview and keeps group decisions", async () => {

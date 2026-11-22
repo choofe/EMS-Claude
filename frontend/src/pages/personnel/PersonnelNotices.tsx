@@ -27,22 +27,31 @@ export function SameNameNotice({ count, onOpen }: { count: number; onOpen: () =>
   );
 }
 
-export function SameNameDialog({ open, onClose, rows, incomplete }: { open: boolean; onClose: () => void; rows: PersonnelSameNameRow[]; incomplete: boolean }) {
+export function SameNameDialog({ open, onClose, rows, incomplete, isDropped, onToggleDrop }: {
+  open: boolean; onClose: () => void; rows: PersonnelSameNameRow[]; incomplete: boolean;
+  isDropped: (row: number) => boolean; onToggleDrop: (row: number) => void;
+}) {
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" scroll="paper" aria-labelledby="same-name-title">
       <DialogTitle id="same-name-title">هم‌نام‌های موجود</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           برای هر ردیف فایل، افراد موجود با همان نام دیده می‌شوند. کد و شماره موبایل را مقایسه کنید؛ رقم‌های متفاوت موبایل با رنگ قرمز مشخص شده‌اند.
+          اگر ردیف فایل همان فرد موجود است، آن را از ورود کنار بگذارید (قابل بازگردانی)؛ در غیر این صورت به‌عنوان فرد جدید وارد می‌شود.
         </Typography>
         {incomplete && <Alert severity="info" sx={{ mb: 1 }}>فهرست ناقص است؛ فقط ۲۰۰ ردیف اول فایل نشان داده می‌شود.</Alert>}
         <Stack gap={1.5} divider={<Divider flexItem />}>
           {rows.map((r) => (
             <Stack key={r.row} gap={0.5}>
-              <Typography variant="subtitle2">
-                ردیف {fa(r.row)}: {r.first_name} {r.last_name} — کد {fa(r.personnel_code)}
-                {r.mobile && <> — موبایل <Mobile value={r.mobile} other={r.matches.find((m) => m.mobile)?.mobile} /></>}
-              </Typography>
+              <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                <Typography variant="subtitle2" sx={isDropped(r.row) ? { textDecoration: "line-through" } : undefined}>
+                  ردیف {fa(r.row)}: {r.first_name} {r.last_name} — کد {fa(r.personnel_code)}
+                  {r.mobile && <> — موبایل <Mobile value={r.mobile} other={r.matches.find((m) => m.mobile)?.mobile} /></>}
+                </Typography>
+                {isDropped(r.row)
+                  ? <Button size="small" onClick={() => onToggleDrop(r.row)} aria-label={`بازگردانی ردیف ${r.row} (هم‌نام)`}>بازگردانی</Button>
+                  : <Button size="small" color="error" onClick={() => onToggleDrop(r.row)} aria-label={`کنار گذاشتن ردیف ${r.row} (هم‌نام)`}>کنار گذاشتن این ردیف</Button>}
+              </Stack>
               {r.matches.map((m, i) => (
                 <Stack key={i} direction="row" gap={1} flexWrap="wrap" alignItems="center" sx={{ pr: 2 }}>
                   <Typography variant="body2">{m.full_name} — کد {codeText(m.personnel_code)}</Typography>
