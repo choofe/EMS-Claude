@@ -6,6 +6,7 @@ import {
 import UploadIcon from "@mui/icons-material/UploadFileOutlined";
 import DownloadIcon from "@mui/icons-material/FileDownloadOutlined";
 import CloseIcon from "@mui/icons-material/Close";
+import { Link as RouterLink } from "react-router-dom";
 import { ApiError } from "../../api/http";
 import { groupsApi, personnelImportApi } from "../../api/resources";
 import type { Group, PersonnelCommit, PersonnelFileConflict, PersonnelGroupIssue, PersonnelPreview, PersonnelRowError } from "../../api/types";
@@ -214,7 +215,10 @@ export function PersonnelImportPage() {
   return (
     <>
       <PageHeader title="ورود گروهی افراد" actions={
-        <Button variant="outlined" startIcon={<DownloadIcon />} component="a" href={`${import.meta.env.BASE_URL}personnel-import-template.xlsx`} download>قالب Excel</Button>
+        <>
+          <Button variant="outlined" component={RouterLink} to="/personnel/import/history">تاریخچهٔ import</Button>
+          <Button variant="outlined" startIcon={<DownloadIcon />} component="a" href={`${import.meta.env.BASE_URL}personnel-import-template.xlsx`} download>قالب Excel</Button>
+        </>
       } />
       <Typography color="text.secondary" sx={{ mb: 2 }}>
         فایل باید یک برگه (Sheet) باشد؛ بهتر است از «قالب Excel» استفاده کنید. سرستون‌ها فارسی (نام، نام خانوادگی، کد پرسنلی، گروه‌های عضو، شماره موبایل)

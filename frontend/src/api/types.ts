@@ -316,6 +316,40 @@ export interface PersonnelCommit extends PersonnelPreview {
   batch_id: number;
   created_count: number;
 }
+/** Import history (Pg backend, Ph UI). `status` is computed live by the server. */
+export interface PersonnelImportBatch {
+  id: number;
+  kind: string;
+  file_name: string;
+  created_at: string;
+  created_by_name: string;
+  created_count: number;
+  rejected_count: number;
+  removed_count: number;
+  remaining_count: number;
+  status: "complete" | "partial" | "cancelled";
+  undone_at: string | null;
+}
+export interface PersonnelBatchPerson {
+  id: number;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string;
+  personnel_code: number | null;
+  group_codes: string[];
+  is_active: boolean;
+  has_profile: boolean;
+  mobile?: string | null;
+}
+export interface PersonnelCancelPreview {
+  batch_id: number;
+  remaining_count: number;
+  removable_count: number;
+  exempt_count: number;
+  exempt_reasons: { profile: number; reports: number; participation: number; stars: number };
+  fingerprint: string;
+}
+export interface PersonnelCancelResult { batch_id: number; removed_count: number; kept_count: number }
 export type PersonnelCorrection =
   | { row: number; op: "replace"; token: string; to: string }
   | { row: number; op: "remove"; token: string }
