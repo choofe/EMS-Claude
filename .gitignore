@@ -30,3 +30,4 @@ dist/
 
 # Database dumps never go into git (a real dump was committed once on this branch)
 *.dump
+.vercel
