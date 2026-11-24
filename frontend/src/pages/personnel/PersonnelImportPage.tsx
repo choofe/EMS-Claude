@@ -215,10 +215,10 @@ export function PersonnelImportPage() {
   return (
     <>
       <PageHeader title="ورود گروهی افراد" actions={
-        <>
-          <Button variant="outlined" component={RouterLink} to="/personnel/import/history">تاریخچهٔ import</Button>
+        <Stack direction="row" justifyContent="space-between" gap={4} sx={{ width: { xs: "100%", sm: "auto" } }}>
+          <Button variant="contained" component={RouterLink} to="/personnel/import/history">تاریخچهٔ ورود گروهی</Button>
           <Button variant="outlined" startIcon={<DownloadIcon />} component="a" href={`${import.meta.env.BASE_URL}personnel-import-template.xlsx`} download>قالب Excel</Button>
-        </>
+        </Stack>
       } />
       <Typography color="text.secondary" sx={{ mb: 2 }}>
         فایل باید یک برگه (Sheet) باشد؛ بهتر است از «قالب Excel» استفاده کنید. سرستون‌ها فارسی (نام، نام خانوادگی، کد پرسنلی، گروه‌های عضو، شماره موبایل)

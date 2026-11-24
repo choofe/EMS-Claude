@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
 import type { PersonnelBatchPerson, PersonnelCancelPreview, PersonnelImportBatch } from "../../api/types";
@@ -22,6 +22,8 @@ const preview = (o: Partial<PersonnelCancelPreview> = {}): PersonnelCancelPrevie
   batch_id: 1, remaining_count: 25, removable_count: 22, exempt_count: 3, exempt_reasons: { profile: 1, reports: 2, participation: 0, stars: 0 }, fingerprint: "f".repeat(64), ...o,
 });
 const page = <T,>(items: T[], total = items.length, offset = 0) => json(200, { items, total, limit: 25, offset });
+const open = async (name = "staff.xlsx") => userEvent.click(await screen.findByRole("button", { name: `جزئیات ورود ${name}` }));
+const empty = () => page([]);
 const session = (u = makeUser()) => ({ "POST /auth/refresh": () => json(200, tokenBody(u)) });
 
 const asPhone = () => { const original = window.matchMedia; window.matchMedia = ((query: string) => ({ matches: false, media: query, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia; return () => { window.matchMedia = original; }; };
@@ -29,7 +31,7 @@ const asPhone = () => { const original = window.matchMedia; window.matchMedia = 
 describe("import history helpers", () => {
   it("shows imported rows out of all rows, the status labels and when a cancel is possible", () => {
     expect(importedOfTotal({ created_count: 25, rejected_count: 2 })).toBe("۲۵ از ۲۷");
-    expect(statusLabel("complete")).toBeNull();
+    expect(statusLabel("complete")).toBe("بدون لغو");
     expect(statusLabel("partial")).toBe("بخشی لغو شده");
     expect(statusLabel("cancelled")).toBe("کامل لغو شده");
     expect(canCancel({ remaining_count: 1 })).toBe(true);
@@ -55,7 +57,7 @@ describe("import history helpers", () => {
 });
 
 describe("import history page", () => {
-  it("lists batches with «X از Y», status labels (none for an untouched batch) and hides the cancel button when nobody is left", async () => {
+  it("lists batches with «X از Y» and an explicit status on every row; the details of a fully cancelled batch offer no cancel", async () => {
     mockFetch({
       ...session(),
       "GET /personnel/import/batches": () => page([
@@ -63,14 +65,19 @@ describe("import history page", () => {
         batch({ id: 2, file_name: "b.xlsx", status: "partial", removed_count: 5, remaining_count: 20 }),
         batch({ id: 3, file_name: "c.xlsx", status: "cancelled", removed_count: 25, remaining_count: 0 }),
       ]),
+      "GET /personnel/import/batches/3/people": empty,
     });
     renderApp("/personnel/import/history");
     await screen.findByText("staff.xlsx");
     expect(screen.getAllByText(/۲۵ از ۲۷ ردیف وارد شد/)).toHaveLength(3);
+    expect(screen.getByText("بدون لغو")).toBeInTheDocument();
     expect(screen.getByText("بخشی لغو شده")).toBeInTheDocument();
     expect(screen.getByText("کامل لغو شده")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "لغو" })).toHaveLength(2);   // the cancelled batch has no cancel button
-    expect(screen.getAllByRole("button", { name: "افراد" })[2]).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "لغو" })).not.toBeInTheDocument();      // no buttons on the rows: the row itself opens the details
+    expect(screen.queryByRole("button", { name: "افراد" })).not.toBeInTheDocument();
+    await open("c.xlsx");
+    expect(await screen.findByText("از این ورود فردی باقی نمانده که قابل لغو باشد.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "لغو این ورود…" })).not.toBeInTheDocument();
   });
 
   it("«نمایش بیشتر» loads the next 25 and appends them", async () => {
@@ -94,11 +101,13 @@ describe("import history page", () => {
     const m = mockFetch({
       ...session(),
       "GET /personnel/import/batches": () => page([batch()]),
+      "GET /personnel/import/batches/1/people": empty,
       "POST /personnel/import/batches/1/cancel-preview": () => json(200, preview()),
       "POST /personnel/import/batches/1/cancel": (c) => { sent = c.body; return json(200, { batch_id: 1, removed_count: 22, kept_count: 3 }); },
     });
     renderApp("/personnel/import/history");
-    await userEvent.click(await screen.findByRole("button", { name: "لغو" }));
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "لغو این ورود…" }));
     expect(await screen.findByText(/۲۲ نفر حذف می‌شوند/)).toBeInTheDocument();
     expect(screen.getByText("۱ نفر پروفایل ورود دارند")).toBeInTheDocument();
     expect(screen.getByText("۲ نفر گزارش ثبت کرده‌اند")).toBeInTheDocument();
@@ -118,11 +127,13 @@ describe("import history page", () => {
     const m = mockFetch({
       ...session(),
       "GET /personnel/import/batches": () => page([batch()]),
+      "GET /personnel/import/batches/1/people": empty,
       "POST /personnel/import/batches/1/cancel-preview": () => json(200, ++n === 1 ? preview() : preview({ removable_count: 20, exempt_count: 5 })),
       "POST /personnel/import/batches/1/cancel": () => json(409, { detail: { code: "batch_changed" } }),
     });
     renderApp("/personnel/import/history");
-    await userEvent.click(await screen.findByRole("button", { name: "لغو" }));
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "لغو این ورود…" }));
     await screen.findByText(/۲۲ نفر حذف می‌شوند/);
     await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.click(screen.getByRole("button", { name: "لغو ورود" }));
@@ -138,10 +149,12 @@ describe("import history page", () => {
     mockFetch({
       ...session(),
       "GET /personnel/import/batches": () => page([batch({ status: "partial", removed_count: 5, remaining_count: 3 })]),
+      "GET /personnel/import/batches/1/people": empty,
       "POST /personnel/import/batches/1/cancel-preview": () => json(200, preview({ remaining_count: 3, removable_count: 0, exempt_count: 3, exempt_reasons: { profile: 3, reports: 0, participation: 0, stars: 0 } })),
     });
     renderApp("/personnel/import/history");
-    await userEvent.click(await screen.findByRole("button", { name: "لغو" }));
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "لغو این ورود…" }));
     expect(await screen.findByText("هیچ‌کس قابل حذف نیست.")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "لغو ورود" })).toBeDisabled();
@@ -156,7 +169,7 @@ describe("import history page", () => {
     const restore = asPhone();
     try {
     renderApp("/personnel/import/history");
-    await userEvent.click(await screen.findByRole("button", { name: "افراد" }));
+    await open();
     const dlg = await screen.findByRole("dialog");
     await within(dlg).findByText("علی رضایی (۱۲۳۴)");
     expect(within(dlg).getByText("سارا نظری")).toBeInTheDocument();
@@ -180,7 +193,7 @@ describe("import history page", () => {
       "GET /personnel/import/batches/1/people": (c) => c.query.get("offset") === "25" ? page([person({ id: 99, full_name: "نفر صفحه دوم", personnel_code: 5 })], 30, 25) : page([person()], 30),
     });
     renderApp("/personnel/import/history");
-    await userEvent.click(await screen.findByRole("button", { name: "افراد" }));
+    await open();
     const dlg = await screen.findByRole("dialog");
     await within(dlg).findByText("علی رضایی (۱۲۳۴)");
     await userEvent.click(within(dlg).getByRole("button", { name: /next page|صفحهٔ بعد|Go to next page/i }));
@@ -212,16 +225,17 @@ describe("import history page", () => {
       "GET /personnel/import/batches/1/people": () => page([person()]),
     });
     renderApp("/personnel/import/history");
-    await userEvent.click(await screen.findByRole("button", { name: "افراد" }));
+    await open();
     const dlg = await screen.findByRole("dialog");
     expect(await within(dlg).findByText("09121234567")).toBeInTheDocument();
     expect(within(dlg).queryByRole("button", { name: "نمایش شماره‌ها" })).not.toBeInTheDocument();
   });
 
-  it("the import page links to the history; the history page is for MANAGEMENT only", async () => {
+  it("the import page links to the history with the agreed label; the history page is for MANAGEMENT only", async () => {
     mockFetch({ ...session(), "GET /groups": () => json(200, { items: [], total: 0, limit: 100, offset: 0 }) });
     renderApp("/personnel/import");
-    expect(await screen.findByRole("link", { name: "تاریخچهٔ import" })).toHaveAttribute("href", "/personnel/import/history");
+    expect(await screen.findByRole("link", { name: "تاریخچهٔ ورود گروهی" })).toHaveAttribute("href", "/personnel/import/history");
+    cleanup();
     resetClientState();
     mockFetch({ ...session(makeUser({ role_code: "AUDITOR", username: "aud" })), "GET /reports": () => json(200, { items: [], next_cursor: null, other_group_reports_may_exist: false }), "GET /reports/columns": () => json(200, []) });
     renderApp("/personnel/import/history");

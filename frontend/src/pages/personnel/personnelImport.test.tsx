@@ -414,7 +414,7 @@ describe("personnel import page", () => {
     await pick(container);
     await userEvent.click(screen.getByRole("button", { name: "بررسی فایل" }));
     await userEvent.click(await screen.findByRole("button", { name: "حذف XX ردیف 3" }));      // a group decision made BEFORE the choice
-    expect(screen.getByRole("button", { name: /ورود/ })).toBeDisabled();                       // a conflict is open
+    expect(screen.getByRole("button", { name: /^ورود .* نفر$/ })).toBeDisabled();                       // a conflict is open
     await userEvent.click(screen.getByRole("button", { name: "تعیین‌تکلیف" }));
     const dlg = await screen.findByRole("dialog", { name: "ردیف‌های دارای کد یا موبایل مشترک" });
     expect(within(dlg).getByText("احتمالاً یک نفر با شاخص‌های اشتباه")).toBeInTheDocument();

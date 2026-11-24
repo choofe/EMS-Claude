@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Paper, Stack, Table, TableBody,
+  Alert, Button, CardActionArea, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Paper, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
@@ -14,8 +14,79 @@ import { personnelErrorMessage } from "./personnelImportMessages";
 
 const fa = (n: number) => toPersianDigits(String(n));
 
-/** The people of one batch as they are NOW (names, code, groups and mobile come from the database, so they may differ from the file). */
-function PeopleDialog({ batch, onClose }: { batch: PersonnelImportBatch; onClose: () => void }) {
+/** Two steps inside the details dialog: the preview (writes nothing) shows who goes and who stays; the confirm needs the tick. A changed batch (409) reloads the numbers and asks again. */
+function CancelSection({ batch, onDone }: { batch: PersonnelImportBatch; onDone: (removed: number, kept: number) => void }) {
+  const [started, setStarted] = useState(false);
+  const [preview, setPreview] = useState<PersonnelCancelPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ack, setAck] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+
+  const loadPreview = useCallback(async () => {
+    setPreview(null);
+    try {
+      const p = await personnelImportApi.cancelPreview(batch.id);
+      if (alive.current) setPreview(p);
+    } catch (e) {
+      if (alive.current) setError(personnelErrorMessage(e));
+    }
+  }, [batch.id]);
+
+  const start = () => { setStarted(true); setError(null); void loadPreview(); };
+  const confirm = async () => {
+    if (!preview || busy) return;
+    setBusy(true);
+    try {
+      const r = await personnelImportApi.cancel(batch.id, preview.fingerprint);
+      onDone(r.removed_count, r.kept_count);
+    } catch (e) {
+      if (!alive.current) return;
+      setError(personnelErrorMessage(e));
+      setAck(false);
+      setBusy(false);
+      await loadPreview(); // nothing was deleted: show the new numbers; the manager decides again
+    }
+  };
+
+  if (!started) return <Button color="error" variant="outlined" onClick={start}>لغو این ورود…</Button>;
+  const lines = preview ? exemptLines(preview.exempt_reasons) : [];
+  return (
+    <Paper variant="outlined" sx={{ p: 1.5, borderColor: "error.light" }}>
+      <Typography fontWeight={600} sx={{ mb: 1 }}>لغو ورود</Typography>
+      {error && <Alert severity="warning" sx={{ mb: 1.5 }}>{error}</Alert>}
+      {!preview && !error ? <Loading /> : null}
+      {preview && (
+        <>
+          <Typography sx={{ mb: 1 }}>
+            از {fa(preview.remaining_count)} نفری که هنوز در سیستم هستند، <b>{fa(preview.removable_count)} نفر حذف می‌شوند</b> و {fa(preview.exempt_count)} نفر می‌مانند.
+          </Typography>
+          {lines.length > 0 && (
+            <>
+              <Typography variant="body2" color="text.secondary">افراد زیر حذف نمی‌شوند چون به آن‌ها ارجاع وجود دارد:</Typography>
+              <ul style={{ marginTop: 4 }}>{lines.map((l) => <li key={l}><Typography variant="body2">{l}</Typography></li>)}</ul>
+            </>
+          )}
+          {preview.removable_count === 0 ? (
+            <Alert severity="info">هیچ‌کس قابل حذف نیست.</Alert>
+          ) : (
+            <>
+              <Alert severity="error" sx={{ my: 1 }}>حذف این افراد برگشت‌پذیر نیست.</Alert>
+              <FormControlLabel control={<Checkbox checked={ack} onChange={(e) => setAck(e.target.checked)} />} label="متوجه‌ام که حذف این افراد برگشت‌پذیر نیست" />
+            </>
+          )}
+        </>
+      )}
+      <Stack direction="row" justifyContent="flex-end" sx={{ mt: 1 }}>
+        <Button color="error" variant="contained" disabled={!preview || preview.removable_count === 0 || !ack || busy} onClick={confirm}>لغو ورود</Button>
+      </Stack>
+    </Paper>
+  );
+}
+
+/** Details of one batch: summary, the people as they are NOW (database data, may differ from the file) and the cancel. */
+function BatchDialog({ batch, onClose, onDone }: { batch: PersonnelImportBatch; onClose: () => void; onDone: (removed: number, kept: number) => void }) {
   const theme = useTheme();
   const desktop = useMediaQuery(theme.breakpoints.up("md"));
   const [page, setPage] = useState(0);
@@ -23,10 +94,17 @@ function PeopleDialog({ batch, onClose }: { batch: PersonnelImportBatch; onClose
   const [reveal, setReveal] = useState(false);
   const people = useLoad(() => personnelImportApi.batchPeople(batch.id, { limit: rows, offset: page * rows }), [batch.id, page, rows]);
   const showMobile = desktop || reveal; // a phone shows the numbers only when the manager asks
+  const label = statusLabel(batch.status);
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="md" fullScreen={!desktop}>
-      <DialogTitle>افراد این ورود</DialogTitle>
+      <DialogTitle>ورود «<Ltr>{batch.file_name}</Ltr>»</DialogTitle>
       <DialogContent>
+        <Stack gap={0.5} sx={{ mb: 2 }}>
+          <Typography variant="body2" color="text.secondary"><DateText value={batch.created_at} /> — {batch.created_by_name}</Typography>
+          <Typography variant="body2">{importedOfTotal(batch)} ردیف وارد شد؛ {fa(batch.remaining_count)} نفر هنوز در سیستم هستند{batch.removed_count > 0 ? `؛ ${fa(batch.removed_count)} نفر حذف شده‌اند` : ""}</Typography>
+          <div><Chip size="small" label={label} color={batch.status === "complete" ? "success" : batch.status === "cancelled" ? "default" : "warning"} variant="outlined" /></div>
+        </Stack>
+        <Typography fontWeight={600}>افراد</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           اطلاعات فعلی افراد نمایش داده می‌شود و ممکن است با فایل ورودی تفاوت داشته باشد.
         </Typography>
@@ -59,80 +137,11 @@ function PeopleDialog({ batch, onClose }: { batch: PersonnelImportBatch; onClose
             <Pager total={people.data.total} page={page} rowsPerPage={rows} onPage={setPage} onRows={(n) => { setRows(n); setPage(0); }} />
           </>
         )}
+        <div style={{ marginTop: 16 }}>
+          {canCancel(batch) ? <CancelSection batch={batch} onDone={onDone} /> : <Typography variant="body2" color="text.secondary">از این ورود فردی باقی نمانده که قابل لغو باشد.</Typography>}
+        </div>
       </DialogContent>
       <DialogActions><Button onClick={onClose}>بستن</Button></DialogActions>
-    </Dialog>
-  );
-}
-
-/** Two steps: the preview (writes nothing) shows who goes and who stays; the confirm needs the tick. A changed batch (409) reloads the numbers and asks again. */
-function CancelDialog({ batch, onClose, onDone }: { batch: PersonnelImportBatch; onClose: () => void; onDone: (removed: number, kept: number) => void }) {
-  const [preview, setPreview] = useState<PersonnelCancelPreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [ack, setAck] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-
-  const loadPreview = useCallback(async () => {
-    setPreview(null);
-    try {
-      const p = await personnelImportApi.cancelPreview(batch.id);
-      if (alive.current) setPreview(p);
-    } catch (e) {
-      if (alive.current) setError(personnelErrorMessage(e));
-    }
-  }, [batch.id]);
-  useEffect(() => { void loadPreview(); }, [loadPreview]);
-
-  const confirm = async () => {
-    if (!preview || busy) return;
-    setBusy(true);
-    try {
-      const r = await personnelImportApi.cancel(batch.id, preview.fingerprint);
-      onDone(r.removed_count, r.kept_count);
-    } catch (e) {
-      if (!alive.current) return;
-      setError(personnelErrorMessage(e));
-      setAck(false);
-      setBusy(false);
-      await loadPreview(); // nothing was deleted: show the new numbers; the manager decides again
-    }
-  };
-
-  const lines = preview ? exemptLines(preview.exempt_reasons) : [];
-  return (
-    <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth="sm">
-      <DialogTitle>لغو ورود «<Ltr>{batch.file_name}</Ltr>»</DialogTitle>
-      <DialogContent>
-        {error && <Alert severity="warning" sx={{ mb: 1.5 }}>{error}</Alert>}
-        {!preview && !error ? <Loading /> : null}
-        {preview && (
-          <>
-            <Typography sx={{ mb: 1 }}>
-              از {fa(preview.remaining_count)} نفری که هنوز در سیستم هستند، <b>{fa(preview.removable_count)} نفر حذف می‌شوند</b> و {fa(preview.exempt_count)} نفر می‌مانند.
-            </Typography>
-            {lines.length > 0 && (
-              <>
-                <Typography variant="body2" color="text.secondary">افراد زیر حذف نمی‌شوند چون به آن‌ها ارجاع وجود دارد:</Typography>
-                <ul style={{ marginTop: 4 }}>{lines.map((l) => <li key={l}><Typography variant="body2">{l}</Typography></li>)}</ul>
-              </>
-            )}
-            {preview.removable_count === 0 ? (
-              <Alert severity="info">هیچ‌کس قابل حذف نیست.</Alert>
-            ) : (
-              <>
-                <Alert severity="error" sx={{ my: 1 }}>حذف این افراد برگشت‌پذیر نیست.</Alert>
-                <FormControlLabel control={<Checkbox checked={ack} onChange={(e) => setAck(e.target.checked)} />} label="متوجه‌ام که حذف این افراد برگشت‌پذیر نیست" />
-              </>
-            )}
-          </>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={busy}>انصراف</Button>
-        <Button color="error" variant="contained" disabled={!preview || preview.removable_count === 0 || !ack || busy} onClick={confirm}>لغو ورود</Button>
-      </DialogActions>
     </Dialog>
   );
 }
@@ -143,8 +152,7 @@ export function PersonnelImportHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [peopleOf, setPeopleOf] = useState<PersonnelImportBatch | null>(null);
-  const [cancelOf, setCancelOf] = useState<PersonnelImportBatch | null>(null);
+  const [openBatch, setOpenBatch] = useState<PersonnelImportBatch | null>(null);
   const seq = useRef(0);
 
   /** `replace` re-reads from the start (first load and after a cancel); otherwise the next page is appended. */
@@ -175,22 +183,20 @@ export function PersonnelImportHistoryPage() {
           {items.map((b) => {
             const label = statusLabel(b.status);
             return (
-              <Paper key={b.id} variant="outlined" sx={{ p: 1.5 }}>
-                <Stack direction={{ xs: "column", sm: "row" }} gap={1} justifyContent="space-between" alignItems={{ sm: "center" }}>
-                  <div>
-                    <Typography fontWeight={600}><Ltr>{b.file_name}</Ltr></Typography>
-                    <Typography variant="body2" color="text.secondary"><DateText value={b.created_at} /> — {b.created_by_name}</Typography>
-                    <Typography variant="body2">
-                      {importedOfTotal(b)} ردیف وارد شد؛ {fa(b.remaining_count)} نفر هنوز در سیستم هستند
-                      {b.removed_count > 0 ? `؛ ${fa(b.removed_count)} نفر حذف شده‌اند` : ""}
-                    </Typography>
-                  </div>
-                  <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-                    {label && <Chip size="small" label={label} color={b.status === "cancelled" ? "default" : "warning"} variant="outlined" />}
-                    <Button size="small" variant="outlined" disabled={b.remaining_count === 0} onClick={() => setPeopleOf(b)}>افراد</Button>
-                    {canCancel(b) && <Button size="small" color="error" variant="outlined" onClick={() => setCancelOf(b)}>لغو</Button>}
+              <Paper key={b.id} variant="outlined" sx={{ p: 0 }}>
+                <CardActionArea onClick={() => setOpenBatch(b)} sx={{ p: 1.5 }} aria-label={`جزئیات ورود ${b.file_name}`}>
+                  <Stack direction={{ xs: "column", sm: "row" }} gap={1} justifyContent="space-between" alignItems={{ sm: "center" }}>
+                    <div>
+                      <Typography fontWeight={600}><Ltr>{b.file_name}</Ltr></Typography>
+                      <Typography variant="body2" color="text.secondary"><DateText value={b.created_at} /> — {b.created_by_name}</Typography>
+                      <Typography variant="body2">
+                        {importedOfTotal(b)} ردیف وارد شد؛ {fa(b.remaining_count)} نفر هنوز در سیستم هستند
+                        {b.removed_count > 0 ? `؛ ${fa(b.removed_count)} نفر حذف شده‌اند` : ""}
+                      </Typography>
+                    </div>
+                    <Chip size="small" label={label} color={b.status === "complete" ? "success" : b.status === "cancelled" ? "default" : "warning"} variant="outlined" />
                   </Stack>
-                </Stack>
+                </CardActionArea>
               </Paper>
             );
           })}
@@ -198,10 +204,9 @@ export function PersonnelImportHistoryPage() {
           <Typography variant="caption" color="text.secondary">{fa(items.length)} از {fa(total)}</Typography>
         </Stack>
       )}
-      {peopleOf && <PeopleDialog batch={peopleOf} onClose={() => setPeopleOf(null)} />}
-      {cancelOf && (
-        <CancelDialog batch={cancelOf} onClose={() => setCancelOf(null)} onDone={(removed, kept) => {
-          setCancelOf(null);
+      {openBatch && (
+        <BatchDialog batch={openBatch} onClose={() => setOpenBatch(null)} onDone={(removed, kept) => {
+          setOpenBatch(null);
           setNotice(`${fa(removed)} نفر حذف شد و ${fa(kept)} نفر ماند.`);
           void load(0, reloadSize(items.length), true);
         }} />

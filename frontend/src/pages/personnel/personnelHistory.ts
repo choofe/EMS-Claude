@@ -8,9 +8,9 @@ export function importedOfTotal(b: Pick<PersonnelImportBatch, "created_count" | 
   return `${fa(b.created_count)} از ${fa(b.created_count + b.rejected_count)}`;
 }
 
-/** Nothing is written for a batch nobody cancelled. */
-export function statusLabel(status: PersonnelImportBatch["status"]): string | null {
-  return status === "partial" ? "بخشی لغو شده" : status === "cancelled" ? "کامل لغو شده" : null;
+/** Every batch has an explicit status. */
+export function statusLabel(status: PersonnelImportBatch["status"]): string {
+  return status === "partial" ? "بخشی لغو شده" : status === "cancelled" ? "کامل لغو شده" : "بدون لغو";
 }
 
 /** The server computes `remaining_count` live; a cancel is possible again for the people who were kept. */
