@@ -1,9 +1,16 @@
+
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
     "backend": {
       "root": "backend",
-      "framework": "fastapi"
+      "framework": "fastapi",
+      "rewrites": [
+        {
+          "source": "/api/(.*)",
+          "destination": "/$1"
+        }
+      ]
     },
     "frontend": {
       "root": "frontend",
