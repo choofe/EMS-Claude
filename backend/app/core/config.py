@@ -89,7 +89,8 @@ class Settings(BaseSettings):
 
     # --- Equipment import (Phase 5) — hard limits enforced before/while parsing an upload ---
     import_max_bytes: int = 2 * 1024 * 1024            # upload size
-    import_max_rows: int = 1000                         # data rows (non-empty) per file
+    import_max_rows: int = 1000                         # data rows (non-empty) per file (equipment import)
+    personnel_import_max_rows: int = 200                # data rows per file (personnel import: every row can be listed and decided)
     import_max_uncompressed_bytes: int = 20 * 1024 * 1024  # xlsx zip-bomb guard (sum of uncompressed members)
 
     # --- CORS ---

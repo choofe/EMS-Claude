@@ -241,3 +241,116 @@ export interface ReportListQuery {
   report_number?: string; q?: string; general_only?: boolean; mine?: boolean;
   sort_by?: "event_datetime" | "created_at"; order?: "asc" | "desc"; limit?: number; cursor?: string;
 }
+
+// ---- personnel import (Pe; backend: schemas/personnel_import.py). The mobile number never appears here.
+export interface PersonnelRowError {
+  row: number;
+  first_name?: string;   // absent (never null) when the name itself is the problem
+  last_name?: string;
+  personnel_code: string;
+  code: string;
+  column?: string;
+  max_groups?: number;
+}
+export type InvalidGroupReason = "malformed" | "unknown" | "inactive";
+export interface PersonnelGroupIssue {
+  row: number;
+  first_name?: string;
+  last_name?: string;
+  personnel_code: number;
+  invalid_groups: { token: string; reason: InvalidGroupReason }[];
+}
+export interface PersonnelPreview {
+  file_name: string;
+  file_sha256: string;
+  rows_total: number;
+  valid_count: number; // includes rows that still have invalid group codes
+  error_count: number;
+  group_issue_count: number;
+  dropped_count?: number;
+  ignored_columns: string[];
+  errors: PersonnelRowError[];
+  group_issues: PersonnelGroupIssue[];
+  sample: { row: number; personnel_code: number; full_name: string; group_codes: string[] }[];
+  file_conflict_count?: number;   // clusters still undecided: none of their rows is importable, the commit is refused
+  file_conflicts?: PersonnelFileConflict[];
+  // preview only (Pi); absent keys mean «none». `mobile` keys exist only for holders of personnel.mobile.view.
+  same_name_in_file?: PersonnelSameNameInFile[];
+  same_name_count?: number;
+  same_names?: PersonnelSameNameRow[];
+}
+export interface PersonnelSameNameMatch {
+  full_name: string;
+  personnel_code?: number;     // absent for an old person without a code
+  group_codes: string[];
+  is_active: boolean;
+  has_profile: boolean;
+  mobile?: string;
+}
+export interface PersonnelSameNameRow {
+  row: number;
+  first_name: string;
+  last_name: string;
+  personnel_code: number;
+  mobile?: string;
+  matches_total: number;
+  matches: PersonnelSameNameMatch[];
+}
+export interface PersonnelFileRow {
+  row: number;
+  first_name: string;
+  last_name: string;
+  personnel_code: number;
+  group_codes: string[];
+  mobile?: string;
+}
+/** Rows linked by a shared code or mobile; the manager keeps ONE row (the others are dropped) or drops them all. */
+export interface PersonnelFileConflict {
+  shared: ("personnel_code" | "mobile")[];
+  same_name: boolean;
+  rows: PersonnelFileRow[];
+}
+/** Importable rows with one name but different code AND mobile: a plain warning. */
+export interface PersonnelSameNameInFile { rows: PersonnelFileRow[] }
+export interface PersonnelCommit extends PersonnelPreview {
+  batch_id: number;
+  created_count: number;
+}
+/** Import history (Pg backend, Ph UI). `status` is computed live by the server. */
+export interface PersonnelImportBatch {
+  id: number;
+  kind: string;
+  file_name: string;
+  created_at: string;
+  created_by_name: string;
+  created_count: number;
+  rejected_count: number;
+  removed_count: number;
+  remaining_count: number;
+  status: "complete" | "partial" | "cancelled";
+  undone_at: string | null;
+}
+export interface PersonnelBatchPerson {
+  id: number;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string;
+  personnel_code: number | null;
+  group_codes: string[];
+  is_active: boolean;
+  has_profile: boolean;
+  mobile?: string | null;
+}
+export interface PersonnelCancelPreview {
+  batch_id: number;
+  remaining_count: number;
+  removable_count: number;
+  exempt_count: number;
+  exempt_reasons: { profile: number; reports: number; participation: number; stars: number };
+  fingerprint: string;
+}
+export interface PersonnelCancelResult { batch_id: number; removed_count: number; kept_count: number }
+export type PersonnelCorrection =
+  | { row: number; op: "replace"; token: string; to: string }
+  | { row: number; op: "remove"; token: string }
+  | { row: number; op: "drop" };

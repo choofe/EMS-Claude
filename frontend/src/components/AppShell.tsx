@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  AppBar, Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery, useTheme,
+  AppBar, Box, Button, Collapse, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/SpaceDashboardOutlined";
@@ -9,16 +9,25 @@ import GroupsIcon from "@mui/icons-material/WorkspacesOutlined";
 import BuildIcon from "@mui/icons-material/PrecisionManufacturingOutlined";
 import LabelIcon from "@mui/icons-material/LabelOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
+import ExpandLess from "@mui/icons-material/ExpandLess";
+import ExpandMore from "@mui/icons-material/ExpandMore";
 import ImportIcon from "@mui/icons-material/UploadFileOutlined";
 import ListIcon from "@mui/icons-material/ListAltOutlined";
 import ReportIcon from "@mui/icons-material/EditNoteOutlined";
 import AccountIcon from "@mui/icons-material/AccountCircleOutlined";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { canReport, canViewAdmin, isManagement } from "../lib/access";
 import { loadLocal } from "../lib/localDraft";
 
 const DRAWER = 232;
+/** The bulk-import pages live in one menu group (MANAGEMENT only); the equipment import history will join it later. */
+const IMPORT_PAGES = [
+  { to: "/equipment/import", label: "ورود گروهی تجهیزات" },
+  { to: "/personnel/import", label: "ورود گروهی افراد" },
+  { to: "/personnel/import/history", label: "تاریخچهٔ ورود گروهی افراد" },
+];
+const onImportPage = (path: string) => IMPORT_PAGES.some((p) => path === p.to || path.startsWith(`${p.to}/`));
 
 export function AppShell() {
   const { user, logout } = useAuth();
@@ -37,14 +46,37 @@ export function AppShell() {
     ...(canReport(user) ? [{ to: "/reports/new", label: "ثبت گزارش", icon: <ReportIcon /> }] : []),
     { to: "/groups", label: "گروه‌ها", icon: <GroupsIcon /> },
     { to: "/equipment", label: "تجهیزات", icon: <BuildIcon /> },
-    ...(isManagement(user) ? [{ to: "/equipment/import", label: "ورود گروهی تجهیزات", icon: <ImportIcon /> }] : []),
+    ...(isManagement(user) ? [{ group: true as const, to: "#import", label: "ورود گروهی", icon: <ImportIcon /> }] : []),
     ...(canViewAdmin(user) ? [{ to: "/report-types", label: "انواع گزارش", icon: <LabelIcon /> }] : []), // users pick a type (with its guide) in the entry form
     ...(isManagement(user) ? [{ to: "/settings", label: "تنظیمات", icon: <SettingsIcon /> }] : []),
   ];
 
+  const { pathname } = useLocation();
+  const [importOpen, setImportOpen] = useState(onImportPage(pathname));
+  useEffect(() => { if (onImportPage(pathname)) setImportOpen(true); }, [pathname]);
+
   const nav = (
     <List component="nav" aria-label="منوی اصلی" sx={{ pt: 1 }}>
-      {items.map((it) => (
+      {items.map((it) => "group" in it ? (
+        <div key={it.to}>
+          <ListItemButton onClick={() => setImportOpen((v) => !v)} aria-expanded={importOpen}
+            sx={onImportPage(pathname) ? { fontWeight: 700 } : undefined}>
+            <ListItemIcon sx={{ minWidth: 40 }}>{it.icon}</ListItemIcon>
+            <ListItemText primary={it.label} />
+            {importOpen ? <ExpandLess /> : <ExpandMore />}
+          </ListItemButton>
+          <Collapse in={importOpen} timeout="auto" unmountOnExit>
+            <List disablePadding>
+              {IMPORT_PAGES.map((c) => (
+                <ListItemButton key={c.to} component={NavLink} to={c.to} end onClick={() => setOpen(false)}
+                  sx={{ paddingInlineStart: "56px", "&.active": { bgcolor: "action.selected", fontWeight: 700 } }}>
+                  <ListItemText primary={c.label} primaryTypographyProps={{ variant: "body2" }} />
+                </ListItemButton>
+              ))}
+            </List>
+          </Collapse>
+        </div>
+      ) : (
         <ListItemButton key={it.to} component={NavLink} to={it.to} end={it.to === "/reports" || it.to === "/equipment"} onClick={() => setOpen(false)}
           sx={{ "&.active": { bgcolor: "action.selected", fontWeight: 700 } }}>
           <ListItemIcon sx={{ minWidth: 40 }}>{it.icon}</ListItemIcon>

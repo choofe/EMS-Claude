@@ -65,7 +65,17 @@ Read side of reports: list with filters and cursor, detail, column registry, equ
 ### Personnel phase (in progress)
 
 Sub-phase `Pa` (data foundation: optional login profile, personnel code, mobile): see `docs/personnel.md`. Run
-`alembic upgrade head` (migration `e1c7b2d9f640`).
+`alembic upgrade head` (migration `e1c7b2d9f640`). Sub-phase `Pb` (management API: new people, login profiles, personnel
+code / mobile / username changes, login on/off, «users without a group» alert): same document, migration `f2d8c3a1b750`. Sub-phase `Pc` (personnel import parsing and validation): same file. Sub-phase `Pd` (`/personnel/import` preview with corrections of invalid group codes, and transactional commit): same file, migration `a3e9d5b7c481`.
+
+Sub-phase `Pe` (personnel import page `/personnel/import`, frontend only): see the «Personnel import page» section of `docs/frontend.md`.
+Sub-phase `Pg` (personnel import history: batch list, a batch's people with current data, two-step cancel that removes only unused people, `CSV` problem report): see `docs/personnel.md`; migration `b4f0e6c8d592`.
+Sub-phase `Pi` (personnel import: Persian column headers, names beside the codes in the preview and `CSV` report, same-name notice, Excel template in `frontend/public/`): see `docs/personnel.md`; no migration.
+Sub-phase `Pj` (frontend of `Pi`: names in the lists, same-name and in-file-duplicate dialogs, «قالب Excel» download): see the «Personnel import page» section of `docs/frontend.md`; no backend change.
+
+### Personnel import history page (phase-personnel, Ph)
+
+Batch list, people of a batch and the two-step cancel dialog: `docs/frontend.md` («Personnel import history page»); page `/personnel/import/history` (frontend only).
 
 ### Management API (Phase 4a)
 

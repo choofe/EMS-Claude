@@ -4,48 +4,21 @@ bounded again, so an oversized file is refused without being buffered. Chunked u
 are refused with 411 — browsers always send a length for file uploads."""
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
-from fastapi.routing import APIRoute
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_capability
-from app.core.config import get_settings
-from app.core.errors import DomainError
+from app.api.upload_utils import UploadRoute, read_upload
 from app.core.permissions import Capability as C, Principal
 from app.db.session import get_db
 from app.schemas.admin import MAX_OFFSET, Page
 from app.schemas.equipment_import import ImportBatchOut, ImportCommitOut, ImportPreviewOut, ImportUndoOut
 from app.services import equipment_import
 
-_MULTIPART_OVERHEAD = 64 * 1024
 _import = require_capability(C.EXCEL_IMPORT)
 
 
-class _UploadRoute(APIRoute):
-    def get_route_handler(self):
-        original = super().get_route_handler()
-
-        async def handler(request: Request):
-            limit = get_settings().import_max_bytes
-            length = request.headers.get("content-length")
-            if length is None or not length.isdigit():
-                raise DomainError("length_required", 411)
-            if int(length) > limit + _MULTIPART_OVERHEAD:
-                raise DomainError("file_too_large", 413, max_bytes=limit)
-            return await original(request)
-
-        return handler
-
-
-async def _read(file: UploadFile) -> bytes:
-    limit = get_settings().import_max_bytes
-    data = await file.read(limit + 1)
-    if len(data) > limit:
-        raise DomainError("file_too_large", 413, max_bytes=limit)
-    return data
-
-
-uploads = APIRouter(route_class=_UploadRoute)
+uploads = APIRouter(route_class=UploadRoute)
 router = APIRouter(prefix="/equipment/import", tags=["equipment-import"])
 
 
@@ -53,7 +26,7 @@ router = APIRouter(prefix="/equipment/import", tags=["equipment-import"])
 async def preview(group_id: int = Form(...), file: UploadFile = File(...), _: Principal = Depends(_import),
                   db: AsyncSession = Depends(get_db)) -> dict:
     return await equipment_import.preview_import(db, group_id=group_id, filename=file.filename or "",
-                                                 data=await _read(file))
+                                                 data=await read_upload(file))
 
 
 @uploads.post("/commit", response_model=ImportCommitOut, status_code=201, response_model_exclude_none=True)
@@ -61,7 +34,7 @@ async def commit(group_id: int = Form(...), preview_sha256: str = Form(..., min_
                  file: UploadFile = File(...), actor: Principal = Depends(_import),
                  db: AsyncSession = Depends(get_db)) -> dict:
     return await equipment_import.commit_import(db, actor_id=actor.user_id, group_id=group_id,
-                                                filename=file.filename or "", data=await _read(file),
+                                                filename=file.filename or "", data=await read_upload(file),
                                                 expected_sha256=preview_sha256)
 
 

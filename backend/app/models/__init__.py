@@ -10,7 +10,7 @@ from app.models.role import Role  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.group import Group  # noqa: F401
 from app.models.user_group import UserGroup  # noqa: F401
-from app.models.import_batch import EquipmentImportBatch  # noqa: F401
+from app.models.import_batch import EquipmentImportBatch, PersonnelImportBatch  # noqa: F401
 from app.models.equipment import Equipment  # noqa: F401
 from app.models.report_type import ReportType  # noqa: F401
 from app.models.report_sequence import ReportSequence  # noqa: F401
@@ -29,6 +29,7 @@ __all__ = [
     "Group",
     "UserGroup",
     "EquipmentImportBatch",
+    "PersonnelImportBatch",
     "Equipment",
     "ReportType",
     "ReportSequence",

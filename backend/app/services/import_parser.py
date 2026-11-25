@@ -11,7 +11,9 @@ total (zip bomb) before openpyxl ever sees it; openpyxl runs read-only with defu
 back as text and the row is rejected by the caller; date-typed cells are flagged because Excel silently
 turns codes like "1-10" into dates.
 
-Standard format (one sheet, header in row 1): equipment_code, group_code, description (optional).
+Standard formats (one sheet, header in row 1; the caller passes a ColumnSpec):
+  equipment (default): equipment_code, group_code, description (optional)
+  personnel:           first_name, last_name, personnel_code, mobile, groups (optional)
 """
 import csv
 import io
@@ -23,10 +25,43 @@ from openpyxl import load_workbook
 
 from app.core.config import get_settings
 from app.core.errors import DomainError
+from app.core.normalize import fold_text
 
-REQUIRED_COLUMNS = ("equipment_code", "group_code")
-OPTIONAL_COLUMNS = ("description",)
-_KNOWN = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
+
+@dataclass(frozen=True)
+class ColumnSpec:
+    """Standard column names plus optional alternative header names (aliases: standard name -> other spellings).
+    Aliases are compared in folded form (fold_text), the standard names exactly as before (case-insensitive)."""
+    required: tuple[str, ...]
+    optional: tuple[str, ...] = ()
+    aliases: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    @property
+    def known(self) -> tuple[str, ...]:
+        return self.required + self.optional
+
+    def standard_name(self, value) -> str | None:
+        """The standard column name a header cell stands for, or None."""
+        key = _header_key(value)
+        if key in self.known:
+            return key
+        folded = fold_text(key)
+        for name, others in self.aliases.items():
+            if folded in (fold_text(o) for o in others):
+                return name
+        return None
+
+
+EQUIPMENT_COLUMNS = ColumnSpec(required=("equipment_code", "group_code"), optional=("description",))
+PERSONNEL_COLUMNS = ColumnSpec(
+    required=("first_name", "last_name", "personnel_code", "mobile"), optional=("groups",),
+    aliases={
+        "first_name": ("نام", "اسم", "نام کوچک"),
+        "last_name": ("نام خانوادگی", "فامیلی", "فامیل"),
+        "personnel_code": ("کد پرسنلی", "کد پرسنل", "شماره پرسنلی"),
+        "groups": ("گروه‌های عضو", "گروه‌ها", "گروه"),
+        "mobile": ("شماره موبایل", "موبایل", "شماره همراه", "همراه", "شماره تلفن همراه", "شماره تلفن"),
+    })
 _MAX_PHYSICAL_ROWS = 50_000   # a sheet can declare a million blank rows; never walk more than this
 _MAX_ZIP_MEMBERS = 200
 _MAX_COMPRESSION_RATIO = 200
@@ -73,34 +108,34 @@ def _header_key(value) -> str:
     return "" if value is None else str(value).replace("\xa0", " ").strip().lower()
 
 
-def _map_header(header_values) -> tuple[dict[int, str], list[str]]:
+def _map_header(header_values, spec: ColumnSpec) -> tuple[dict[int, str], list[str]]:
     """column index -> standard name; plus the non-empty headers we do not use."""
     mapping: dict[int, str] = {}
     ignored: list[str] = []
     seen: set[str] = set()
     for idx, raw in enumerate(header_values):
-        key = _header_key(raw)
-        if not key:
+        if not _header_key(raw):
             continue
-        if key in _KNOWN:
+        key = spec.standard_name(raw)
+        if key is not None:
             if key in seen:
                 raise DomainError("duplicate_columns", 422, column=key)
             seen.add(key)
             mapping[idx] = key
         else:
             ignored.append(str(raw).strip()[:64])
-    missing = [c for c in REQUIRED_COLUMNS if c not in seen]
+    missing = [c for c in spec.required if c not in seen]
     if missing:
         raise DomainError("missing_columns", 422, columns=missing)
     return mapping, ignored
 
 
-def _collect(rows_iter, max_rows: int) -> ParsedFile:
+def _collect(rows_iter, max_rows: int, spec: ColumnSpec) -> ParsedFile:
     """rows_iter yields tuples of raw cell values, starting with the header row."""
     header = next(rows_iter, None)
     if header is None or all(_header_key(v) == "" for v in header):
         raise DomainError("empty_file", 422)
-    mapping, ignored = _map_header(header)
+    mapping, ignored = _map_header(header, spec)
     out: list[RawRow] = []
     for number, values in enumerate(rows_iter, start=2):
         if number > _MAX_PHYSICAL_ROWS:
@@ -140,7 +175,7 @@ def _check_zip_safety(data: bytes, max_uncompressed: int) -> None:
             raise DomainError("file_unsafe", 422)
 
 
-def _parse_xlsx(data: bytes, max_rows: int, max_uncompressed: int) -> ParsedFile:
+def _parse_xlsx(data: bytes, max_rows: int, max_uncompressed: int, spec: ColumnSpec) -> ParsedFile:
     if not data.startswith(b"PK\x03\x04"):
         raise DomainError("file_corrupt", 422)
     _check_zip_safety(data, max_uncompressed)
@@ -155,7 +190,7 @@ def _parse_xlsx(data: bytes, max_rows: int, max_uncompressed: int) -> ParsedFile
             raise DomainError("multiple_sheets", 422, sheets=len(wb.sheetnames))
         ws = wb[wb.sheetnames[0]]
         try:
-            return _collect(ws.iter_rows(values_only=True), max_rows)
+            return _collect(ws.iter_rows(values_only=True), max_rows, spec)
         except DomainError:
             raise
         except Exception:
@@ -165,32 +200,47 @@ def _parse_xlsx(data: bytes, max_rows: int, max_uncompressed: int) -> ParsedFile
 
 
 # ---------------------------------------------------------------- csv
-def _parse_csv(data: bytes, max_rows: int) -> ParsedFile:
+def _header_delimiter(text: str, spec: ColumnSpec) -> str:
+    """Pick the delimiter from the first RECORD only (data rows are unreliable: the personnel `groups` cell holds
+    ";"). The first record is parsed with the csv module itself, so quoted fields and CR / LF / CRLF record
+    boundaries are handled exactly as the real parse will. Winner = the delimiter that recognises the most
+    standard column names, then the one that yields the most fields; comma if nothing helps."""
+    best, best_score = ",", (-1, -1)
+    for delimiter in (",", ";", "\t"):
+        try:
+            first = next(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter), [])
+        except csv.Error:
+            continue
+        score = (sum(1 for v in first if spec.standard_name(v) is not None), len(first))
+        if score > best_score:
+            best, best_score = delimiter, score
+    return best
+
+
+def _parse_csv(data: bytes, max_rows: int, spec: ColumnSpec) -> ParsedFile:
     if b"\x00" in data:
         raise DomainError("file_corrupt", 422)
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise DomainError("file_encoding", 422)  # ask the user to save as "CSV UTF-8"
+    delimiter = _header_delimiter(text, spec)
     try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
-    except csv.Error:
-        dialect = csv.excel
-    try:
-        return _collect(csv.reader(io.StringIO(text, newline=""), dialect), max_rows)
+        return _collect(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter), max_rows, spec)
     except csv.Error:
         raise DomainError("file_corrupt", 422)
 
 
-def parse_upload(filename: str, data: bytes) -> ParsedFile:
+def parse_upload(filename: str, data: bytes, spec: ColumnSpec = EQUIPMENT_COLUMNS, max_rows: int | None = None) -> ParsedFile:
     settings = get_settings()
+    max_rows = settings.import_max_rows if max_rows is None else max_rows
     if len(data) > settings.import_max_bytes:
         raise DomainError("file_too_large", 413, max_bytes=settings.import_max_bytes)
     if not data:
         raise DomainError("empty_file", 422)
     name = (filename or "").lower()
     if name.endswith(".xlsx"):
-        return _parse_xlsx(data, settings.import_max_rows, settings.import_max_uncompressed_bytes)
+        return _parse_xlsx(data, max_rows, settings.import_max_uncompressed_bytes, spec)
     if name.endswith(".csv"):
-        return _parse_csv(data, settings.import_max_rows)
+        return _parse_csv(data, max_rows, spec)
     raise DomainError("unsupported_file_type", 422)  # .xls / .xlsm / anything else

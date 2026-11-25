@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, ReportColumn, ReportDetail, ReportListPage, ReportListQuery, Group, ImportBatch, ImportCommit, ImportPreview, Page, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, ReportColumn, ReportDetail, ReportListPage, ReportListQuery, Group, ImportBatch, ImportCommit, ImportPreview, Page, PersonnelBatchPerson, PersonnelCancelPreview, PersonnelCancelResult, PersonnelCommit, PersonnelCorrection, PersonnelImportBatch, PersonnelPreview, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -86,6 +86,29 @@ export const importApi = {
   template: (format: "xlsx" | "csv") => request<Blob>("/equipment/import/template", { query: { format }, blob: true }),
   batches: (q: Paging) => request<Page<ImportBatch>>("/equipment/import/batches", { query: q }),
   undo: (id: number) => request<{ batch_id: number; deleted_count: number }>(`/equipment/import/batches/${id}/undo`, { method: "POST" }),
+};
+
+const personnelForm = (file: File, corrections: PersonnelCorrection[], extra: Record<string, string> = {}) => {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(extra)) form.append(k, v);
+  if (corrections.length) form.append("corrections", JSON.stringify(corrections));
+  form.append("file", file);
+  return form;
+};
+
+export const personnelImportApi = {
+  preview: (file: File, corrections: PersonnelCorrection[] = []) =>
+    request<PersonnelPreview>("/personnel/import/preview", { method: "POST", form: personnelForm(file, corrections) }),
+  commit: (file: File, previewSha256: string, corrections: PersonnelCorrection[]) =>
+    request<PersonnelCommit>("/personnel/import/commit", { method: "POST", form: personnelForm(file, corrections, { preview_sha256: previewSha256 }) }),
+  /** the preview keeps nothing, so the file is sent again (POST; the answer is a CSV blob). */
+  problemsCsv: (file: File, corrections: PersonnelCorrection[]) =>
+    request<Blob>("/personnel/import/problems.csv", { method: "POST", form: personnelForm(file, corrections), blob: true }),
+  batches: (q: Paging) => request<Page<PersonnelImportBatch>>("/personnel/import/batches", { query: q }),
+  batchPeople: (id: number, q: Paging) => request<Page<PersonnelBatchPerson>>(`/personnel/import/batches/${id}/people`, { query: q }),
+  cancelPreview: (id: number) => request<PersonnelCancelPreview>(`/personnel/import/batches/${id}/cancel-preview`, { method: "POST" }),
+  cancel: (id: number, fingerprint: string) =>
+    request<PersonnelCancelResult>(`/personnel/import/batches/${id}/cancel`, { method: "POST", body: { fingerprint } }),
 };
 
 export const reportsApi = {
