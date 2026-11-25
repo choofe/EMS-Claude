@@ -86,13 +86,14 @@ function CancelSection({ batch, onDone }: { batch: PersonnelImportBatch; onDone:
 }
 
 /** Details of one batch: summary, the people as they are NOW (database data, may differ from the file) and the cancel. */
-function BatchDialog({ batch, onClose, onDone }: { batch: PersonnelImportBatch; onClose: () => void; onDone: (removed: number, kept: number) => void }) {
+function BatchDialog({ batch, onClose, onDone }: { batch: PersonnelImportBatch; onClose: () => void; onDone: (batchId: number, removed: number, kept: number) => void }) {
   const theme = useTheme();
   const desktop = useMediaQuery(theme.breakpoints.up("md"));
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState(25);
   const [reveal, setReveal] = useState(false);
   const people = useLoad(() => personnelImportApi.batchPeople(batch.id, { limit: rows, offset: page * rows }), [batch.id, page, rows]);
+  const ready = people.data && !people.loading && !people.error ? people.data : null; // never show a previous page as the selected one
   const showMobile = desktop || reveal; // a phone shows the numbers only when the manager asks
   const label = statusLabel(batch.status);
   return (
@@ -110,35 +111,35 @@ function BatchDialog({ batch, onClose, onDone }: { batch: PersonnelImportBatch; 
         </Typography>
         {!desktop && <Button size="small" onClick={() => setReveal((v) => !v)} sx={{ mb: 1 }}>{reveal ? "پنهان کردن شماره‌ها" : "نمایش شماره‌ها"}</Button>}
         {people.error ? <Alert severity="error">{personnelErrorMessage(people.error)}</Alert> : null}
-        {people.loading && !people.data ? <Loading /> : people.data && people.data.items.length === 0 ? <Empty text="کسی از این ورود در سیستم نمانده است." /> : people.data && (
-          <>
-            <TableContainer>
-              <Table size="small">
-                <TableHead><TableRow><TableCell>نام (کد پرسنلی)</TableCell><TableCell>وضعیت</TableCell>{showMobile && <TableCell>موبایل</TableCell>}</TableRow></TableHead>
-                <TableBody>
-                  {people.data.items.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        {personName(p)}
-                        <Typography variant="caption" color="text.secondary" component="div">{p.group_codes.length ? <Ltr>{p.group_codes.join(" ; ")}</Ltr> : "بدون گروه"}</Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="row" gap={0.5} flexWrap="wrap">
-                          {!p.is_active && <Chip size="small" label="غیرفعال" />}
-                          {p.has_profile && <Chip size="small" color="info" variant="outlined" label="دارای پروفایل" />}
-                        </Stack>
-                      </TableCell>
-                      {showMobile && <TableCell>{p.mobile ? <Ltr>{p.mobile}</Ltr> : "—"}</TableCell>}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            <Pager total={people.data.total} page={page} rowsPerPage={rows} onPage={setPage} onRows={(n) => { setRows(n); setPage(0); }} />
-          </>
+        {ready === null && !people.error ? <Loading /> : null}
+        {ready && ready.items.length === 0 ? <Empty text="کسی از این ورود در سیستم نمانده است." /> : null}
+        {ready && ready.items.length > 0 && (
+          <TableContainer>
+            <Table size="small">
+              <TableHead><TableRow><TableCell>نام (کد پرسنلی)</TableCell><TableCell>وضعیت</TableCell>{showMobile && <TableCell>موبایل</TableCell>}</TableRow></TableHead>
+              <TableBody>
+                {ready.items.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell>
+                      {personName(p)}
+                      <Typography variant="caption" color="text.secondary" component="div">{p.group_codes.length ? <Ltr>{p.group_codes.join(" ; ")}</Ltr> : "بدون گروه"}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Stack direction="row" gap={0.5} flexWrap="wrap">
+                        {!p.is_active && <Chip size="small" label="غیرفعال" />}
+                        {p.has_profile && <Chip size="small" color="info" variant="outlined" label="دارای پروفایل" />}
+                      </Stack>
+                    </TableCell>
+                    {showMobile && <TableCell>{p.mobile ? <Ltr>{p.mobile}</Ltr> : "—"}</TableCell>}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         )}
+        {people.data && people.data.total > 0 && <Pager total={people.data.total} page={page} rowsPerPage={rows} onPage={setPage} onRows={(n) => { setRows(n); setPage(0); }} />}
         <div style={{ marginTop: 16 }}>
-          {canCancel(batch) ? <CancelSection batch={batch} onDone={onDone} /> : <Typography variant="body2" color="text.secondary">از این ورود فردی باقی نمانده که قابل لغو باشد.</Typography>}
+          {canCancel(batch) ? <CancelSection batch={batch} onDone={(removed, kept) => onDone(batch.id, removed, kept)} /> : <Typography variant="body2" color="text.secondary">از این ورود فردی باقی نمانده که قابل لغو باشد.</Typography>}
         </div>
       </DialogContent>
       <DialogActions><Button onClick={onClose}>بستن</Button></DialogActions>
@@ -205,8 +206,8 @@ export function PersonnelImportHistoryPage() {
         </Stack>
       )}
       {openBatch && (
-        <BatchDialog batch={openBatch} onClose={() => setOpenBatch(null)} onDone={(removed, kept) => {
-          setOpenBatch(null);
+        <BatchDialog batch={openBatch} onClose={() => setOpenBatch(null)} onDone={(batchId, removed, kept) => {
+          setOpenBatch((cur) => (cur?.id === batchId ? null : cur));   // a late answer for batch A never closes the dialog of batch B
           setNotice(`${fa(removed)} نفر حذف شد و ${fa(kept)} نفر ماند.`);
           void load(0, reloadSize(items.length), true);
         }} />

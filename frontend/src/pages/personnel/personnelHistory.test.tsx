@@ -202,6 +202,47 @@ describe("import history page", () => {
     expect([last.query.get("limit"), last.query.get("offset")]).toEqual(["25", "25"]);
   });
 
+  it("people: while the next page loads or fails, the previous page's people are not shown as the selected page (CodeRabbit)", async () => {
+    mockFetch({
+      ...session(),
+      "GET /personnel/import/batches": () => page([batch()]),
+      "GET /personnel/import/batches/1/people": (c) => c.query.get("offset") === "25" ? json(500, { detail: { code: "internal_error" } }) : page([person()], 30),
+    });
+    renderApp("/personnel/import/history");
+    await open();
+    const dlg = await screen.findByRole("dialog");
+    await within(dlg).findByText("علی رضایی (۱۲۳۴)");
+    await userEvent.click(within(dlg).getByRole("button", { name: /next page|صفحهٔ بعد|Go to next page/i }));
+    await within(dlg).findByRole("alert");
+    expect(within(dlg).queryByText("علی رضایی (۱۲۳۴)")).not.toBeInTheDocument();
+  });
+
+  it("a late cancel answer for batch A does not close the dialog of batch B, but still refreshes the list (CodeRabbit)", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const m = mockFetch({
+      ...session(),
+      "GET /personnel/import/batches": () => page([batch({ id: 1 }), batch({ id: 2, file_name: "b.xlsx" })]),
+      "GET /personnel/import/batches/1/people": empty,
+      "GET /personnel/import/batches/2/people": empty,
+      "POST /personnel/import/batches/1/cancel-preview": () => json(200, preview()),
+      "POST /personnel/import/batches/1/cancel": async () => { await gate; return json(200, { batch_id: 1, removed_count: 22, kept_count: 3 }); },
+    });
+    renderApp("/personnel/import/history");
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "لغو این ورود…" }));
+    await screen.findByText(/۲۲ نفر حذف می‌شوند/);
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: "لغو ورود" }));       // A's request is now pending
+    await userEvent.click(screen.getByRole("button", { name: "بستن" }));
+    await open("b.xlsx");
+    await screen.findByRole("dialog", { name: /b\.xlsx/ });
+    release();
+    await screen.findByText("۲۲ نفر حذف شد و ۳ نفر ماند.");
+    expect(screen.getByRole("dialog", { name: /b\.xlsx/ })).toBeInTheDocument();
+    expect(m.count("GET /personnel/import/batches")).toBe(2);
+  });
+
   it("an older, slower answer never replaces a newer one", async () => {
     let n = 0;
     mockFetch({
