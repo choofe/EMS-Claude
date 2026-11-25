@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, ReportColumn, ReportDetail, ReportListPage, ReportListQuery, Group, ImportBatch, ImportCommit, ImportPreview, Page, PersonnelCommit, PersonnelCorrection, PersonnelPreview, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, ReportColumn, ReportDetail, ReportListPage, ReportListQuery, Group, ImportBatch, ImportCommit, ImportPreview, Page, PersonnelBatchPerson, PersonnelCancelPreview, PersonnelCancelResult, PersonnelCommit, PersonnelCorrection, PersonnelImportBatch, PersonnelPreview, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -104,6 +104,11 @@ export const personnelImportApi = {
   /** the preview keeps nothing, so the file is sent again (POST; the answer is a CSV blob). */
   problemsCsv: (file: File, corrections: PersonnelCorrection[]) =>
     request<Blob>("/personnel/import/problems.csv", { method: "POST", form: personnelForm(file, corrections), blob: true }),
+  batches: (q: Paging) => request<Page<PersonnelImportBatch>>("/personnel/import/batches", { query: q }),
+  batchPeople: (id: number, q: Paging) => request<Page<PersonnelBatchPerson>>(`/personnel/import/batches/${id}/people`, { query: q }),
+  cancelPreview: (id: number) => request<PersonnelCancelPreview>(`/personnel/import/batches/${id}/cancel-preview`, { method: "POST" }),
+  cancel: (id: number, fingerprint: string) =>
+    request<PersonnelCancelResult>(`/personnel/import/batches/${id}/cancel`, { method: "POST", body: { fingerprint } }),
 };
 
 export const reportsApi = {

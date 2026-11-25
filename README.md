@@ -73,6 +73,10 @@ Sub-phase `Pg` (personnel import history: batch list, a batch's people with curr
 Sub-phase `Pi` (personnel import: Persian column headers, names beside the codes in the preview and `CSV` report, same-name notice, Excel template in `frontend/public/`): see `docs/personnel.md`; no migration.
 Sub-phase `Pj` (frontend of `Pi`: names in the lists, same-name and in-file-duplicate dialogs, «قالب Excel» download): see the «Personnel import page» section of `docs/frontend.md`; no backend change.
 
+### Personnel import history page (phase-personnel, Ph)
+
+Batch list, people of a batch and the two-step cancel dialog: `docs/frontend.md` («Personnel import history page»); page `/personnel/import/history` (frontend only).
+
 ### Management API (Phase 4a)
 
 Users, groups, equipment, report types and settings: see `docs/management-api.md`. Run `alembic upgrade head` after
