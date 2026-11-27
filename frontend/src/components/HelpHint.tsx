@@ -1,36 +1,27 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { IconButton, Tooltip } from "@mui/material";
+import { useState, type ReactNode } from "react";
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Typography } from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
 import HelpIcon from "@mui/icons-material/HelpOutline";
 
-export const HOVER_DELAY_MS = 1000;
-export const HOVER_STAY_MS = 5000;
-
 /**
- * A small «؟» help. Desktop: opens after a 1-second hover pause and closes by itself after about 5 seconds.
- * Every device: a tap/click opens it and the next one closes it. Keyboard: focusing the button (Tab) opens it.
+ * A small «؟» help. A click/tap opens a small dialog with the text in the normal font size; it closes with «بستن», «×»,
+ * Esc or a click outside. No hover tooltip and no timer: the text stays until the reader closes it.
  */
 export function HelpHint({ label, children }: { label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const wait = useRef<number | undefined>(undefined);
-  const stay = useRef<number | undefined>(undefined);
-  const clear = () => { window.clearTimeout(wait.current); window.clearTimeout(stay.current); };
-  useEffect(() => clear, []);
-
-  const hide = () => { clear(); setOpen(false); };
-  const show = (autoClose: boolean) => {
-    clear();
-    setOpen(true);
-    if (autoClose) stay.current = window.setTimeout(() => setOpen(false), HOVER_STAY_MS);
-  };
   return (
-    <Tooltip open={open} title={children} arrow placement="top" disableHoverListener disableFocusListener disableTouchListener>
-      <IconButton size="small" aria-label={label} aria-expanded={open}
-        onMouseEnter={() => { clear(); wait.current = window.setTimeout(() => show(true), HOVER_DELAY_MS); }}
-        onMouseLeave={hide}
-        onFocus={() => show(false)} onBlur={hide}
-        onClick={() => (open ? hide() : show(false))}>
+    <>
+      <IconButton size="small" aria-label={label} aria-haspopup="dialog" onClick={() => setOpen(true)}>
         <HelpIcon fontSize="small" />
       </IconButton>
-    </Tooltip>
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth aria-labelledby="help-hint-title">
+        <DialogTitle id="help-hint-title" sx={{ pe: 6 }}>
+          {label}
+          <IconButton aria-label="×" onClick={() => setOpen(false)} size="small" sx={{ position: "absolute", insetInlineEnd: 8, top: 8 }}><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <DialogContent><Typography component="div" variant="body1" sx={{ lineHeight: 2 }}>{children}</Typography></DialogContent>
+        <DialogActions><Button onClick={() => setOpen(false)}>بستن</Button></DialogActions>
+      </Dialog>
+    </>
   );
 }

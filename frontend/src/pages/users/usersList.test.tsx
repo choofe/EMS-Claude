@@ -3,7 +3,8 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeUser, mockFetch, renderApp, resetClientState, tokenBody } from "../../test/utils";
 import type { Group, User } from "../../api/types";
-import { HOVER_DELAY_MS, HOVER_STAY_MS, HelpHint } from "../../components/HelpHint";
+import { clearNoGroupBannerFlags } from "./NoGroupBanner";
+import { HelpHint } from "../../components/HelpHint";
 
 const reset = () => { resetClientState(); sessionStorage.clear(); };
 beforeEach(reset);
@@ -53,6 +54,18 @@ describe("users list (Pf)", () => {
       expect(within(boss).getByText("مدیر")).toBeInTheDocument();
       expect(within(boss).queryByText("بدون گروه")).not.toBeInTheDocument();
       expect(within(boss).getByText("ورود خاموش")).toBeInTheDocument();
+    } finally { restore(); }
+  });
+
+  it("account tags use different faded colours and «بدون گروه» its own", async () => {
+    const restore = screenSize(false);
+    try {
+      mockFetch(base([user({ id: 3, username: null, full_name: "سارا نظری", has_login: false, login_enabled: false, role_code: null, role_label_fa: null, group_ids: [], needs_group: true }), user()]));
+      renderApp("/users");
+      await screen.findByText("سارا نظری");
+      const bg = (el: HTMLElement) => getComputedStyle(el.closest(".MuiChip-root")!).backgroundColor;
+      const has = bg(screen.getByText("دارای حساب")), none = bg(screen.getByText("بدون حساب")), nog = bg(screen.getByText("بدون گروه"));
+      expect(new Set([has, none, nog]).size).toBe(3);
     } finally { restore(); }
   });
 
@@ -141,6 +154,28 @@ describe("no-group banner (Pf)", () => {
     } finally { restore(); }
   });
 
+  it("is read again after the users list changed (the server lowers its stored count only when it sees the lower count)", async () => {
+    const restore = screenSize(false);
+    try {
+      const m = mockFetch(base([user()], { ...due, "PUT /users/2/groups": () => json(200, user({ group_ids: [1] })) }));
+      renderApp("/users");
+      await screen.findByRole("status");
+      const before = m.count("GET /users/no-group-alert");
+      await userEvent.click(await screen.findByRole("button", { name: /عملیات/ }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: /گروه/ }));
+      await userEvent.click(await screen.findByRole("button", { name: /ذخیره/ }));
+      await waitFor(() => expect(m.count("GET /users/no-group-alert")).toBeGreaterThan(before));
+    } finally { restore(); }
+  });
+
+  it("«closed for this session» is cleared by sign-out and sign-in", () => {
+    sessionStorage.setItem("ems.noGroupBanner.hidden.1", "1");
+    sessionStorage.setItem("other", "x");
+    clearNoGroupBannerFlags();
+    expect(sessionStorage.getItem("ems.noGroupBanner.hidden.1")).toBeNull();
+    expect(sessionStorage.getItem("other")).toBe("x");
+  });
+
   it("is not shown (and not requested) for AUDITOR", async () => {
     const restore = screenSize(false);
     try {
@@ -164,35 +199,38 @@ describe("no-group banner (Pf)", () => {
 });
 
 describe("HelpHint", () => {
-  const setup = () => { vi.useFakeTimers({ shouldAdvanceTime: true }); render(<HelpHint label="راهنما">متن راهنما</HelpHint>); return screen.getByRole("button", { name: "راهنما" }); };
+  const open = async () => { render(<HelpHint label="راهنما">متن راهنما</HelpHint>); await userEvent.click(screen.getByRole("button", { name: "راهنما" })); return screen.findByRole("dialog"); };
 
-  it("opens after a one-second hover pause and closes by itself", async () => {
-    const btn = setup();
-    await act(async () => { btn.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(HOVER_DELAY_MS - 100); });
-    expect(screen.queryByText("متن راهنما")).not.toBeInTheDocument();
-    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
-    expect(await screen.findByText("متن راهنما")).toBeInTheDocument();
-    await act(async () => { await vi.advanceTimersByTimeAsync(HOVER_STAY_MS + 100); });
-    await waitFor(() => expect(screen.queryByText("متن راهنما")).not.toBeInTheDocument());
+  it("a click opens a dialog with the text, and it stays (no timer)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const dlg = await open();
+    expect(within(dlg).getByText("متن راهنما")).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("a click opens it, the next click closes it, and leaving before the pause opens nothing", async () => {
-    const btn = setup();
-    await act(async () => { btn.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); btn.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(HOVER_DELAY_MS + 100); });
+  it("hovering opens nothing", async () => {
+    render(<HelpHint label="راهنما">متن راهنما</HelpHint>);
+    await userEvent.hover(screen.getByRole("button", { name: "راهنما" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText("متن راهنما")).not.toBeInTheDocument();
-    await act(async () => { btn.click(); });
-    expect(await screen.findByText("متن راهنما")).toBeInTheDocument();
-    await act(async () => { await vi.advanceTimersByTimeAsync(HOVER_STAY_MS + 100); });
-    expect(screen.getByText("متن راهنما")).toBeInTheDocument();  // a click-opened help does not time out
-    await act(async () => { btn.click(); });
-    await waitFor(() => expect(screen.queryByText("متن راهنما")).not.toBeInTheDocument());
   });
 
-  it("keyboard focus opens it", async () => {
-    const btn = setup();
-    await act(async () => { btn.focus(); });
-    expect(await screen.findByText("متن راهنما")).toBeInTheDocument();
+  it.each([["بستن"], ["×"]])("closes with the «%s» button", async (name) => {
+    const dlg = await open();
+    await userEvent.click(within(dlg).getByRole("button", { name }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("closes with Esc", async () => {
+    await open();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("closes with a click outside the dialog", async () => {
+    await open();
+    await userEvent.click(document.querySelector(".MuiBackdrop-root") as Element);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

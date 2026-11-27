@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   Button, Checkbox, Chip, FormControl, FormControlLabel, IconButton, InputLabel, ListItemText, Menu, MenuItem, OutlinedInput, Paper, Select, Stack, Switch, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, TextField, Typography, useMediaQuery, useTheme,
+  TableCell, TableContainer, TableHead, TableRow, TextField, Typography, useMediaQuery, useTheme, alpha,
 } from "@mui/material";
 import MoreIcon from "@mui/icons-material/MoreVert";
 import AddIcon from "@mui/icons-material/Add";
@@ -33,13 +33,20 @@ function GroupPicker({ groups, value, onChange }: { groups: Group[]; value: numb
   );
 }
 
+/** Faded tag colours (soft background, dark text): blue = has an account, yellow = no account, orange = needs a group. */
+const FADED = {
+  blue: { bgcolor: "#dbeafe", color: "#1e3a8a" },
+  yellow: { bgcolor: "#fef9c3", color: "#713f12" },
+  orange: { bgcolor: "#ffedd5", color: "#9a3412" },
+} as const;
+
 const ORG_WIDE_LABEL: Record<string, string> = { MANAGEMENT: "مدیر", AUDITOR: "بازرس ارشد" };
 
 /** Group cell: tags; organisation-wide roles show their own word, people who need a group show «بدون گروه». */
 function GroupTags({ user, groups }: { user: User; groups: Group[] }) {
   const orgWide = user.role_code ? ORG_WIDE_LABEL[user.role_code] : undefined;
   if (orgWide) return <Chip size="small" variant="outlined" label={orgWide} />;
-  if (user.group_ids.length === 0) return user.needs_group ? <Chip size="small" color="warning" label="بدون گروه" /> : <>—</>;
+  if (user.group_ids.length === 0) return user.needs_group ? <Chip size="small" label="بدون گروه" sx={FADED.orange} /> : <>—</>;
   return (
     <Stack direction="row" gap={0.5} flexWrap="wrap">
       {user.group_ids.map((id) => <Chip key={id} size="small" variant="outlined" label={groups.find((g) => g.id === id)?.code ?? id} />)}
@@ -49,9 +56,9 @@ function GroupTags({ user, groups }: { user: User; groups: Group[] }) {
 
 const STATES_HELP: ReactNode = (
   <>
-    «فعال / غیرفعال»: وضعیت خود فرد؛ فرد غیرفعال نه وارد می‌شود و نه در فهرست‌های انتخاب نام می‌آید، ولی گزارش‌های گذشتهٔ او می‌ماند.
-    «دارای حساب / بدون حساب»: فرد با حساب نام کاربری و رمز دارد؛ فرد بدون حساب فقط می‌تواند در گزارش‌ها نام‌برده شود.
-    «ورود خاموش»: حساب هست ولی فعلاً اجازهٔ ورود ندارد.
+    <p style={{ marginTop: 0 }}>«فعال / غیرفعال»: وضعیت خود فرد؛ فرد غیرفعال نه وارد می‌شود و نه در فهرست‌های انتخاب نام می‌آید، ولی گزارش‌های گذشتهٔ او می‌ماند.</p>
+    <p>«دارای حساب / بدون حساب»: فرد با حساب نام کاربری و رمز دارد؛ فرد بدون حساب فقط می‌تواند در گزارش‌ها نام‌برده شود.</p>
+    <p style={{ marginBottom: 0 }}>«ورود خاموش»: حساب هست ولی فعلاً اجازهٔ ورود ندارد.</p>
   </>
 );
 
@@ -130,7 +137,7 @@ export function UsersPage() {
         </FormControl>
         {manage && phone && <Button size="small" onClick={() => setShowMobile((v) => !v)}>{showMobile ? "پنهان‌کردن شماره‌ها" : "نمایش شماره‌ها"}</Button>}
       </Stack>
-      <NoGroupBanner />
+      <NoGroupBanner refreshKey={list.data} />
       <ErrorAlert error={list.error} />
       {list.loading && !list.data ? <Loading /> : list.data && list.data.items.length === 0 ? <Empty /> : list.data && (
         <TableContainer component={Paper} variant="outlined">
@@ -144,7 +151,7 @@ export function UsersPage() {
             </TableHead>
             <TableBody>
               {list.data.items.map((u) => (
-                <TableRow key={u.id} hover data-needs-group={u.needs_group} sx={u.needs_group ? { bgcolor: "warning.light", "&.MuiTableRow-hover:hover": { bgcolor: "warning.light" } } : undefined}>
+                <TableRow key={u.id} hover data-needs-group={u.needs_group} sx={u.needs_group ? { bgcolor: (t) => alpha(t.palette.warning.main, 0.08), "&.MuiTableRow-hover:hover": { bgcolor: (t) => alpha(t.palette.warning.main, 0.14) } } : undefined}>
                   <TableCell>{u.full_name}{u.username && <Typography variant="caption" color="text.secondary" component="div"><Ltr>{u.username}</Ltr></Typography>}</TableCell>
                   <TableCell>{u.personnel_code === null ? "—" : toPersianDigits(String(u.personnel_code))}</TableCell>
                   {mobileColumn && <TableCell>{u.mobile ? <Ltr>{u.mobile}</Ltr> : "—"}</TableCell>}
@@ -153,7 +160,7 @@ export function UsersPage() {
                   <TableCell>
                     <Stack direction="row" gap={0.5} flexWrap="wrap">
                       <StatusChip active={u.is_active} />
-                      <Chip size="small" variant="outlined" color={u.has_login ? "primary" : "default"} label={u.has_login ? "دارای حساب" : "بدون حساب"} />
+                      <Chip size="small" label={u.has_login ? "دارای حساب" : "بدون حساب"} sx={u.has_login ? FADED.blue : FADED.yellow} />
                       {u.has_login && !u.login_enabled && <Chip size="small" color="error" variant="outlined" label="ورود خاموش" />}
                       {u.must_change_password && <Chip size="small" color="warning" variant="outlined" label="تغییر رمز در انتظار" />}
                     </Stack>

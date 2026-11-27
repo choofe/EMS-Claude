@@ -8,7 +8,12 @@ import { isManagement } from "../../lib/access";
 import { toPersianDigits } from "../../lib/dates";
 import { useLoad } from "../../lib/useLoad";
 
-const key = (id: number) => `ems.noGroupBanner.hidden.${id}`;
+const PREFIX = "ems.noGroupBanner.hidden.";
+const key = (id: number) => `${PREFIX}${id}`;
+/** «Closed for this session» ends with the sign-in session: called at every explicit sign-in and sign-out. */
+export function clearNoGroupBannerFlags() {
+  try { Object.keys(sessionStorage).filter((k) => k.startsWith(PREFIX)).forEach((k) => sessionStorage.removeItem(k)); } catch { /* storage unavailable */ }
+}
 const hiddenThisSession = (id: number) => { try { return sessionStorage.getItem(key(id)) === "1"; } catch { return false; } };
 const hideForSession = (id: number) => { try { sessionStorage.setItem(key(id), "1"); } catch { /* storage may be unavailable: the banner just returns on reload */ } };
 
@@ -17,10 +22,10 @@ const hideForSession = (id: number) => { try { sessionStorage.setItem(key(id), "
  * «×» closes it for this browser session; «دیگر نشان نده» stores the current count on the server (it returns in a later
  * session only if the count has grown) and also hides it for the rest of this session.
  */
-export function NoGroupBanner() {
+export function NoGroupBanner({ refreshKey }: { refreshKey?: unknown }) {
   const { user } = useAuth();
   const manage = isManagement(user);
-  const alert = useLoad(() => (manage ? usersApi.noGroupAlert() : Promise.resolve(null)), [manage]);
+  const alert = useLoad(() => (manage ? usersApi.noGroupAlert() : Promise.resolve(null)), [manage, refreshKey]);  // re-read after the users list changed: the server lowers its stored count only when it sees the lower count
   const [closed, setClosed] = useState(false);
   const [failed, setFailed] = useState(false);
   if (!manage || !user || closed || !alert.data?.show || hiddenThisSession(user.id)) return null;
