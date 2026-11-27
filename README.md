@@ -77,6 +77,10 @@ Sub-phase `Pj` (frontend of `Pi`: names in the lists, same-name and in-file-dupl
 
 Batch list, people of a batch and the two-step cancel dialog: `docs/frontend.md` («Personnel import history page»); page `/personnel/import/history` (frontend only).
 
+### Users list (phase-personnel, Pf)
+
+Users list with personnel-code column, group and state tags, «people without a group» first and banner, mobile numbers for MANAGEMENT only: `docs/frontend.md` («Users list») and `docs/personnel.md`. Run `alembic upgrade head` (migration `c5a1f7d3e902`, the `USER` role label becomes «تکنسین کاربر»).
+
 ### Management API (Phase 4a)
 
 Users, groups, equipment, report types and settings: see `docs/management-api.md`. Run `alembic upgrade head` after

@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, ReportColumn, ReportDetail, ReportListPage, ReportListQuery, Group, ImportBatch, ImportCommit, ImportPreview, Page, PersonnelBatchPerson, PersonnelCancelPreview, PersonnelCancelResult, PersonnelCommit, PersonnelCorrection, PersonnelImportBatch, PersonnelPreview, ReportType, Role, Setting, TokenResponse, User } from "./types";
+import type { Candidate, Suggestions, Dashboard, Draft, DraftPayload, EntryConfig, Equipment, Mode, QuickPick, ReportCreateBody, ReportCreated, ReportColumn, ReportDetail, ReportListPage, ReportListQuery, Group, ImportBatch, ImportCommit, ImportPreview, NoGroupAlert, Page, PersonnelBatchPerson, PersonnelCancelPreview, PersonnelCancelResult, PersonnelCommit, PersonnelCorrection, PersonnelImportBatch, PersonnelPreview, ReportType, Role, Setting, TokenResponse, User } from "./types";
 
 export const authApi = {
   login: (username: string, password: string) =>
@@ -12,8 +12,10 @@ export const authApi = {
 export type Paging = { limit: number; offset: number };
 
 export const usersApi = {
-  list: (q: Paging & { q?: string; role_code?: string; is_active?: boolean; group_id?: number }) =>
+  list: (q: Paging & { q?: string; role_code?: string; is_active?: boolean; group_id?: number; has_login?: boolean }) =>
     request<Page<User>>("/users", { query: q }),
+  noGroupAlert: () => request<NoGroupAlert>("/users/no-group-alert"),
+  dismissNoGroupAlert: () => request<NoGroupAlert>("/users/no-group-alert/dismiss", { method: "POST" }),
   create: (body: { username: string; full_name: string; role_code: string; password: string; group_ids: number[]; must_change_password: boolean }) =>
     request<User>("/users", { method: "POST", body }),
   update: (id: number, body: { full_name?: string; first_name?: string; last_name?: string; role_code?: string }) =>

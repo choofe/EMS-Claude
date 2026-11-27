@@ -37,7 +37,7 @@ export function GroupsPage() {
         <TableContainer component={Paper} variant="outlined">
           <Table size="small">
             <TableHead>
-              <TableRow><TableCell>کد</TableCell><TableCell>نام</TableCell><TableCell>توضیحات</TableCell><TableCell align="center">تجهیزات فعال</TableCell><TableCell align="center">اعضا</TableCell><TableCell>وضعیت</TableCell>{manage && <TableCell />}</TableRow>
+              <TableRow><TableCell>کد</TableCell><TableCell>نام</TableCell><TableCell>توضیحات</TableCell><TableCell align="center">تجهیزات فعال</TableCell><TableCell align="center">پرسنل</TableCell><TableCell>وضعیت</TableCell>{manage && <TableCell />}</TableRow>
             </TableHead>
             <TableBody>
               {data.items.map((g) => (

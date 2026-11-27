@@ -32,7 +32,7 @@ export interface User {
   first_name: string | null;
   last_name: string | null;
   personnel_code: number | null;
-  /** only sent to callers who may see mobile numbers (MANAGEMENT, AUDITOR) */
+  /** only sent to MANAGEMENT (AUDITOR never gets a number) */
   mobile: string | null;
   role_code: string | null;
   role_label_fa: string | null;
@@ -41,9 +41,13 @@ export interface User {
   is_active: boolean;
   must_change_password: boolean;
   group_ids: number[];
+  /** active person with no group who is not MANAGEMENT/AUDITOR (one server definition, shared with the banner) */
+  needs_group: boolean;
   created_at: string;
   updated_at: string;
 }
+
+export interface NoGroupAlert { count: number; show: boolean }
 
 export interface Group {
   id: number;

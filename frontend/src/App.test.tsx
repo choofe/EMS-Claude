@@ -35,7 +35,7 @@ describe("session bootstrap and route guards", () => {
   it("restores the session from the refresh cookie and shows the dashboard (MANAGEMENT)", async () => {
     mockFetch(baseRoutes());
     renderApp("/dashboard");
-    expect(await screen.findByText("کاربران فعال")).toBeInTheDocument();
+    expect(await screen.findByText("پرسنل فعال")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "تنظیمات" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "کاربران" })).toBeInTheDocument();
   });
@@ -43,7 +43,7 @@ describe("session bootstrap and route guards", () => {
   it("React StrictMode double-mount performs only ONE refresh (rotation would otherwise log the user out)", async () => {
     const m = mockFetch(baseRoutes());
     renderApp("/dashboard", { strict: true });
-    await screen.findByText("کاربران فعال");
+    await screen.findByText("پرسنل فعال");
     expect(m.count("POST /auth/refresh")).toBe(1);
   });
 
@@ -113,7 +113,7 @@ describe("login", () => {
   it("logout clears the session and returns to the login page", async () => {
     const m = mockFetch({ ...baseRoutes(), "POST /auth/logout": () => json(204) });
     renderApp("/dashboard");
-    await screen.findByText("کاربران فعال");
+    await screen.findByText("پرسنل فعال");
     await userEvent.click(screen.getByRole("button", { name: "حساب کاربری" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "خروج" }));
     expect(await screen.findByRole("heading", { name: "ورود به سامانه" })).toBeInTheDocument();
