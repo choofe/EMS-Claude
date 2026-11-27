@@ -22,7 +22,7 @@ from app.models.user import User
 from app.models.user_group import UserGroup
 from app.services.audit import add_audit
 from app.services.auth_service import revoke_all_user_tokens
-from app.services.user_admin import (MANAGEMENT, _assert_management_remains, _check_groups_assignable, _lock_management,
+from app.services.user_admin import (MANAGEMENT, needs_group_condition, _assert_management_remains, _check_groups_assignable, _lock_management,
                                      _role, _user, _validated_password, can_see_mobile, get_user_view)
 
 PROFILE_ROLES = ("USER", "EXPERT")
@@ -201,12 +201,8 @@ async def set_login_enabled(db: AsyncSession, *, actor: Principal, user_id: int,
 # ---------------------------------------------------------------- «users without a group» alert
 
 async def _no_group_count(db: AsyncSession) -> int:
-    """Active people with no group membership. MANAGEMENT and AUDITOR are organisation-wide, so they are excluded."""
-    org_wide = select(Role.id).where(Role.code.in_((MANAGEMENT, "AUDITOR")))
-    stmt = (select(func.count()).select_from(User)
-            .where(User.is_active.is_(True), User.id.not_in(select(UserGroup.user_id)),
-                   (User.role_id.is_(None)) | (User.role_id.not_in(org_wide))))
-    return (await db.execute(stmt)).scalar_one()
+    """People who need a group (`needs_group_condition`: active, no group, not MANAGEMENT/AUDITOR)."""
+    return (await db.execute(select(func.count()).select_from(User).where(*needs_group_condition()))).scalar_one()
 
 
 async def no_group_alert(db: AsyncSession, *, actor: Principal) -> dict:

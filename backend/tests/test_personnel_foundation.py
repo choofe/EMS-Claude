@@ -165,19 +165,23 @@ async def test_users_list_includes_login_less_people_and_hides_mobile_without_ca
     assert total == 1 and items[0]["username"] == "ali"
 
 
-async def test_users_api_shows_mobile_to_management_and_auditor_only(api, db, world):
+async def test_users_api_shows_mobile_to_management_only(api, db, world):
     p = await f.person(db, "Sara", "Karimi", mobile="09121234567")
     await db.commit()
-    for who in ("boss", "aud"):
-        r = await api.call("GET", f"/users/{p.id}", who=who)
-        assert r.status_code == 200 and r.json()["mobile"] == "09121234567" and r.json()["username"] is None
+    r = await api.call("GET", f"/users/{p.id}", who="boss")
+    assert r.status_code == 200 and r.json()["mobile"] == "09121234567" and r.json()["username"] is None
+    # AUDITOR reads the person and the list but never receives a number
+    r = await api.call("GET", f"/users/{p.id}", who="aud")
+    assert r.status_code == 200 and r.json()["mobile"] is None and r.json()["username"] is None
+    r = await api.call("GET", "/users", who="aud")
+    assert r.status_code == 200 and all(i["mobile"] is None for i in r.json()["items"])
     for who in ("ali", "exp"):
         assert (await api.call("GET", f"/users/{p.id}", who=who)).status_code == 403
         assert (await api.call("GET", "/users", who=who)).status_code == 403
 
 
-def test_mobile_view_capability_is_management_and_auditor_only():
-    for role, expected in (("USER", Scope.NONE), ("EXPERT", Scope.NONE), ("AUDITOR", Scope.ALL),
+def test_mobile_view_capability_is_management_only():
+    for role, expected in (("USER", Scope.NONE), ("EXPERT", Scope.NONE), ("AUDITOR", Scope.NONE),
                            ("MANAGEMENT", Scope.ALL), ("", Scope.NONE)):
         assert scope_for(role, C.PERSONNEL_MOBILE_VIEW) is expected
 

@@ -178,7 +178,8 @@ async def test_mobile_change_is_unique_normalised_and_never_audited(api, world, 
     blob = json.dumps([r.metadata_json for r in await audit(db, "user.mobile_change")])
     assert "0912" not in blob and "912" not in blob and (await audit(db, "user.mobile_change"))[-1].entity_id == b
     assert a != b
-    assert (await api.get(f"/users/{b}", "aud")).json()["mobile"] == "09121111111"     # AUDITOR may read it
+    assert (await api.get(f"/users/{b}", "boss")).json()["mobile"] == "09121111111"
+    assert (await api.get(f"/users/{b}", "aud")).json()["mobile"] is None              # AUDITOR never gets it
 
 
 # ---------------------------------------------------------------- username

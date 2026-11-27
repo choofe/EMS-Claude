@@ -18,12 +18,12 @@ _manage = require_capability(C.USERS_MANAGE)
 @router.get("", response_model=Page[UserOut])
 async def list_users(
     q: str | None = Query(None, max_length=64), role_code: str | None = Query(None, max_length=32),
-    is_active: bool | None = None, group_id: int | None = None,
+    is_active: bool | None = None, group_id: int | None = None, has_login: bool | None = None,
     limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0, le=MAX_OFFSET),
     viewer: Principal = _view, db: AsyncSession = Depends(get_db),
 ) -> dict:
     items, total = await user_admin.list_users(db, q=q, role_code=role_code, is_active=is_active,
-                                               group_id=group_id, limit=limit, offset=offset,
+                                               group_id=group_id, has_login=has_login, limit=limit, offset=offset,
                                                include_mobile=user_admin.can_see_mobile(viewer))
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
