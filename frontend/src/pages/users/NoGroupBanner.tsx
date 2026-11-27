@@ -28,6 +28,7 @@ export function NoGroupBanner({ refreshKey }: { refreshKey?: unknown }) {
   const alert = useLoad(() => (manage ? usersApi.noGroupAlert() : Promise.resolve(null)), [manage, refreshKey]);  // re-read after the users list changed: the server lowers its stored count only when it sees the lower count
   const [closed, setClosed] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [pending, setPending] = useState(false);
   if (!manage || !user || closed || !alert.data?.show || hiddenThisSession(user.id)) return null;
   const close = () => { hideForSession(user.id); setClosed(true); };
   return (
@@ -35,9 +36,12 @@ export function NoGroupBanner({ refreshKey }: { refreshKey?: unknown }) {
       action={<IconButton size="small" aria-label="بستن" onClick={close}><CloseIcon fontSize="small" /></IconButton>}>
       {toPersianDigits(String(alert.data.count))} نفر از پرسنل فعال هنوز در هیچ گروهی عضو نیستند.{" "}
       <Button component={RouterLink} to="/users" size="small">مشاهده در لیست کاربران</Button>
-      <Button size="small" color="inherit" disabled={failed}
-        onClick={async () => { try { await usersApi.dismissNoGroupAlert(); close(); } catch { setFailed(true); } }}>
-        {failed ? "ثبت نشد" : "دیگر نشان نده"}
+      <Button size="small" color="inherit" disabled={pending}
+        onClick={async () => {
+          setPending(true); setFailed(false);
+          try { await usersApi.dismissNoGroupAlert(); close(); } catch { setFailed(true); } finally { setPending(false); }
+        }}>
+        {failed ? "ثبت نشد؛ دوباره تلاش کنید" : "دیگر نشان نده"}
       </Button>
     </Alert>
   );

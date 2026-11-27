@@ -141,16 +141,22 @@ describe("no-group banner (Pf)", () => {
     } finally { restore(); }
   });
 
-  it("a failed «دیگر نشان نده» keeps the banner visible and says it was not saved", async () => {
+  it("a failed «دیگر نشان نده» keeps the banner, says it was not saved, and a later attempt can succeed", async () => {
     const restore = screenSize(false);
     try {
-      const m = mockFetch(base([user()], { ...due, "POST /users/no-group-alert/dismiss": () => json(500, { detail: "x" }) }));
+      let fail = true;
+      const m = mockFetch(base([user()], { ...due, "POST /users/no-group-alert/dismiss": () => (fail ? json(500, { detail: "x" }) : json(200, { count: 3, show: false })) }));
       renderApp("/users");
       await userEvent.click(await screen.findByRole("button", { name: "دیگر نشان نده" }));
-      expect(await screen.findByRole("button", { name: "ثبت نشد" })).toBeDisabled();
+      const retry = await screen.findByRole("button", { name: "ثبت نشد؛ دوباره تلاش کنید" });
+      expect(retry).toBeEnabled();
       expect(screen.getByRole("status")).toBeInTheDocument();
-      expect(m.count("POST /users/no-group-alert/dismiss")).toBe(1);
       expect(sessionStorage.getItem("ems.noGroupBanner.hidden.1")).toBeNull();
+      fail = false;
+      await userEvent.click(retry);
+      await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+      expect(m.count("POST /users/no-group-alert/dismiss")).toBe(2);
+      expect(sessionStorage.getItem("ems.noGroupBanner.hidden.1")).toBe("1");
     } finally { restore(); }
   });
 
