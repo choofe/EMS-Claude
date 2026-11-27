@@ -41,6 +41,7 @@ class UserOut(BaseModel):
     is_active: bool
     must_change_password: bool
     group_ids: list[int]
+    needs_group: bool  # active person with no group who is not organisation-wide (MANAGEMENT/AUDITOR)
     created_at: datetime
     updated_at: datetime
 

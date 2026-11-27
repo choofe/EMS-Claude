@@ -15,6 +15,7 @@ import { formatJalaliDateTime } from "../../lib/dates";
 import { jalaliToDate, parseJalaliDateText } from "../../lib/jalali";
 import { formatMinutes } from "../../lib/labor";
 import { useLoad } from "../../lib/useLoad";
+import { NoGroupBanner } from "../users/NoGroupBanner";
 
 /** At most two lines of the summary; the full text is on the detail page. */
 const Clamp = ({ children }: { children: ReactNode }) => (
@@ -145,6 +146,7 @@ export function ReportsListPage() {
   return (
     <>
       <PageHeader title="گزارش‌ها" actions={canReport(user) && <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate("/reports/new")}>ثبت گزارش</Button>} />
+      <NoGroupBanner />
       {equipmentId && (
         <Chip sx={{ mb: 1.5 }} color="primary" label={`تاریخچه تجهیز ${equipmentLabel || equipmentId}`} onDelete={() => setParams({}, { replace: true })} />
       )}

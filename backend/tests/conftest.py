@@ -59,7 +59,7 @@ async def db():
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with maker() as session:
-        for code, label in (("USER", "کاربر"), ("EXPERT", "کارشناس"), ("MANAGEMENT", "مدیریت"), ("AUDITOR", "بازرس ارشد")):
+        for code, label in (("USER", "تکنسین کاربر"), ("EXPERT", "کارشناس"), ("MANAGEMENT", "مدیریت"), ("AUDITOR", "بازرس ارشد")):
             session.add(models.Role(code=code, label_fa=label))
         await session.commit()
         session.session_maker = maker  # lets API tests open extra sessions on the same DB

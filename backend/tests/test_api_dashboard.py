@@ -21,4 +21,4 @@ async def test_roles_lookup_returns_db_labels(api, world):
     r = await api.get("/roles", "boss")
     assert r.status_code == 200
     assert {x["code"]: x["label_fa"] for x in r.json()} == {
-        "USER": "کاربر", "EXPERT": "کارشناس", "MANAGEMENT": "مدیریت", "AUDITOR": "بازرس ارشد"}
+        "USER": "تکنسین کاربر", "EXPERT": "کارشناس", "MANAGEMENT": "مدیریت", "AUDITOR": "بازرس ارشد"}

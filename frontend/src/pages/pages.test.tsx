@@ -12,7 +12,7 @@ const ts = "2026-03-20T20:30:00";
 const group = (o: Partial<Group> = {}): Group => ({ id: 1, code: "ELV", name: "آسانسور", description: null, is_active: true, equipment_count: 2, member_count: 3, created_at: ts, updated_at: ts, ...o });
 const equipment = (o: Partial<Equipment> = {}): Equipment => ({ id: 10, equipment_code: "ELV-001", group_id: 1, group_code: "ELV", group_name: "آسانسور", description: null, is_active: true, created_at: ts, updated_at: ts, ...o });
 const rtype = (o: Partial<ReportType> = {}): ReportType => ({ id: 5, code: "MINOR_FAILURE", name_fa: "خرابی جزئی", is_failure: true, labor_mode: "REQUIRED", equipment_mode: "REQUIRED", help_fa: null, is_active: true, created_at: ts, updated_at: ts, ...o });
-const user = (o: Partial<User> = {}): User => ({ id: 2, username: "ali", full_name: "علی رضایی", first_name: null, last_name: null, personnel_code: null, mobile: null, has_login: true, login_enabled: true, role_code: "USER", role_label_fa: "کاربر", is_active: true, must_change_password: false, group_ids: [1], created_at: ts, updated_at: ts, ...o });
+const user = (o: Partial<User> = {}): User => ({ id: 2, username: "ali", full_name: "علی رضایی", first_name: null, last_name: null, personnel_code: null, mobile: null, has_login: true, login_enabled: true, role_code: "USER", role_label_fa: "کاربر", is_active: true, must_change_password: false, group_ids: [1], needs_group: false, created_at: ts, updated_at: ts, ...o });
 const setting = (o: Partial<Setting> = {}): Setting => ({ key: "REPORT_EDIT_WINDOW_HOURS", label_fa: "مهلت ویرایش گزارش", description: "d", value: 24, default: 24, minimum: 0, maximum: 720, special_values: [-1], is_default: true, updated_at: null, updated_by: null, ...o });
 const roles = [{ code: "USER", label_fa: "کاربر" }, { code: "MANAGEMENT", label_fa: "مدیریت" }];
 
@@ -210,7 +210,7 @@ describe("users page", () => {
       "PATCH /users/7": () => json(200, user({ id: 7, username: null, full_name: "سارا کریمی‌زاده", role_code: null, role_label_fa: null, has_login: false, login_enabled: false })),
     });
     renderApp("/users");
-    expect(await screen.findByText("بدون پروفایل")).toBeInTheDocument();
+    expect(await screen.findByText("بدون حساب")).toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "عملیات سارا کریمی" }));
     expect(screen.queryByRole("menuitem", { name: "تعیین رمز موقت" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "اجبار تغییر رمز" })).not.toBeInTheDocument();

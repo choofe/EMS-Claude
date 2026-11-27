@@ -28,7 +28,7 @@ export function DashboardPage() {
       {data && (
         <>
           <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, mb: 3 }}>
-            <Stat label="کاربران فعال" value={data.active_users} hint={`غیرفعال: ${fa(data.inactive_users)}`} />
+            <Stat label="پرسنل فعال" value={data.active_users} hint={`غیرفعال: ${fa(data.inactive_users)}`} />
             <Stat label="تجهیزات فعال" value={data.active_equipment} hint={`غیرفعال: ${fa(data.inactive_equipment)}`} />
             <Stat label="گروه‌های فعال" value={data.active_groups} />
           </Box>

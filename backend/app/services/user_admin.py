@@ -6,12 +6,12 @@ live in exactly one place). Every function commits and writes its own audit row;
 Guards: a MANAGEMENT user cannot deactivate or change the role of THEMSELVES; and whatever happens
 concurrently, at least one active MANAGEMENT must remain (rows are locked, the count re-checked before commit).
 """
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
-from app.core.normalize import canonical_username, clean_text, compose_full_name
+from app.core.normalize import canonical_personnel_code, canonical_username, clean_text, compose_full_name
 from app.core.password_policy import validate_password
 from app.core.permissions import Capability, Principal
 from app.core.security import ahash_password, utcnow
@@ -26,6 +26,7 @@ from app.services.queries import LIKE_ESCAPE, contains_pattern
 from app.services.runtime_settings import get_auth_policy
 
 MANAGEMENT = "MANAGEMENT"
+ORG_WIDE_ROLES = (MANAGEMENT, "AUDITOR")  # organisation-wide scope: never «without a group»
 
 
 # ---------------------------------------------------------------- lookups / views
@@ -51,6 +52,15 @@ def can_see_mobile(actor: Principal) -> bool:
     return actor.can(Capability.PERSONNEL_MOBILE_VIEW)
 
 
+def needs_group_condition():
+    """SQL form of «needs a group»: an ACTIVE person with no group membership who is not organisation-wide.
+    The single definition behind the banner count, the list order and the `needs_group` flag (the flag is its
+    Python twin in `_view`; a test keeps them equal)."""
+    org_wide = select(Role.id).where(Role.code.in_(ORG_WIDE_ROLES))
+    return (User.is_active.is_(True), User.id.not_in(select(UserGroup.user_id)),
+            (User.role_id.is_(None)) | (User.role_id.not_in(org_wide)))
+
+
 def _view(user: User, role: Role | None, group_ids: list[int], include_mobile: bool) -> dict:
     """A person without a login profile has username/role = None and has_login False. The mobile number is
     returned only when the caller holds `personnel.mobile.view` (include_mobile), otherwise it is None."""
@@ -61,7 +71,9 @@ def _view(user: User, role: Role | None, group_ids: list[int], include_mobile: b
         "role_code": role.code if role else None, "role_label_fa": role.label_fa if role else None,
         "has_login": user.username is not None, "login_enabled": user.login_enabled,
         "is_active": user.is_active, "must_change_password": user.must_change_password,
-        "group_ids": sorted(group_ids), "created_at": user.created_at, "updated_at": user.updated_at,
+        "group_ids": sorted(group_ids),
+        "needs_group": user.is_active and not group_ids and (role is None or role.code not in ORG_WIDE_ROLES),
+        "created_at": user.created_at, "updated_at": user.updated_at,
     }
 
 
@@ -84,12 +96,19 @@ async def get_user_view(db: AsyncSession, user_id: int, include_mobile: bool = F
 
 async def list_users(
     db: AsyncSession, *, q: str | None, role_code: str | None, is_active: bool | None,
-    group_id: int | None, limit: int, offset: int, include_mobile: bool = False,
+    group_id: int | None, limit: int, offset: int, include_mobile: bool = False, has_login: bool | None = None,
 ) -> tuple[list[dict], int]:
     conds = []
     if q and q.strip():
         pat = contains_pattern(q)
-        conds.append(or_(User.username.ilike(pat, escape=LIKE_ESCAPE), User.full_name.ilike(pat, escape=LIKE_ESCAPE)))
+        text_match = or_(User.username.ilike(pat, escape=LIKE_ESCAPE), User.full_name.ilike(pat, escape=LIKE_ESCAPE))
+        try:  # a typed personnel code (Persian digits accepted) matches exactly, besides the text match
+            text_match = or_(text_match, User.personnel_code == canonical_personnel_code(q))
+        except DomainError:
+            pass
+        conds.append(text_match)
+    if has_login is not None:
+        conds.append(User.username.is_not(None) if has_login else User.username.is_(None))
     if role_code:
         conds.append(Role.code == role_code)
     if is_active is not None:
@@ -98,7 +117,8 @@ async def list_users(
         conds.append(User.id.in_(select(UserGroup.user_id).where(UserGroup.group_id == group_id)))
     base = select(User, Role).outerjoin(Role, Role.id == User.role_id).where(*conds)  # people without a profile too
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    rows = (await db.execute(base.order_by(User.username, User.id).limit(limit).offset(offset))).all()
+    first = case((and_(*needs_group_condition()), 0), else_=1)  # people without a group first, on every page
+    rows = (await db.execute(base.order_by(first, User.full_name, User.id).limit(limit).offset(offset))).all()
     return await _views(db, [(u, r) for u, r in rows], include_mobile), total
 
 

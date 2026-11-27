@@ -35,7 +35,7 @@ describe("session bootstrap and route guards", () => {
   it("restores the session from the refresh cookie and shows the dashboard (MANAGEMENT)", async () => {
     mockFetch(baseRoutes());
     renderApp("/dashboard");
-    expect(await screen.findByText("کاربران فعال")).toBeInTheDocument();
+    expect(await screen.findByText("پرسنل فعال")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "تنظیمات" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "کاربران" })).toBeInTheDocument();
   });
@@ -43,7 +43,7 @@ describe("session bootstrap and route guards", () => {
   it("React StrictMode double-mount performs only ONE refresh (rotation would otherwise log the user out)", async () => {
     const m = mockFetch(baseRoutes());
     renderApp("/dashboard", { strict: true });
-    await screen.findByText("کاربران فعال");
+    await screen.findByText("پرسنل فعال");
     expect(m.count("POST /auth/refresh")).toBe(1);
   });
 
@@ -98,6 +98,22 @@ describe("login", () => {
     expect(await screen.findByRole("heading", { name: "گزارش‌ها" })).toBeInTheDocument();
   });
 
+  it("a successful sign-in clears the «banner closed for this session» flag", async () => {
+    mockFetch({
+      "POST /auth/refresh": () => json(401, { detail: "invalid_refresh_token" }),
+      "POST /auth/login": () => json(200, tokenBody(makeUser())),
+      "GET /reports": () => json(200, { items: [], next_cursor: null, other_group_reports_may_exist: false }),
+      "GET /reports/columns": () => json(200, []),
+    });
+    sessionStorage.setItem("ems.noGroupBanner.hidden.1", "1");
+    renderApp("/");
+    await userEvent.type(await screen.findByLabelText("نام کاربری"), "boss");
+    await userEvent.type(screen.getByLabelText("رمز عبور"), "right-pass");
+    await userEvent.click(screen.getByRole("button", { name: "ورود" }));
+    expect(await screen.findByRole("heading", { name: "گزارش‌ها" })).toBeInTheDocument();
+    expect(sessionStorage.getItem("ems.noGroupBanner.hidden.1")).toBeNull();
+  });
+
   it("explains lockout using Retry-After", async () => {
     mockFetch({
       "POST /auth/refresh": () => json(401, { detail: "x" }),
@@ -112,11 +128,13 @@ describe("login", () => {
 
   it("logout clears the session and returns to the login page", async () => {
     const m = mockFetch({ ...baseRoutes(), "POST /auth/logout": () => json(204) });
+    sessionStorage.setItem("ems.noGroupBanner.hidden.1", "1");  // «closed for this session» must not survive a sign-out
     renderApp("/dashboard");
-    await screen.findByText("کاربران فعال");
+    await screen.findByText("پرسنل فعال");
     await userEvent.click(screen.getByRole("button", { name: "حساب کاربری" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "خروج" }));
     expect(await screen.findByRole("heading", { name: "ورود به سامانه" })).toBeInTheDocument();
+    expect(sessionStorage.getItem("ems.noGroupBanner.hidden.1")).toBeNull();
     expect(m.count("POST /auth/logout")).toBe(1);
     expect(m.calls.find((c) => c.path === "/auth/logout")!.headers.get("X-Requested-With")).toBe("ems-web");
   });

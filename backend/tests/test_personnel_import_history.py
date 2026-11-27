@@ -61,8 +61,9 @@ async def test_batch_people_show_current_data_and_mobile_only_with_the_capabilit
     bid, people = await batch_of(api, db)
     people[0].first_name, people[0].last_name, people[0].full_name = "Renamed", "Person", "Renamed Person"
     await db.commit()
-    body = (await api.get(f"{BASE}/batches/{bid}/people", "aud")).json()
-    assert body["total"] == 5
+    aud_body = (await api.get(f"{BASE}/batches/{bid}/people", "aud")).json()
+    assert aud_body["total"] == 5 and all(i["mobile"] is None for i in aud_body["items"])  # AUDITOR: never a number
+    body = (await api.get(f"{BASE}/batches/{bid}/people", "boss")).json()
     first = body["items"][0]
     assert first["full_name"] == "Renamed Person" and first["personnel_code"] == 100 and first["has_profile"] is False
     assert first["mobile"] == "09120000100" and body["items"][1]["group_codes"] == ["ELV"]

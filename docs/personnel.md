@@ -36,7 +36,7 @@ are listed with `username = null`, `role_code = null`, `has_login = false`. New 
 `personnel_code`, `login_enabled`, `has_login`, `mobile`.
 
 ## Mobile number visibility
-Capability `personnel.mobile.view` (MANAGEMENT and AUDITOR only; pinned in `tests/test_permissions.py`). Without it the
+Capability `personnel.mobile.view` (MANAGEMENT ONLY since sub-phase `Pf`, decided 2026-11-23; AUDITOR gets no number from any endpoint; pinned in `tests/test_permissions.py`). Without it the
 view returns `mobile: null`. The number is never put in audit metadata or exports. Granting the capability to other
 users or groups is a future item.
 
@@ -221,3 +221,16 @@ Backend only, no migration. The frontend part is `Pj`.
   (rows can be inserted and deleted); columns after `F` hidden; data validations on `A2:E201`; two header notes (the first
   names the 200-row limit); the mobile column keeps its display format. A backend test reads a copy of it (with one sample row) through the
   real parser. Opening it in real Excel is NOT TESTED.
+
+## Users list — backend part (sub-phase Pf)
+
+- `GET /users` orders people who need a group FIRST on every page (server-side; then `full_name`, `id`), so paging
+  cannot scatter them. New filter `has_login` (`true` = has a username, `false` = person without an account). `q` also
+  matches a personnel code EXACTLY (Persian digits accepted; no prefix match on codes).
+- `needs_group` on every user view: an ACTIVE person with no group who is not MANAGEMENT or AUDITOR. One definition
+  (`user_admin.needs_group_condition`, SQL) serves the banner count, the list order and the flag (its Python twin in
+  `_view`; `tests/test_personnel_pf.py` keeps them equal).
+- Migration `c5a1f7d3e902` (data only): `roles.label_fa` of `USER` becomes «تکنسین کاربر». The role code and every
+  permission are unchanged; no role is added.
+- AUDITOR reads the list and the people but never receives a mobile number (users views, import-history people list);
+  `GET /users/no-group-alert` stays MANAGEMENT-only (`403` for the others).

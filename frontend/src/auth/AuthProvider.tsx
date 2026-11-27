@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authApi, reportsApi } from "../api/resources";
 import { clearAllFor, purgeOtherUsers } from "../lib/localDraft";
+import { clearNoGroupBannerFlags } from "../pages/users/NoGroupBanner";
 import { refreshSession, setAccessToken, setSessionHandlers } from "../api/http";
 import type { AuthUser, TokenResponse } from "../api/types";
 
@@ -50,12 +51,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setSessionHandlers({});
   }, [accept]);
 
-  const login = useCallback(async (username: string, password: string) => accept(await authApi.login(username, password)), [accept]);
+  const login = useCallback(async (username: string, password: string) => { const res = await authApi.login(username, password); clearNoGroupBannerFlags(); return accept(res); }, [accept]);
 
   const logout = useCallback(async () => {
     // Explicit sign-out discards the author's report draft on the server and on this device (Supervisor's rule, 2026-10-24).
     // Best effort with ONE deadline for the whole clean-up (listing AND deleting): when it passes, in-flight requests are
     // cancelled and sign-out goes on. It must never keep someone from signing out. (A mere session EXPIRY keeps the local copy.)
+    clearNoGroupBannerFlags();
     const uid = userRef.current?.id;
     const deadline = new AbortController();
     const timer = setTimeout(() => deadline.abort(), DRAFT_CLEANUP_MS);
