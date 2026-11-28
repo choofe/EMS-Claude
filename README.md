@@ -77,6 +77,10 @@ Sub-phase `Pj` (frontend of `Pi`: names in the lists, same-name and in-file-dupl
 
 Batch list, people of a batch and the two-step cancel dialog: `docs/frontend.md` («Personnel import history page»); page `/personnel/import/history` (frontend only).
 
+### Creating people and accounts (phase-personnel, Pk)
+
+A new-person form with an optional login account, an account for an existing person without one, and one password chooser (random, mobile, derived, manual) shared with the temporary-password dialog: `docs/frontend.md` («Creating people and accounts»). Frontend only; no migration.
+
 ### Users list (phase-personnel, Pf)
 
 Users list with personnel-code column, group and state tags, «people without a group» first and banner, mobile numbers for MANAGEMENT only: `docs/frontend.md` («Users list») and `docs/personnel.md`. Run `alembic upgrade head` (migration `c5a1f7d3e902`, the `USER` role label becomes «تکنسین کاربر»).

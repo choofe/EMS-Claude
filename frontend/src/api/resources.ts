@@ -11,6 +11,11 @@ export const authApi = {
 
 export type Paging = { limit: number; offset: number };
 
+export interface ProfileBody { username: string; password: string; role_code: string; must_change_password: boolean }
+export interface PersonCreateBody {
+  first_name: string; last_name: string; personnel_code: string; mobile: string; group_ids: number[]; profile?: ProfileBody;
+}
+
 export const usersApi = {
   list: (q: Paging & { q?: string; role_code?: string; is_active?: boolean; group_id?: number; has_login?: boolean }) =>
     request<Page<User>>("/users", { query: q }),
@@ -18,6 +23,8 @@ export const usersApi = {
   dismissNoGroupAlert: () => request<NoGroupAlert>("/users/no-group-alert/dismiss", { method: "POST" }),
   create: (body: { username: string; full_name: string; role_code: string; password: string; group_ids: number[]; must_change_password: boolean }) =>
     request<User>("/users", { method: "POST", body }),
+  createPerson: (body: PersonCreateBody) => request<User>("/users/people", { method: "POST", body }),
+  createProfile: (id: number, body: ProfileBody) => request<User>(`/users/${id}/profile`, { method: "POST", body }),
   update: (id: number, body: { full_name?: string; first_name?: string; last_name?: string; role_code?: string }) =>
     request<User>(`/users/${id}`, { method: "PATCH", body }),
   setActive: (id: number, active: boolean) =>
