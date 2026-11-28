@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import {
-  Button, Checkbox, Chip, FormControl, FormControlLabel, IconButton, InputLabel, ListItemText, Menu, MenuItem, OutlinedInput, Paper, Select, Stack, Switch, Table, TableBody,
+  Button, Chip, FormControl, FormControlLabel, IconButton, InputLabel, Menu, MenuItem, Paper, Select, Stack, Switch, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, TextField, Typography, useMediaQuery, useTheme, alpha,
 } from "@mui/material";
 import MoreIcon from "@mui/icons-material/MoreVert";
@@ -11,27 +11,18 @@ import { useAuth } from "../auth/AuthProvider";
 import { ConfirmDialog, Empty, ErrorAlert, FormDialog, Loading, Ltr, PageHeader, Pager, StatusChip } from "../components/common";
 import { HelpHint } from "../components/HelpHint";
 import { toPersianDigits } from "../lib/dates";
+import { PasswordChooser } from "../components/PasswordChooser";
+import { PRIVILEGED_ROLES } from "../lib/passwordMethods";
 import { NoGroupBanner } from "./users/NoGroupBanner";
+import { GroupPicker } from "./users/GroupPicker";
+import { NewPersonDialog } from "./users/NewPersonDialog";
+import { CreateProfileDialog } from "./users/CreateProfileDialog";
 import { isManagement } from "../lib/access";
 import { useLoad } from "../lib/useLoad";
 
 type Dlg =
   | null | { kind: "create" } | { kind: "edit"; user: User } | { kind: "groups"; user: User } | { kind: "reset"; user: User }
-  | { kind: "toggle"; user: User } | { kind: "force"; user: User } | { kind: "forceAll" };
-
-function GroupPicker({ groups, value, onChange }: { groups: Group[]; value: number[]; onChange: (v: number[]) => void }) {
-  return (
-    <FormControl fullWidth>
-      <InputLabel id="grp-pick">گروه‌ها</InputLabel>
-      <Select labelId="grp-pick" multiple value={value} onChange={(e) => onChange(e.target.value as number[])} input={<OutlinedInput label="گروه‌ها" />}
-        renderValue={(sel) => (sel as number[]).map((id) => groups.find((g) => g.id === id)?.code ?? id).join("، ")}>
-        {groups.map((g) => (
-          <MenuItem key={g.id} value={g.id}><Checkbox checked={value.includes(g.id)} /><ListItemText primary={`${g.name} (${g.code})`} /></MenuItem>
-        ))}
-      </Select>
-    </FormControl>
-  );
-}
+  | { kind: "toggle"; user: User } | { kind: "force"; user: User } | { kind: "forceAll" } | { kind: "newPerson" } | { kind: "profile"; user: User };
 
 /** Faded tag colours (soft background, dark text): blue = has an account, yellow = no account, orange = needs a group. */
 const FADED = {
@@ -112,7 +103,8 @@ export function UsersPage() {
       <PageHeader title="کاربران" actions={manage && (
         <>
           <Button color="warning" variant="outlined" onClick={() => open({ kind: "forceAll" })}>اجبار تغییر رمز همه</Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => open({ kind: "create" })}>کاربر جدید</Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => open({ kind: "newPerson" })}>فرد جدید</Button>
+          <Button variant="outlined" onClick={() => open({ kind: "create" })}>کاربر جدید</Button>
         </>
       )} />
       <Stack direction={{ xs: "column", sm: "row" }} gap={1.5} sx={{ mb: 2 }}>
@@ -178,6 +170,7 @@ export function UsersPage() {
         {menu && [
           <MenuItem key="edit" onClick={() => open({ kind: "edit", user: menu.user }, menu.user)}>{menu.user.has_login ? "ویرایش نام و نقش" : "ویرایش نام"}</MenuItem>,
           <MenuItem key="groups" onClick={() => open({ kind: "groups", user: menu.user }, menu.user)}>گروه‌ها</MenuItem>,
+          ...(!menu.user.has_login && menu.user.is_active ? [<MenuItem key="profile" onClick={() => open({ kind: "profile", user: menu.user }, menu.user)}>ساخت حساب ورود</MenuItem>] : []),
           ...(menu.user.has_login && menu.user.id !== me?.id ? [<MenuItem key="reset" onClick={() => open({ kind: "reset", user: menu.user }, menu.user)}>تعیین رمز موقت</MenuItem>] : []),
           ...(menu.user.has_login ? [<MenuItem key="force" onClick={() => open({ kind: "force", user: menu.user }, menu.user)}>اجبار تغییر رمز</MenuItem>] : []),
           ...(menu.user.id !== me?.id ? [<MenuItem key="toggle" onClick={() => open({ kind: "toggle", user: menu.user }, menu.user)}>{menu.user.is_active ? "غیرفعال‌سازی" : "فعال‌سازی"}</MenuItem>] : []),
@@ -221,12 +214,17 @@ export function UsersPage() {
         <GroupPicker groups={groupList} value={form.group_ids} onChange={(v) => setForm({ ...form, group_ids: v })} />
       </FormDialog>
 
-      <FormDialog open={dlg?.kind === "reset"} title={`رمز موقت برای ${form.username}`} onClose={close}
+      <FormDialog open={dlg?.kind === "reset"} title={`رمز موقت برای ${form.username}`} submitDisabled={!form.password} onClose={close}
         onSubmit={async () => { if (dlg?.kind === "reset") { await usersApi.resetPassword(dlg.user.id, form.password, form.must_change); list.reload(); } }}>
-        {passwordField}
-        {mustChange}
+        {dlg?.kind === "reset" && (
+          <PasswordChooser mobile={dlg.user.mobile} personnelCode={dlg.user.personnel_code} privileged={PRIVILEGED_ROLES.includes(dlg.user.role_code ?? "")}
+            mustChange={form.must_change} onMustChange={(v) => setForm((f) => ({ ...f, must_change: v }))} onPassword={(p) => setForm((f) => ({ ...f, password: p }))} />
+        )}
         <Typography variant="caption" color="text.secondary">همهٔ نشست‌های فعال این کاربر بسته می‌شود. رمز را به‌صورت امن به کاربر اطلاع دهید.</Typography>
       </FormDialog>
+
+      <NewPersonDialog open={dlg?.kind === "newPerson"} groups={groupList} roles={roleList} onClose={close} onDone={() => { list.reload(); }} />
+      <CreateProfileDialog person={dlg?.kind === "profile" ? dlg.user : null} roles={roleList} onClose={close} onDone={() => { list.reload(); }} />
 
       <ConfirmDialog open={dlg?.kind === "toggle"} onClose={close} danger={dlg?.kind === "toggle" && dlg.user.is_active}
         title={dlg?.kind === "toggle" && dlg.user.is_active ? "غیرفعال‌سازی کاربر" : "فعال‌سازی کاربر"}

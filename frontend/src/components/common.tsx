@@ -55,13 +55,15 @@ interface FormDialogProps {
   title: string;
   submitLabel?: string;
   danger?: boolean;
+  /** keeps the save button disabled (for example until a required choice is made) */
+  submitDisabled?: boolean;
   onClose: () => void;
   onSubmit: () => Promise<unknown>;
   children?: ReactNode;
 }
 
 /** Dialog with a submit handler that shows the server's (Persian-mapped) error and keeps the dialog open on failure. */
-export function FormDialog({ open, title, submitLabel = "ذخیره", danger, onClose, onSubmit, children }: FormDialogProps) {
+export function FormDialog({ open, title, submitLabel = "ذخیره", danger, submitDisabled, onClose, onSubmit, children }: FormDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => { if (open) setError(null); }, [open]);
@@ -92,7 +94,7 @@ export function FormDialog({ open, title, submitLabel = "ذخیره", danger, on
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={onClose} disabled={busy}>انصراف</Button>
-          <Button type="submit" variant="contained" color={danger ? "error" : "primary"} disabled={busy}>{submitLabel}</Button>
+          <Button type="submit" variant="contained" color={danger ? "error" : "primary"} disabled={busy || submitDisabled}>{submitLabel}</Button>
         </DialogActions>
       </form>
     </Dialog>
